@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, AfterViewInit, ViewChild, OnDestroy, NgZone } from '@angular/core';
+import { Component, Input, OnInit, AfterViewInit, ViewChild, OnDestroy, NgZone, Optional, Inject, InjectionToken } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
@@ -6,6 +6,20 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
 import { LogHeadersService, LogHeader, LogData } from '../../services/log-headers.service';
+
+/** Interface for real backend API query parameters */
+export interface ILogDataQueryParameter {
+  wellUid: string;
+  logUid: string;
+  wellboreUid: string;
+  logName: string;
+  indexType: string;
+  indexCurve: string;
+  startIndex: number;
+  endIndex: number;
+  isGrowing: boolean;
+  mnemonicList: string;
+}
 import { PrintPropertiesDialogComponent, PrintPropertiesData, PrintPropertiesResult } from '../print-properties-dialog/print-properties-dialog.component';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
@@ -84,6 +98,9 @@ export interface TrackInfo {
  * The component uses a timing mechanism to ensure all async data is loaded
  * before creating the widget scene to prevent empty curves.
  */
+/** Injection token for WellService */
+export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
+
 @Component({
   selector: 'app-generate-canvas-tracks',
   standalone: true,
@@ -130,7 +147,7 @@ export interface TrackInfo {
       animation: pulse 1s infinite;
     }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+    .canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; height: 400px; }
     .canvas-wrapper app-basewidget { width: 100%; height: 100%; }
   `]
 })
@@ -147,7 +164,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
   /** Reference to the base widget component that hosts the canvas */
   @ViewChild('canvasWidget', { static: true })
   private widgetComponent!: BaseWidgetComponent;
-
+  
+  private readonly MAX_DATA_POINTS = 10000; // Add this property
   /** GeoToolkit WellLogWidget instance for rendering tracks and curves */
   private wellLogWidget!: WellLogWidget;
   /** Array of subscriptions to manage cleanup */
@@ -199,15 +217,28 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
   /** Tracks in-flight chunk ranges to prevent duplicate requests */
   private inFlightRanges: Set<string> = new Set();
 
+  // --- Live polling state ---
+  /** Handle for live data polling interval */
+  private livePollHandle: any = null;
+  /** Live polling interval in milliseconds */
+  private readonly LIVE_POLL_INTERVAL = 5000;
+  /** Flag to enable/disable live data polling */
+  private isLivePolling = false;
+  /** Real backend wellbore objects with dynamic endIndex */
+  private wellboreObjects: any[] = [];
+
   /**
    * Creates an instance of GenerateCanvasTracksComponent.
    * @param logHeadersService - Service for fetching log headers and data
    */
   constructor(
     private logHeadersService: LogHeadersService,
+    @Optional() @Inject(WELL_SERVICE_TOKEN) private wellService: any,
     private dialog: MatDialog,
     private ngZone: NgZone
-  ) {}
+  ) {
+    // wellService is now optionally injected
+  }
 
   /**
    * Angular lifecycle hook called after component initialization.
@@ -238,6 +269,7 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
     }
+    this.stopLivePolling();
   }
 
   /**
@@ -254,14 +286,51 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
 
     this.isLoading = true;
     
-    this.logHeadersService.getLogHeaders(this.well, this.wellbore).subscribe({
-      next: (headers) => {
-        console.log('📊 Log Headers loaded:', headers);
+    // Use your real backend API - returns wellboreObjects with dynamic endIndex
+    if (!this.wellService) {
+      console.error('❌ WellService is not provided. Please inject it in your parent component.');
+      this.isLoading = false;
+      return;
+    }
+    
+    this.wellService.getLogHeaders(this.well, this.wellbore).subscribe({
+      next: (wellboreObjects: any[]) => {
+        console.log('📊 Wellbore Objects loaded:', wellboreObjects);
+        
+        // Convert wellboreObjects to LogHeader format for compatibility
+        const headers = wellboreObjects.map(obj => ({
+          '@uidWell': obj.wellUid,
+          '@uidWellbore': obj.wellboreUid,
+          uid: obj.logUid,
+          name: obj.logName,
+          nameWell: obj.wellName || obj.wellUid, // Add missing property
+          nameWellbore: obj.wellboreName || obj.wellboreUid, // Add missing property
+          creationDate: obj.creationDate || new Date().toISOString(), // Add missing property
+          dataDelimiter: obj.dataDelimiter || ',', // Add missing property
+          direction: obj.direction || 'increasing', // Add missing property
+          objectGrowing: obj.isGrowing ? 'true' : 'false', // Add missing property (convert boolean to string)
+          indexType: obj.indexType,
+          indexCurve: obj.indexCurve,
+          endIndex: {
+            '@uom': obj.indexType === 'depth' ? 'm' : 's',
+            '#text': obj.endIndex.toString()
+          },
+          startIndex: {
+            '@uom': obj.indexType === 'depth' ? 'm' : 's',
+            '#text': obj.startIndex.toString()
+          },
+          logCurveInfo: [] // Will be populated from your curve data
+        }));
+        
         this.cachedHeaders = headers;
         this.processLogHeaders(headers);
+        
+        // Store wellboreObjects for live data access
+        this.wellboreObjects = wellboreObjects;
+        
         this.isLoading = false;
       },
-      error: (err) => {
+      error: (err: any) => {
         console.error('❌ Error loading log headers:', err);
         this.isLoading = false;
       }
@@ -321,8 +390,32 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    */
   private loadLogDataForGroup(header: LogHeader, curves: TrackCurve[], startIndex: number, endIndex: number): void {
     console.log(`🔄 Loading data for LogId: ${header.uid}, range: ${startIndex}-${endIndex}`);
-    this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, startIndex, endIndex).subscribe({
-      next: (logDataArray) => {
+    
+    // Prepare queryParameter for real backend API
+    const queryParameter: ILogDataQueryParameter = {
+      wellUid: this.well,
+      logUid: header.uid,
+      wellboreUid: this.wellbore,
+      logName: header.name,
+      indexType: header.indexType,
+      indexCurve: header.indexCurve,
+      startIndex: startIndex,
+      endIndex: endIndex,
+      isGrowing: header.objectGrowing === 'true', // Convert string to boolean
+      mnemonicList: '',
+    };
+    
+    if (!this.wellService) {
+      console.error('❌ WellService is not provided. Cannot load initial data.');
+      this.pendingLoads--;
+      if (this.pendingLoads <= 0 && this.sceneReady) {
+        this.createSceneWithData();
+      }
+      return;
+    }
+    
+    this.wellService.getLogData(queryParameter).subscribe({
+      next: (logDataArray: any) => {
         if (logDataArray.length > 0) {
           const logData = logDataArray[0];
           // Parse data for each curve in the group from the single response
@@ -336,7 +429,7 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
           this.createSceneWithData();
         }
       },
-      error: (err) => {
+      error: (err: any) => {
         console.error('❌ Error loading log data for LogId:', header.uid, err);
         this.pendingLoads--;
         if (this.pendingLoads <= 0 && this.sceneReady) {
@@ -600,8 +693,28 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       this.inFlightRanges.add(key);
       console.log(`  📥 Chunk: ${start}-${end} for ${header.uid}`);
 
-      this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
-        next: (logDataArray) => {
+      // Prepare queryParameter for real backend API
+      let queryParameter: ILogDataQueryParameter = {
+        wellUid: this.well,
+        logUid: header.uid,
+        wellboreUid: this.wellbore,
+        logName: header.name,
+        indexType: header.indexType,
+        indexCurve: header.indexCurve,
+        startIndex: start,
+        endIndex: end,
+        isGrowing: header.objectGrowing === 'true', // Convert string to boolean
+        mnemonicList: '',
+      };
+      
+      if (!this.wellService) {
+        console.error('❌ WellService is not provided. Cannot load data.');
+        onDone(key);
+        return;
+      }
+      
+      this.wellService.getLogData(queryParameter).subscribe({
+        next: (logDataArray: any) => {
           if (logDataArray.length > 0) {
             curves.forEach(curve => this.appendChunkData(logDataArray[0], curve));
           }
@@ -681,6 +794,166 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     }
 
     console.log(`📈 Appended chunk to ${curve.mnemonicId}: now ${mergedValues.length} points, depth ${mergedDepths[0]}-${mergedDepths[mergedDepths.length - 1]}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIVE DATA POLLING
+  //
+  // Polls the backend at regular intervals for new data beyond the current
+  // loaded max depth. Groups requests by LogId (same as checkAndLoadChunks).
+  // Uses appendChunkData() to merge new data into existing curves in-place.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Starts live data polling at LIVE_POLL_INTERVAL.
+   * Call this after initial data load is complete.
+   */
+  startLivePolling(): void {
+    this.stopLivePolling();
+    this.isLivePolling = true;
+    console.log(`🟢 Live polling started (every ${this.LIVE_POLL_INTERVAL}ms)`);
+
+    this.livePollHandle = setInterval(() => {
+      this.ngZone.run(() => this.loadNewLiveData());
+    }, this.LIVE_POLL_INTERVAL);
+  }
+
+  /**
+   * Stops live data polling and clears the interval.
+   */
+  stopLivePolling(): void {
+    if (this.livePollHandle) {
+      clearInterval(this.livePollHandle);
+      this.livePollHandle = null;
+    }
+    this.isLivePolling = false;
+    console.log('🔴 Live polling stopped');
+  }
+
+  /**
+   * Fetches new data beyond the current loaded max depth for each LogId.
+   * Groups curves by LogId to minimize API calls (one per unique LogId).
+   * Uses appendChunkData() to merge new data without rebuilding the scene.
+   *
+   * @private
+   */
+  private loadNewLiveData(): void {
+    if (!this.wellLogWidget || !this.isLivePolling) return;
+
+    // Group curves by LogId → one API call per unique LogId
+    const logIdCurves = new Map<string, { header: LogHeader; curves: TrackCurve[]; maxLoaded: number }>();
+
+    this.listOfTracks.forEach((trackInfo) => {
+      trackInfo.curves.forEach((curve) => {
+        if (logIdCurves.has(curve.LogId)) {
+          logIdCurves.get(curve.LogId)!.curves.push(curve);
+          return;
+        }
+        const matchingHeader = this.cachedHeaders.find(h => h.uid === curve.LogId);
+        const range = this.loadedRanges.get(curve.mnemonicId);
+        if (!matchingHeader || !range) return;
+        logIdCurves.set(curve.LogId, { header: matchingHeader, curves: [curve], maxLoaded: range.max });
+      });
+    });
+
+    if (logIdCurves.size === 0) return;
+
+    logIdCurves.forEach(({ header, curves, maxLoaded }, logId) => {
+      const start = maxLoaded + 1;
+      const end = start + this.CHUNK_SIZE;
+      const key = `live_${logId}_${start}_${end}`;
+
+      // Prevent duplicate in-flight requests
+      if (this.inFlightRanges.has(key)) return;
+      this.inFlightRanges.add(key);
+
+      console.log(`🔄 Live poll: ${start}-${end} for ${header.uid}`);
+
+      // Use real backend queryParameter format (same as RfRealTimeDisplay)
+      const wellboreObj = this.wellboreObjects.find(obj => obj.logUid === header.uid);
+      if (!wellboreObj) {
+        console.warn(`⚠️ Wellbore object not found for ${logId}`);
+        this.inFlightRanges.delete(key);
+        return;
+      }
+
+      const queryParameter = {
+        wellUid: wellboreObj.wellUid,
+        logUid: wellboreObj.logUid,
+        wellboreUid: wellboreObj.wellboreUid,
+        logName: wellboreObj.logName,
+        indexType: wellboreObj.indexType,
+        indexCurve: wellboreObj.indexCurve,
+        startIndex: start,
+        endIndex: end,
+        isGrowing: wellboreObj.isGrowing,
+        mnemonicList: '',
+      };
+
+      if (!this.wellService) {
+        console.warn('⚠️ WellService is not provided. Cannot poll for live data.');
+        this.inFlightRanges.delete(key);
+        return;
+      }
+
+      this.wellService.getLogData(queryParameter).subscribe({
+        next: (response: any) => {
+          if (response && response.logs && response.logs.length > 0 && response.logs[0].logData.data.length > 0) {
+            // Convert response to LogData format for appendChunkData
+            const logData = this.convertResponseToLogData(response.logs[0]);
+            curves.forEach(curve => this.appendChunkData(logData, curve));
+            
+            // Update wellboreObject endIndex if new data extends beyond
+            if (end > wellboreObj.endIndex) {
+              wellboreObj.endIndex = end;
+              console.log(`🔄 Updated endIndex for ${logId} to ${end}`);
+            }
+            
+            console.log(`✅ Live data loaded: ${response.logs[0].logData.data.length} rows for ${logId}`);
+          }
+          this.inFlightRanges.delete(key);
+        },
+        error: (err: any) => {
+          console.warn(`⚠️ Live poll error for ${logId}:`, err);
+          this.inFlightRanges.delete(key);
+        },
+      });
+    });
+  }
+
+  /**
+   * Converts real backend response to LogData format for appendChunkData.
+   *
+   * @param response - Real backend log response
+   * @returns LogData in expected format
+   * @private
+   */
+  private convertResponseToLogData(response: any): LogData {
+    return {
+      uidWell: response.uidWell || this.well,
+      uidWellbore: response.uidWellbore || this.wellbore,
+      startIndex: response.startIndex || { '@uom': 'm', '#text': '0' },
+      endIndex: response.endIndex || { '@uom': 'm', '#text': '0' },
+      mnemonicList: response.logData.mnemonicList,
+      unitList: response.logData.unitList,
+      data: response.logData.data,
+      uid: response.uid || response.logUid
+    };
+  }
+
+  /**
+   * Extracts the maximum depth value from a LogData response.
+   *
+   * @param logData - The log data response
+   * @returns The maximum depth value found in the data
+   * @private
+   */
+  private getMaxDepthFromLogData(logData: LogData): number {
+    const mnemonics = logData.mnemonicList.split(',');
+    const depthIdx = mnemonics.findIndex(m => m.trim() === 'DEPTH');
+    if (depthIdx === -1 || logData.data.length === 0) return 0;
+    const lastRow = logData.data[logData.data.length - 1];
+    return parseFloat(lastRow.split(',')[depthIdx]) || 0;
   }
 
   /**
