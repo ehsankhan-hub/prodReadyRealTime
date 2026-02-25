@@ -36,8 +36,7 @@
 .angular/
 dist/
 
-# Mock data files
-db.json
+
 
 # System Files
 .DS_Store
