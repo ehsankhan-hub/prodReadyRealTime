@@ -225,11 +225,16 @@ export class LogHeadersService {
         const depthVal = parseFloat(row.split(',')[0]);
         return depthVal >= startIndex && depthVal <= endIndex;
       });
+      
+      // Handle office system data format - create startIndex/endIndex if they don't exist
+      const startIndexObj = logData.startIndex || { '@uom': 'm', '#text': String(startIndex) };
+      const endIndexObj = logData.endIndex || { '@uom': 'm', '#text': String(endIndex) };
+      
       return {
         ...logData,
         data: slicedRows,
-        startIndex: { '@uom': logData.startIndex['@uom'], '#text': String(startIndex) },
-        endIndex: { '@uom': logData.endIndex['@uom'], '#text': String(endIndex) },
+        startIndex: startIndexObj,
+        endIndex: endIndexObj,
       };
     });
   }
