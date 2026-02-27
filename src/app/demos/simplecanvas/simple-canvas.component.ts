@@ -57,7 +57,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
    * @private
    */
   private initializeTrackData(): void {
-    // Initialize MWD tracks
+    // Initialize MWD tracks - each track has its own curve (standard well log practice)
     this.mwdTracks = [
       {
         trackNo: 1,
@@ -106,13 +106,22 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             mnemonicLst: []
           }
         ]
+      },
+      {
+        trackNo: 3,
+        trackName: 'Index',
+        trackType: 'Index',
+        trackWidth: 60,
+        isIndex: true,
+        isDepth: true, // Depth-based index track
+        curves: []
       }
     ];
 
-    // Initialize Density tracks
+    // Initialize Density tracks - density curves grouped together (industry standard)
     this.densityTracks = [
       {
-        trackNo: 3,
+        trackNo: 4,
         trackName: 'Bulk Density',
         trackType: 'Linear',
         trackWidth: 100,
@@ -136,7 +145,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
         ]
       },
       {
-        trackNo: 4,
+        trackNo: 5,
         trackName: 'Photoelectric Factor',
         trackType: 'Linear',
         trackWidth: 100,

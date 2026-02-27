@@ -599,29 +599,42 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         // Version 2: Match using objectId.includes() (same as processLogHeaders)
         const matchingHeader = this.cachedHeaders.find(h => h.objectId.includes(curve.LogId));
         const range = this.loadedRanges.get(curve.mnemonicId);
-        if (!matchingHeader || !range) return;
-        logIdCurves.set(curve.LogId, { header: matchingHeader, curves: [curve], range });
+        if (!matchingHeader) return;
+        
+        // For curves without existing range, use a default range to allow initial loading
+        const effectiveRange = range || { min: 0, max: 0 };
+        logIdCurves.set(curve.LogId, { header: matchingHeader, curves: [curve], range: effectiveRange });
       });
     });
 
     logIdCurves.forEach(({ header, curves, range }, logId) => {
-      // Check if we need data below loaded range (user scrolled up)
-      if (needMin < range.min && range.min > 0) {
-        const chunkEnd = range.min;
-        const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+      // For unloaded curves (range.max === 0), load data around visible area
+      if (range.max === 0) {
+        const chunkStart = Math.max(0, needMin - this.CHUNK_SIZE / 2);
+        const chunkEnd = Math.min(this.headerMaxDepth, needMin + this.CHUNK_SIZE / 2);
         const key = `${logId}_${chunkStart}_${chunkEnd}`;
         if (!this.inFlightRanges.has(key)) {
           chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
         }
-      }
+      } else {
+        // Check if we need data below loaded range (user scrolled up)
+        if (needMin < range.min && range.min > 0) {
+          const chunkEnd = range.min;
+          const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+          const key = `${logId}_${chunkStart}_${chunkEnd}`;
+          if (!this.inFlightRanges.has(key)) {
+            chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
+          }
+        }
 
-      // Check if we need data above loaded range (user scrolled down)
-      if (needMax > range.max && range.max < this.headerMaxDepth) {
-        const chunkStart = range.max;
-        const chunkEnd = Math.min(this.headerMaxDepth, chunkStart + this.CHUNK_SIZE);
-        const key = `${logId}_${chunkStart}_${chunkEnd}`;
-        if (!this.inFlightRanges.has(key)) {
-          chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
+        // Check if we need data above loaded range (user scrolled down)
+        if (needMax > range.max && range.max < this.headerMaxDepth) {
+          const chunkStart = range.max;
+          const chunkEnd = Math.min(this.headerMaxDepth, chunkStart + this.CHUNK_SIZE);
+          const key = `${logId}_${chunkStart}_${chunkEnd}`;
+          if (!this.inFlightRanges.has(key)) {
+            chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
+          }
         }
       }
     });
@@ -739,6 +752,79 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     }
 
     console.log(`📈 Appended chunk to ${curve.mnemonicId}: now ${mergedValues.length} points, depth ${mergedDepths[0]}-${mergedDepths[mergedDepths.length - 1]}`);
+    
+    // Update index track scale if we have new depth range
+    this.updateIndexTrackScale();
+  }
+
+  /**
+   * Updates the index track scale to show the full depth range.
+   * Ensures the index track always shows the complete scale, not just visible range.
+   * 
+   * @private
+   */
+  private updateIndexTrackScale(): void {
+    if (!this.wellLogWidget) return;
+    
+    // Find the index track
+    const tracksIterable = (this.wellLogWidget.getTracks() as any);
+    let indexTrack = null;
+    
+    // Convert to array for easier iteration - handle different return types
+    const tracks: LogTrack[] = [];
+    try {
+      if (tracksIterable && typeof tracksIterable.forEach === 'function') {
+        // It's array-like or has forEach
+        tracksIterable.forEach((track: any) => tracks.push(track));
+      } else if (tracksIterable && typeof tracksIterable.length === 'number') {
+        // It's array-like with length property
+        for (let i = 0; i < tracksIterable.length; i++) {
+          tracks.push(tracksIterable[i]);
+        }
+      } else if (tracksIterable && typeof tracksIterable[Symbol.iterator] === 'function') {
+        // It's iterable
+        for (const track of tracksIterable) {
+          tracks.push(track);
+        }
+      } else {
+        console.warn('⚠️ getTracks() returned non-iterable object');
+        return;
+      }
+    } catch (error) {
+      console.error('❌ Error iterating tracks:', error);
+      return;
+    }
+    
+    // Iterate through tracks using array methods
+    for (let i = 0; i < tracks.length; i++) {
+      const track = tracks[i];
+      // Check if this is an index track by its name (typically "Depth" or "Time")
+      const trackName = (track as any).getName?.() || '';
+      if (trackName === 'Depth' || trackName === 'Time') {
+        indexTrack = track;
+        break;
+      }
+    }
+    if (!indexTrack) {
+      return;
+    }
+    
+    // Get the full depth range from all loaded data
+    let fullMinDepth = Number.MAX_VALUE;
+    let fullMaxDepth = Number.MIN_VALUE;
+    
+    for (const [mnemonicId, depths] of this.curveDepthIndices.entries()) {
+      if (depths && depths.length > 0) {
+        fullMinDepth = Math.min(fullMinDepth, depths[0]);
+        fullMaxDepth = Math.max(fullMaxDepth, depths[depths.length - 1]);
+      }
+    }
+    
+    // Update index track to show full scale
+    if (fullMinDepth !== Number.MAX_VALUE && fullMaxDepth !== Number.MIN_VALUE) {
+      console.log(`📏 Updating index track full scale: ${fullMinDepth} to ${fullMaxDepth}`);
+      (indexTrack as any).setDepthLimits?.(fullMinDepth, fullMaxDepth);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

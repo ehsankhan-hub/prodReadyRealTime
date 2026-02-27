@@ -286,55 +286,67 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
 
     this.isLoading = true;
     
-    // Use your real backend API - returns wellboreObjects with dynamic endIndex
-    if (!this.wellService) {
-      console.error('❌ WellService is not provided. Please inject it in your parent component.');
-      this.isLoading = false;
-      return;
+    if (this.wellService) {
+      // Real backend path - use wellService
+      console.log('🔌 Using real WellService backend');
+      this.wellService.getLogHeaders(this.well, this.wellbore).subscribe({
+        next: (wellboreObjects: any[]) => {
+          console.log('📊 Wellbore Objects loaded:', wellboreObjects);
+          
+          // Convert wellboreObjects to LogHeader format for compatibility
+          const headers = wellboreObjects.map((obj: any) => ({
+            '@uidWell': obj.wellUid,
+            '@uidWellbore': obj.wellboreUid,
+            uid: obj.logUid,
+            name: obj.logName,
+            nameWell: obj.wellName || obj.wellUid,
+            nameWellbore: obj.wellboreName || obj.wellboreUid,
+            creationDate: obj.creationDate || new Date().toISOString(),
+            dataDelimiter: obj.dataDelimiter || ',',
+            direction: obj.direction || 'increasing',
+            objectGrowing: obj.isGrowing ? 'true' : 'false',
+            indexType: obj.indexType,
+            indexCurve: obj.indexCurve,
+            endIndex: {
+              '@uom': obj.indexType === 'depth' ? 'm' : 's',
+              '#text': obj.endIndex.toString()
+            },
+            startIndex: {
+              '@uom': obj.indexType === 'depth' ? 'm' : 's',
+              '#text': obj.startIndex.toString()
+            },
+            logCurveInfo: []
+          }));
+          
+          this.cachedHeaders = headers;
+          this.processLogHeaders(headers);
+          
+          // Store wellboreObjects for live data access
+          this.wellboreObjects = wellboreObjects;
+          
+          this.isLoading = false;
+        },
+        error: (err: any) => {
+          console.error('❌ Error loading log headers:', err);
+          this.isLoading = false;
+        }
+      });
+    } else {
+      // Mock service fallback - use logHeadersService (demo mode)
+      console.log('🔌 WellService not provided - using mock LogHeadersService');
+      this.logHeadersService.getLogHeaders(this.well, this.wellbore).subscribe({
+        next: (headers: LogHeader[]) => {
+          console.log('📊 Mock Log Headers loaded:', headers);
+          this.cachedHeaders = headers;
+          this.processLogHeaders(headers);
+          this.isLoading = false;
+        },
+        error: (err: any) => {
+          console.error('❌ Error loading mock log headers:', err);
+          this.isLoading = false;
+        }
+      });
     }
-    
-    this.wellService.getLogHeaders(this.well, this.wellbore).subscribe({
-      next: (wellboreObjects: any[]) => {
-        console.log('📊 Wellbore Objects loaded:', wellboreObjects);
-        
-        // Convert wellboreObjects to LogHeader format for compatibility
-        const headers = wellboreObjects.map(obj => ({
-          '@uidWell': obj.wellUid,
-          '@uidWellbore': obj.wellboreUid,
-          uid: obj.logUid,
-          name: obj.logName,
-          nameWell: obj.wellName || obj.wellUid, // Add missing property
-          nameWellbore: obj.wellboreName || obj.wellboreUid, // Add missing property
-          creationDate: obj.creationDate || new Date().toISOString(), // Add missing property
-          dataDelimiter: obj.dataDelimiter || ',', // Add missing property
-          direction: obj.direction || 'increasing', // Add missing property
-          objectGrowing: obj.isGrowing ? 'true' : 'false', // Add missing property (convert boolean to string)
-          indexType: obj.indexType,
-          indexCurve: obj.indexCurve,
-          endIndex: {
-            '@uom': obj.indexType === 'depth' ? 'm' : 's',
-            '#text': obj.endIndex.toString()
-          },
-          startIndex: {
-            '@uom': obj.indexType === 'depth' ? 'm' : 's',
-            '#text': obj.startIndex.toString()
-          },
-          logCurveInfo: [] // Will be populated from your curve data
-        }));
-        
-        this.cachedHeaders = headers;
-        this.processLogHeaders(headers);
-        
-        // Store wellboreObjects for live data access
-        this.wellboreObjects = wellboreObjects;
-        
-        this.isLoading = false;
-      },
-      error: (err: any) => {
-        console.error('❌ Error loading log headers:', err);
-        this.isLoading = false;
-      }
-    });
   }
 
   /**
@@ -401,42 +413,52 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       indexCurve: header.indexCurve,
       startIndex: startIndex,
       endIndex: endIndex,
-      isGrowing: header.objectGrowing === 'true', // Convert string to boolean
+      isGrowing: true, // Convert string to boolean
       mnemonicList: '',
     };
     
-    if (!this.wellService) {
-      console.error('❌ WellService is not provided. Cannot load initial data.');
+    const onData = (logData: LogData) => {
+      curves.forEach(curve => this.parseCurveData(logData, curve, false));
+    };
+    const onComplete = () => {
       this.pendingLoads--;
       if (this.pendingLoads <= 0 && this.sceneReady) {
+        console.log('🎯 All data loaded - creating scene');
         this.createSceneWithData();
       }
-      return;
+    };
+    const onError = (err: any) => {
+      console.error('❌ Error loading log data for LogId:', header.uid, err);
+      onComplete();
+    };
+
+    if (this.wellService) {
+      // Real backend path
+      this.wellService.getLogData(queryParameter).subscribe({
+        next: (logDataArray: any) => {
+          if (logDataArray.length > 0) {
+            onData(logDataArray[0]);
+          } else {
+            console.warn(`⚠️ No log data found for LogId: ${header.uid}`);
+          }
+          onComplete();
+        },
+        error: onError
+      });
+    } else {
+      // Mock service fallback (demo mode)
+      this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, startIndex, endIndex).subscribe({
+        next: (logDataArray: LogData[]) => {
+          if (logDataArray.length > 0) {
+            onData(logDataArray[0]);
+          } else {
+            console.warn(`⚠️ No log data found for LogId: ${header.uid}`);
+          }
+          onComplete();
+        },
+        error: onError
+      });
     }
-    
-    this.wellService.getLogData(queryParameter).subscribe({
-      next: (logDataArray: any) => {
-        if (logDataArray.length > 0) {
-          const logData = logDataArray[0];
-          // Parse data for each curve in the group from the single response
-          curves.forEach(curve => this.parseCurveData(logData, curve, false));
-        } else {
-          console.warn(`⚠️ No log data found for LogId: ${header.uid}`);
-        }
-        this.pendingLoads--;
-        if (this.pendingLoads <= 0 && this.sceneReady) {
-          console.log('🎯 All data loaded - creating scene');
-          this.createSceneWithData();
-        }
-      },
-      error: (err: any) => {
-        console.error('❌ Error loading log data for LogId:', header.uid, err);
-        this.pendingLoads--;
-        if (this.pendingLoads <= 0 && this.sceneReady) {
-          this.createSceneWithData();
-        }
-      }
-    });
   }
 
   /**
@@ -538,9 +560,10 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       });
 
       // Create index track first to ensure it's always visible
-      const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
-      indexTrack.setWidth(60);
-      indexTrack.setName('Depth');
+      // Commented out - will create real depth/time-based index tracks from WITSML data
+      // const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
+      // indexTrack.setWidth(60);
+      // indexTrack.setName('Depth');
 
       // Assign widget to BaseWidgetComponent
       this.widgetComponent.Widget = this.wellLogWidget;
@@ -654,29 +677,42 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
         }
         const matchingHeader = this.cachedHeaders.find(h => h.uid === curve.LogId);
         const range = this.loadedRanges.get(curve.mnemonicId);
-        if (!matchingHeader || !range) return;
-        logIdCurves.set(curve.LogId, { header: matchingHeader, curves: [curve], range });
+        if (!matchingHeader) return;
+        
+        // For curves without existing range, use a default range to allow initial loading
+        const effectiveRange = range || { min: 0, max: 0 };
+        logIdCurves.set(curve.LogId, { header: matchingHeader, curves: [curve], range: effectiveRange });
       });
     });
 
     logIdCurves.forEach(({ header, curves, range }, logId) => {
-      // Check if we need data below loaded range (user scrolled up)
-      if (needMin < range.min && range.min > 0) {
-        const chunkEnd = range.min;
-        const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+      // For unloaded curves (range.max === 0), load data around visible area
+      if (range.max === 0) {
+        const chunkStart = Math.max(0, needMin - this.CHUNK_SIZE / 2);
+        const chunkEnd = Math.min(this.headerMaxDepth, needMin + this.CHUNK_SIZE / 2);
         const key = `${logId}_${chunkStart}_${chunkEnd}`;
         if (!this.inFlightRanges.has(key)) {
           chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
         }
-      }
+      } else {
+        // Check if we need data below loaded range (user scrolled up)
+        if (needMin < range.min && range.min > 0) {
+          const chunkEnd = range.min;
+          const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+          const key = `${logId}_${chunkStart}_${chunkEnd}`;
+          if (!this.inFlightRanges.has(key)) {
+            chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
+          }
+        }
 
-      // Check if we need data above loaded range (user scrolled down)
-      if (needMax > range.max && range.max < this.headerMaxDepth) {
-        const chunkStart = range.max;
-        const chunkEnd = Math.min(this.headerMaxDepth, chunkStart + this.CHUNK_SIZE);
-        const key = `${logId}_${chunkStart}_${chunkEnd}`;
-        if (!this.inFlightRanges.has(key)) {
-          chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
+        // Check if we need data above loaded range (user scrolled down)
+        if (needMax > range.max && range.max < this.headerMaxDepth) {
+          const chunkStart = range.max;
+          const chunkEnd = Math.min(this.headerMaxDepth, chunkStart + this.CHUNK_SIZE);
+          const key = `${logId}_${chunkStart}_${chunkEnd}`;
+          if (!this.inFlightRanges.has(key)) {
+            chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
+          }
         }
       }
     });
@@ -714,21 +750,36 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
         mnemonicList: '',
       };
       
-      if (!this.wellService) {
-        console.error('❌ WellService is not provided. Cannot load data.');
-        onDone(key);
-        return;
+      if (this.wellService) {
+        // Real backend path
+        this.wellService.getLogData(queryParameter).subscribe({
+          next: (logDataArray: any) => {
+            if (logDataArray.length > 0) {
+              curves.forEach(curve => this.appendChunkData(logDataArray[0], curve));
+            }
+            onDone(key);
+          },
+          error: () => onDone(key),
+        });
+      } else {
+        // Mock service fallback (demo mode)
+        this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
+          next: (logDataArray: LogData[]) => {
+            if (logDataArray.length > 0) {
+              console.log(`📦 Processing chunk for ${curves.length} curves in LogId ${header.uid}`);
+              console.log(`📊 Chunk data has ${logDataArray[0].data.length} rows`);
+              curves.forEach((curve, index) => {
+                console.log(`🔄 Appending chunk to curve ${curve.mnemonicId} (${index + 1}/${curves.length})`);
+                this.appendChunkData(logDataArray[0], curve);
+              });
+            } else {
+              console.warn(`⚠️ No data returned for chunk ${key}`);
+            }
+            onDone(key);
+          },
+          error: () => onDone(key),
+        });
       }
-      
-      this.wellService.getLogData(queryParameter).subscribe({
-        next: (logDataArray: any) => {
-          if (logDataArray.length > 0) {
-            curves.forEach(curve => this.appendChunkData(logDataArray[0], curve));
-          }
-          onDone(key);
-        },
-        error: () => onDone(key),
-      });
     });
   }
 
@@ -741,10 +792,19 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    * @private
    */
   private appendChunkData(logData: LogData, curve: TrackCurve): void {
+    console.log(`🔧 Appending chunk data for curve ${curve.mnemonicId}`);
+    console.log(`📊 Available mnemonics: ${logData.mnemonicList}`);
+    
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex(m => m.trim() === curve.mnemonicId);
     const depthIdx = mnemonics.findIndex(m => m.trim() === 'DEPTH');
-    if (curveIndex === -1 || depthIdx === -1) return;
+    
+    console.log(`🔍 Curve index for ${curve.mnemonicId}: ${curveIndex}, Depth index: ${depthIdx}`);
+    
+    if (curveIndex === -1 || depthIdx === -1) {
+      console.warn(`⚠️ Mnemonic or DEPTH not found for curve ${curve.mnemonicId}`);
+      return;
+    }
 
     const newDepths: number[] = [];
     const newValues: number[] = [];
@@ -789,18 +849,96 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     });
 
     // Update the GeoToolkit curve data source
+    console.log(`🗺️ Looking up curve ${curve.mnemonicId} in curveMap...`);
     const entry = this.curveMap.get(curve.mnemonicId);
+    console.log(`🗺️ CurveMap entry found: ${entry ? 'YES' : 'NO'} for ${curve.mnemonicId}`);
+    
     if (entry) {
       try {
+        console.log(`🔄 Updating GeoToolkit curve data for ${curve.mnemonicId} with ${mergedValues.length} points`);
         const geoLogData = new GeoLogData(curve.displayName);
         geoLogData.setValues(mergedDepths, mergedValues);
         entry.logCurve.setData(geoLogData);
+        console.log(`✅ Successfully updated GeoToolkit curve for ${curve.mnemonicId}`);
       } catch (e) {
         console.warn('⚠️ Could not update curve data source for', curve.mnemonicId, e);
       }
+    } else {
+      console.warn(`⚠️ No curveMap entry found for ${curve.mnemonicId} - this could be why data isn't showing`);
     }
 
     console.log(`📈 Appended chunk to ${curve.mnemonicId}: now ${mergedValues.length} points, depth ${mergedDepths[0]}-${mergedDepths[mergedDepths.length - 1]}`);
+    
+    // Update index track scale if we have new depth range
+    this.updateIndexTrackScale();
+  }
+
+  /**
+   * Updates the index track scale to show the full depth range.
+   * Ensures the index track always shows the complete scale, not just visible range.
+   * 
+   * @private
+   */
+  private updateIndexTrackScale(): void {
+    // Find the index track
+    const tracksIterable = (this.wellLogWidget.getTracks() as any);
+    let indexTrack = null;
+    
+    // Convert to array for easier iteration - handle different return types
+    const tracks: LogTrack[] = [];
+    try {
+      if (tracksIterable && typeof tracksIterable.forEach === 'function') {
+        // It's array-like or has forEach
+        tracksIterable.forEach((track: any) => tracks.push(track));
+      } else if (tracksIterable && typeof tracksIterable.length === 'number') {
+        // It's array-like with length property
+        for (let i = 0; i < tracksIterable.length; i++) {
+          tracks.push(tracksIterable[i]);
+        }
+      } else if (tracksIterable && typeof tracksIterable[Symbol.iterator] === 'function') {
+        // It's iterable
+        for (const track of tracksIterable) {
+          tracks.push(track);
+        }
+      } else {
+        console.warn('⚠️ getTracks() returned non-iterable object:', tracksIterable);
+        return;
+      }
+    } catch (error) {
+      console.error('❌ Error iterating tracks:', error);
+      return;
+    }
+    
+    // Iterate through tracks using array methods
+    for (let i = 0; i < tracks.length; i++) {
+      const track = tracks[i];
+      // Check if this is an index track by its name (typically "Depth" or "Time")
+      const trackName = (track as any).getName?.() || '';
+      if (trackName === 'Depth' || trackName === 'Time') {
+        indexTrack = track;
+        break;
+      }
+    }
+    if (!indexTrack) {
+      return;
+    }
+    
+    // Get the full depth range from all loaded data
+    let fullMinDepth = Number.MAX_VALUE;
+    let fullMaxDepth = Number.MIN_VALUE;
+    
+    for (const [mnemonicId, depths] of this.curveDepthIndices.entries()) {
+      if (depths && depths.length > 0) {
+        fullMinDepth = Math.min(fullMinDepth, depths[0]);
+        fullMaxDepth = Math.max(fullMaxDepth, depths[depths.length - 1]);
+      }
+    }
+    
+    // Update index track to show full scale
+    if (fullMinDepth !== Number.MAX_VALUE && fullMaxDepth !== Number.MIN_VALUE) {
+      console.log(`📏 Updating index track full scale: ${fullMinDepth} to ${fullMaxDepth}`);
+      (indexTrack as any).setDepthLimits?.(fullMinDepth, fullMaxDepth);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -897,34 +1035,42 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
         mnemonicList: '',
       };
 
-      if (!this.wellService) {
-        console.warn('⚠️ WellService is not provided. Cannot poll for live data.');
-        this.inFlightRanges.delete(key);
-        return;
-      }
-
-      this.wellService.getLogData(queryParameter).subscribe({
-        next: (response: any) => {
-          if (response && response.logs && response.logs.length > 0 && response.logs[0].logData.data.length > 0) {
-            // Convert response to LogData format for appendChunkData
-            const logData = this.convertResponseToLogData(response.logs[0]);
-            curves.forEach(curve => this.appendChunkData(logData, curve));
-            
-            // Update wellboreObject endIndex if new data extends beyond
-            if (end > wellboreObj.endIndex) {
-              wellboreObj.endIndex = end;
-              console.log(`🔄 Updated endIndex for ${logId} to ${end}`);
+      if (this.wellService) {
+        // Real backend path
+        this.wellService.getLogData(queryParameter).subscribe({
+          next: (response: any) => {
+            if (response && response.logs && response.logs.length > 0 && response.logs[0].logData.data.length > 0) {
+              const logData = this.convertResponseToLogData(response.logs[0]);
+              curves.forEach(curve => this.appendChunkData(logData, curve));
+              
+              if (end > wellboreObj.endIndex) {
+                wellboreObj.endIndex = end;
+                console.log(`🔄 Updated endIndex for ${logId} to ${end}`);
+              }
+              
+              console.log(`✅ Live data loaded: ${response.logs[0].logData.data.length} rows for ${logId}`);
             }
-            
-            console.log(`✅ Live data loaded: ${response.logs[0].logData.data.length} rows for ${logId}`);
-          }
-          this.inFlightRanges.delete(key);
-        },
-        error: (err: any) => {
-          console.warn(`⚠️ Live poll error for ${logId}:`, err);
-          this.inFlightRanges.delete(key);
-        },
-      });
+            this.inFlightRanges.delete(key);
+          },
+          error: (err: any) => {
+            console.warn(`⚠️ Live poll error for ${logId}:`, err);
+            this.inFlightRanges.delete(key);
+          },
+        });
+      } else {
+        // Mock service fallback (demo mode)
+        this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
+          next: (logData: LogData[]) => {
+            logData.forEach(data => curves.forEach(curve => this.appendChunkData(data, curve)));
+            console.log(`✅ Live data loaded (mock) for ${logId}`);
+            this.inFlightRanges.delete(key);
+          },
+          error: (err: any) => {
+            console.warn(`⚠️ Live poll error for ${logId}:`, err);
+            this.inFlightRanges.delete(key);
+          },
+        });
+      }
     });
   }
 
@@ -1208,12 +1354,115 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
   }
 
   /**
+   * Creates real depth/time-based index tracks from WITSML data.
+   * Extracts actual DEPTH or TIME values from the first available log data.
+   * Index tracks automatically use the depth/time scale from the data tracks.
+   * 
+   * @private
+   */
+  private createRealIndexTracks(): void {
+    console.log('🎯 Creating real index tracks from WITSML data...');
+    
+    // Find index track configuration to determine type
+    let isTimeBased = false;
+    let indexTrackFound = false;
+    
+    for (const trackInfo of this.listOfTracks) {
+      if (trackInfo.isIndex) {
+        isTimeBased = !trackInfo.isDepth;
+        indexTrackFound = true;
+        console.log(`📊 Index track type: ${isTimeBased ? 'Time-based' : 'Depth-based'}`);
+        break;
+      }
+    }
+    
+    if (!indexTrackFound) {
+      console.warn('⚠️ No index track configuration found - skipping index track creation');
+      return;
+    }
+    
+    // Debug: Check actual depth values from WITSML data
+    console.log('🔍 Verifying real WITSML depth values...');
+    for (const trackInfo of this.listOfTracks) {
+      if (!trackInfo.isIndex && trackInfo.curves.length > 0) {
+        const firstCurve = trackInfo.curves[0];
+        const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
+        if (depthIndices && depthIndices.length > 0) {
+          console.log(`📏 Real WITSML depth values from ${firstCurve.mnemonicId}:`);
+          console.log(`   First depth: ${depthIndices[0]}`);
+          console.log(`   Second depth: ${depthIndices[1]}`);
+          console.log(`   Last depth: ${depthIndices[depthIndices.length - 1]}`);
+          console.log(`   Total points: ${depthIndices.length}`);
+          break;
+        }
+      }
+    }
+    
+    // Create real index track - GeoToolkit will automatically use depth/time from data tracks
+    const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
+    indexTrack.setWidth(60);
+    indexTrack.setName(isTimeBased ? 'Time' : 'Depth');
+    
+    // Configure index track to show full scale instead of just visible range
+    // Get the full depth range from the loaded data
+    let fullMinDepth = 0;
+    let fullMaxDepth = 0;
+    
+    for (const trackInfo of this.listOfTracks) {
+      if (!trackInfo.isIndex && trackInfo.curves.length > 0) {
+        const firstCurve = trackInfo.curves[0];
+        const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
+        if (depthIndices && depthIndices.length > 0) {
+          fullMinDepth = Math.min(fullMinDepth, depthIndices[0]);
+          fullMaxDepth = Math.max(fullMaxDepth, depthIndices[depthIndices.length - 1]);
+          break; // Use first curve to determine full range
+        }
+      }
+    }
+    
+    // Set the index track to show the full scale
+    if (fullMinDepth !== fullMaxDepth) {
+      console.log(`📏 Setting index track full scale: ${fullMinDepth} to ${fullMaxDepth}`);
+      // Configure the index track to show full scale
+      indexTrack.setDepthLimits(fullMinDepth, fullMaxDepth);
+    }
+    
+    console.log(`✅ Created real ${isTimeBased ? 'time-based' : 'depth-based'} index track`);
+    console.log('📏 Index track will show full depth scale from WITSML data');
+    console.log('🎯 Check the index track display - it should show 200.5 as first depth value (not 200)');
+  }
+
+  /**
+   * Creates fallback index track when no WITSML data is available.
+   * Used for demo/mock data scenarios.
+   * 
+   * @private
+   */
+  private createFallbackIndexTrack(): void {
+    const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
+    indexTrack.setWidth(60);
+    indexTrack.setName('Depth');
+    
+    console.log('🔄 Created fallback synthetic index track for demo data');
+    console.log('� Index track will use synthetic depth scale for demo purposes');
+  }
+
+  /**
    * Creates all tracks based on the input track configurations.
    * Iterates through track definitions and creates appropriate track types.
    * 
    * @private
    */
   private createTracks(): void {
+    // Check if we have an index track configuration before creating index tracks
+    const hasIndexTrack = this.listOfTracks.some(track => track.isIndex);
+    if (hasIndexTrack) {
+      console.log('🎯 Index track configuration found - creating real index tracks from WITSML data');
+      this.createRealIndexTracks();
+    } else {
+      console.log('ℹ️ No index track configuration found - skipping index track creation');
+    }
+    
     this.listOfTracks.forEach((trackInfo, trackIndex) => {
       try {
         console.log(`📊 Creating track ${trackIndex + 1}: ${trackInfo.trackName}`);
@@ -1221,8 +1470,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
         let track: LogTrack;
         
         if (trackInfo.isIndex) {
-          // Skip index track creation - it's already created in createScene
-          console.log('⚠️ Skipping index track creation - already created in createScene');
+          // Skip index track creation - it's now created with real WITSML data
+          console.log('⚠️ Skipping index track creation - already created with real WITSML data');
           return;
         } else {
           // Create regular track
