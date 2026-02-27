@@ -293,13 +293,18 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     console.log(`🔄 ${this.pendingLoads} unique LogId(s) to fetch (chunk size: ${this.CHUNK_SIZE})`);
 
     // Version 2: Load initial chunk per LogId using actual header start/end values
+    const loadPromises: Promise<void>[] = [];
     logIdGroups.forEach(({ header, curves }, logId) => {
       // Use the actual startIndex and endIndex from the header
       const startIndex = header.startIndex?.['#text'] || header.startIndex || '0';
       const endIndex = header.endIndex?.['#text'] || header.endIndex || '1000';
       console.log(`📦 Loading initial chunk for LogId ${logId}: ${startIndex}-${endIndex} (${curves.length} curves)`);
-      this.loadLogDataForGroup(header, curves, startIndex, endIndex);
+      loadPromises.push(this.loadLogDataForGroup(header, curves, startIndex, endIndex));
     });
+
+    // Wait for all data loading to complete before proceeding
+    await Promise.all(loadPromises);
+    console.log('✅ All LogId data loading completed');
   }
 
   /**
@@ -315,47 +320,51 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    * @param endIndex - Ending index for data range
    * @private
    */
-  private loadLogDataForGroup(header: IWellboreObject, curves: TrackCurve[], startIndex: any, endIndex: any): void {
-    console.log(`🔄 Loading data for LogId: ${header.objectId}, range: ${startIndex}-${endIndex}`);
+  private loadLogDataForGroup(header: IWellboreObject, curves: TrackCurve[], startIndex: string, endIndex: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      console.log(`🔄 Loading data for LogId: ${header.objectId}, range: ${startIndex}-${endIndex}`);
 
-    // Version 2: Build queryParameter dynamically from header (no hardcoded values)
-    const queryParameter: ILogDataQueryParameter = {
-      wellUid: this.well,
-      logUid: header.objectId,
-      wellboreUid: this.wellbore,
-      logName: header.objectName,
-      indexType: header.indexType,
-      indexCurve: header.indexCurve,
-      startIndex: startIndex,
-      endIndex: endIndex,
-      isGrowing: header.objectGrowing,
-      mnemonicList: '',
-    };
-    console.log('queryParameter ', queryParameter);
+      // Version 2: Build queryParameter dynamically from header (no hardcoded values)
+      const queryParameter: ILogDataQueryParameter = {
+        wellUid: this.well,
+        logUid: header.objectId,
+        wellboreUid: this.wellbore,
+        logName: header.objectName,
+        indexType: header.indexType,
+        indexCurve: header.indexCurve,
+        startIndex: startIndex,
+        endIndex: endIndex,
+        isGrowing: header.objectGrowing,
+        mnemonicList: '',
+      };
+      console.log('queryParameter ', queryParameter);
 
-    // Version 2: Single API call (removed duplicate hardcoded call)
-    this.logHeadersService.getLogData(queryParameter).subscribe({
-      next: (logDataArray: any) => {
-        console.log('logDataArray  ---', logDataArray);
-        if (logDataArray != null) {
-          // Version 2: Parse using backend response format (logs[0].logData)
-          curves.forEach(curve => this.parseCurveData(logDataArray, curve, false));
-        } else {
-          console.warn(`⚠️ No log data found for LogId: ${header.objectName}`);
+      // Version 2: Single API call (removed duplicate hardcoded call)
+      this.logHeadersService.getLogData(queryParameter).subscribe({
+        next: (logDataArray: any) => {
+          console.log('logDataArray  ---', logDataArray);
+          if (logDataArray != null) {
+            // Version 2: Parse using backend response format (logs[0].logData)
+            curves.forEach(curve => this.parseCurveData(logDataArray, curve, false));
+          } else {
+            console.warn(`⚠️ No log data found for LogId: ${header.objectName}`);
+          }
+          this.pendingLoads--;
+          if (this.pendingLoads <= 0 && this.sceneReady) {
+            console.log('🎯 All data loaded - creating scene');
+            this.createSceneWithData();
+          }
+          resolve();
+        },
+        error: (err: any) => {
+          console.error('❌ Error loading log data for LogId:', header.objectId, err);
+          this.pendingLoads--;
+          if (this.pendingLoads <= 0 && this.sceneReady) {
+            this.createSceneWithData();
+          }
+          reject(err);
         }
-        this.pendingLoads--;
-        if (this.pendingLoads <= 0 && this.sceneReady) {
-          console.log('🎯 All data loaded - creating scene');
-          this.createSceneWithData();
-        }
-      },
-      error: (err: any) => {
-        console.error('❌ Error loading log data for LogId:', header.objectId, err);
-        this.pendingLoads--;
-        if (this.pendingLoads <= 0 && this.sceneReady) {
-          this.createSceneWithData();
-        }
-      }
+      });
     });
   }
 

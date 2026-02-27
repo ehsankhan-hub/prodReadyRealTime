@@ -190,17 +190,11 @@ export class LogHeadersService {
 
     // First fetch — download full dataset, cache it, share across concurrent subscribers
     console.log(`🌐 Fetching FULL logData for ${logId} (will cache for future chunk requests)`);
-    const shared$ = this.http.get<LogData[]>(`${this.baseUrl}/logData`).pipe(
-      map((allData: LogData[]) => {
-        // Handle office system data format - check different possible property names
-        const filtered = allData.filter((d: LogData) => {
-          // Try different property name combinations for office system
-          const wellMatch = d.uidWell === well || d.wellUid === well || d.well === well;
-          const wellboreMatch = d.uidWellbore === wellbore || d.wellboreUid === wellbore || d.wellbore === wellbore;
-          const logMatch = d.uid === logId || d.logUid === logId || d.logId === logId || d.id === logId;
-          
-          return wellMatch && wellboreMatch && logMatch;
-        });
+    const shared$ = this.http.get(`${this.baseUrl}/logData`).pipe(
+      map((allData: any) => {
+        const filtered = allData.logs.filter((d: LogData) =>
+          d.uidWell === well && d.uidWellbore === wellbore && d.uid === logId
+        );
         // Store full dataset in cache
         this.logDataCache.set(cacheKey, filtered);
         this.logDataFetchInProgress.delete(cacheKey);
