@@ -24,6 +24,21 @@ import {
   IWellboreObject,
 } from "../../../models/wellbore/wellbore-object";
 
+// INT GeoToolkit type definitions for proper typing
+interface ITrack {
+  getName(): string;
+  setDepthLimits(min: number, max: number): void;
+}
+
+interface ITracksCollection {
+  forEach(callback: (track: ITrack) => void): void;
+  length?: number;
+  [index: number]: ITrack;
+}
+
+// Handle different possible return types from getTracks()
+type TracksResult = ITracksCollection | ITrack[] | Iterator<ITrack> | null | undefined;
+
 /**
  * Interface representing a single curve within a track.
  * Contains configuration for curve display and data.
@@ -341,7 +356,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
 
       // Version 2: Single API call (removed duplicate hardcoded call)
       this.logHeadersService.getLogData(queryParameter).subscribe({
-        next: (logDataArray: any) => {
+        next: (logDataArray: IWellboreLogData) => {
           console.log('logDataArray  ---', logDataArray);
           if (logDataArray != null) {
             // Version 2: Parse using backend response format (logs[0].logData)
@@ -356,7 +371,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           }
           resolve();
         },
-        error: (err: any) => {
+        error: (err: Error) => {
           console.error('❌ Error loading log data for LogId:', header.objectId, err);
           this.pendingLoads--;
           if (this.pendingLoads <= 0 && this.sceneReady) {
@@ -775,28 +790,44 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   private updateIndexTrackScale(): void {
     if (!this.wellLogWidget) return;
     
-    // Find the index track
-    const tracksIterable = (this.wellLogWidget.getTracks() as any);
-    let indexTrack = null;
+    // Find the index track using proper INT GeoToolkit API
+    const tracksResult = this.wellLogWidget.getTracks() as unknown as TracksResult;
+    let indexTrack: ITrack | null = null;
     
     // Convert to array for easier iteration - handle different return types
-    const tracks: LogTrack[] = [];
+    const tracks: ITrack[] = [];
     try {
-      if (tracksIterable && typeof tracksIterable.forEach === 'function') {
-        // It's array-like or has forEach
-        tracksIterable.forEach((track: any) => tracks.push(track));
-      } else if (tracksIterable && typeof tracksIterable.length === 'number') {
-        // It's array-like with length property
-        for (let i = 0; i < tracksIterable.length; i++) {
-          tracks.push(tracksIterable[i]);
+      if (!tracksResult) {
+        console.warn('⚠️ getTracks() returned null or undefined');
+        return;
+      }
+      
+      // Check if it's an array
+      if (Array.isArray(tracksResult)) {
+        tracks.push(...tracksResult);
+      }
+      // Check if it's a collection with forEach
+      else if (tracksResult && typeof (tracksResult as ITracksCollection).forEach === 'function') {
+        (tracksResult as ITracksCollection).forEach((track: ITrack) => tracks.push(track));
+      }
+      // Check if it's array-like with length property
+      else if (tracksResult && typeof (tracksResult as ITracksCollection).length === 'number' && (tracksResult as ITracksCollection).length !== undefined) {
+        const collection = tracksResult as ITracksCollection;
+        for (let i = 0; i < collection.length!; i++) {
+          tracks.push(collection[i]);
         }
-      } else if (tracksIterable && typeof tracksIterable[Symbol.iterator] === 'function') {
-        // It's iterable
-        for (const track of tracksIterable) {
-          tracks.push(track);
+      }
+      // Check if it's an iterator
+      else if (tracksResult && typeof (tracksResult as Iterator<ITrack>).next === 'function') {
+        const iterator = tracksResult as Iterator<ITrack>;
+        let result = iterator.next();
+        while (!result.done) {
+          tracks.push(result.value);
+          result = iterator.next();
         }
-      } else {
-        console.warn('⚠️ getTracks() returned non-iterable object');
+      }
+      else {
+        console.warn('⚠️ getTracks() returned unsupported object type:', typeof tracksResult);
         return;
       }
     } catch (error) {
@@ -808,7 +839,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
       // Check if this is an index track by its name (typically "Depth" or "Time")
-      const trackName = (track as any).getName?.() || '';
+      const trackName = track.getName();
       if (trackName === 'Depth' || trackName === 'Time') {
         indexTrack = track;
         break;
@@ -832,7 +863,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     // Update index track to show full scale
     if (fullMinDepth !== Number.MAX_VALUE && fullMaxDepth !== Number.MIN_VALUE) {
       console.log(`📏 Updating index track full scale: ${fullMinDepth} to ${fullMaxDepth}`);
-      (indexTrack as any).setDepthLimits?.(fullMinDepth, fullMaxDepth);
+      indexTrack.setDepthLimits(fullMinDepth, fullMaxDepth);
     }
   }
 
