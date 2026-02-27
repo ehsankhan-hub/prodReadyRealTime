@@ -442,9 +442,9 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     const mnemonics = innerLogData.mnemonicList.split(',');
     console.log('mnemonics ----', mnemonics);
     const curveIndex = mnemonics.findIndex((m: any) => m.trim() === curve.mnemonicId);
-    const depthIndex = mnemonics.findIndex((m: any) => m.trim() === 'DEPTH');
+    const timeIndex = mnemonics.findIndex((m: any) => m.trim() === 'MWD_Depth'); // Changed from DEPTH to MWD_Depth
     
-    console.log(`🔍 Parsing ${curve.mnemonicId}: curveIndex=${curveIndex}, depthIndex=${depthIndex}, dataRows=${innerLogData.data.length}`);
+    console.log(`🔍 Parsing ${curve.mnemonicId}: curveIndex=${curveIndex}, timeIndex=${timeIndex}, dataRows=${innerLogData.data.length}`);
     
     if (curveIndex === -1) {
       console.warn('⚠️ Mnemonic not found:', curve.mnemonicId, '| Available:', mnemonics);
@@ -457,34 +457,45 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
       return;
     }
 
-    const depths: number[] = [];
+    const times: number[] = [];
     const values: number[] = [];
 
     innerLogData.data.forEach((dataRow: any) => {
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
         const value = parseFloat(cols[curveIndex]);
-        const depth = depthIndex >= 0 ? parseFloat(cols[depthIndex]) : NaN;
-        if (!isNaN(value) && !isNaN(depth)) {
-          depths.push(depth);
+        const timeString = timeIndex >= 0 ? cols[timeIndex] : null;
+        
+        // Convert time string to timestamp (milliseconds since epoch)
+        let timeValue = NaN;
+        if (timeString) {
+          try {
+            timeValue = new Date(timeString).getTime();
+          } catch (e) {
+            console.warn('⚠️ Invalid time format:', timeString);
+          }
+        }
+        
+        if (!isNaN(value) && !isNaN(timeValue)) {
+          times.push(timeValue);
           values.push(value);
         }
       }
     });
 
     curve.data = values;
-    this.curveDepthIndices.set(curve.mnemonicId, depths);
+    this.curveDepthIndices.set(curve.mnemonicId, times); // Store times instead of depths
 
     // Track loaded range
-    if (depths.length > 0) {
+    if (times.length > 0) {
       this.loadedRanges.set(curve.mnemonicId, {
-        min: depths[0],
-        max: depths[depths.length - 1],
+        min: times[0],
+        max: times[times.length - 1],
       });
     }
 
     console.log('✅ Parsed data for curve:', curve.mnemonicId, values.length, 'points',
-      depths.length > 0 ? `depth range: ${depths[0]}-${depths[depths.length - 1]}` : '');
+      times.length > 0 ? `time range: ${times[0]}-${times[times.length - 1]}` : '');
 
     // Only decrement pending loads when called directly (not from group loader)
     if (decrementPending) {
@@ -511,8 +522,8 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
 
       // Create WellLogWidget
       this.wellLogWidget = new WellLogWidget({
-        indextype: IndexType.Depth,
-        indexunit: 'm',
+        indextype: IndexType.Time,  // Changed to Time for MWD_Depth data
+        indexunit: 's',             // Changed to seconds for time-based data
         horizontalscrollable: false,
         verticalscrollable: true,
         header: {
