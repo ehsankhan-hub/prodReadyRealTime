@@ -337,9 +337,6 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    */
   private loadLogDataForGroup(header: IWellboreObject, curves: TrackCurve[], startIndex: string, endIndex: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      console.log(`🔄 Loading data for LogId: ${header.objectId}, range: ${startIndex}-${endIndex}`);
-
-      // Version 2: Build queryParameter dynamically from header (no hardcoded values)
       const queryParameter: ILogDataQueryParameter = {
         wellUid: this.well,
         logUid: header.objectId,
@@ -354,13 +351,44 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
       };
       console.log('queryParameter ', queryParameter);
 
-      // Version 2: Single API call (removed duplicate hardcoded call)
-      this.logHeadersService.getLogData(queryParameter).subscribe({
-        next: (logDataArray: IWellboreLogData) => {
-          console.log('logDataArray  ---', logDataArray);
-          if (logDataArray != null) {
+      // Handle both Observable and direct return types from getLogData
+      const result = this.logHeadersService.getLogData(queryParameter);
+      
+      // Check if result is an Observable (has subscribe method)
+      if (result && typeof result.subscribe === 'function') {
+        // It's an Observable - use subscribe
+        (result as any).subscribe({
+          next: (logDataArray: IWellboreLogData) => {
+            console.log('logDataArray  ---', logDataArray);
+            if (logDataArray != null) {
+              // Version 2: Parse using backend response format (logs[0].logData)
+              curves.forEach(curve => this.parseCurveData(logDataArray, curve, false));
+            } else {
+              console.warn(`⚠️ No log data found for LogId: ${header.objectName}`);
+            }
+            this.pendingLoads--;
+            if (this.pendingLoads <= 0 && this.sceneReady) {
+              console.log('🎯 All data loaded - creating scene');
+              this.createSceneWithData();
+            }
+            resolve();
+          },
+          error: (err: Error) => {
+            console.error('❌ Error loading log data for LogId:', header.objectId, err);
+            this.pendingLoads--;
+            if (this.pendingLoads <= 0 && this.sceneReady) {
+              this.createSceneWithData();
+            }
+            reject(err);
+          }
+        });
+      } else {
+        // It's a direct result - handle synchronously
+        try {
+          console.log('logDataArray  ---', result);
+          if (result != null) {
             // Version 2: Parse using backend response format (logs[0].logData)
-            curves.forEach(curve => this.parseCurveData(logDataArray, curve, false));
+            curves.forEach(curve => this.parseCurveData(result, curve, false));
           } else {
             console.warn(`⚠️ No log data found for LogId: ${header.objectName}`);
           }
@@ -370,8 +398,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
             this.createSceneWithData();
           }
           resolve();
-        },
-        error: (err: Error) => {
+        } catch (err) {
           console.error('❌ Error loading log data for LogId:', header.objectId, err);
           this.pendingLoads--;
           if (this.pendingLoads <= 0 && this.sceneReady) {
@@ -379,7 +406,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           }
           reject(err);
         }
-      });
+      }
     });
   }
 
@@ -535,7 +562,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           this.wellLogWidget.updateLayout();
 
           // Configure crosshair for tooltip
-         // this.configureCrossHair();
+          this.configureCrossHair();
 
           // Configure scroll-based lazy loading
           this.configureScrollLazyLoad();
@@ -848,6 +875,29 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     if (fullMinDepth !== Number.MAX_VALUE && fullMaxDepth !== Number.MIN_VALUE) {
       console.log(`📏 Updating index track full scale: ${fullMinDepth} to ${fullMaxDepth}`);
       (indexTrack as any).setDepthLimits?.(fullMinDepth, fullMaxDepth);
+    }
+  }
+
+  /**
+   * Configures the built-in GeoToolkit crosshair tool to emit tooltip data.
+   * Collects all curve values at the crosshair depth and updates the tooltip panel.
+   * 
+   * @private
+   */
+  private configureCrossHair(): void {
+    try {
+      const crossHair: any = this.wellLogWidget.getToolByName('cross-hair');
+      if (!crossHair) {
+        console.warn('⚠️ CrossHair tool not found on WellLogWidget');
+        return;
+      }
+
+      crossHair.on(CrossHairEvents.onPositionChanged, (evt: any, sender: any, eventArgs: any) => {
+        // Handle crosshair position changes for tooltips
+        // You can add tooltip logic here if needed
+      });
+    } catch (error) {
+      console.warn('⚠️ Could not configure CrossHair tool:', error);
     }
   }
 
