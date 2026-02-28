@@ -1,6 +1,6 @@
 import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DynamicTrackGeneratorComponent, TrackInfo, TrackCurve } from '../../components/generate-canvas-tracks/dynamic-track-generator.component';
+import { GenerateCanvasTracksComponent, TrackInfo, TrackCurve } from '../../components/generate-canvas-tracks/generate-canvas-tracks.component';
 import { ITracks } from '../../models/tracks.model';
 import { LogHeadersService } from '../../services/log-headers.service';
 
@@ -17,15 +17,14 @@ import { LogHeadersService } from '../../services/log-headers.service';
 @Component({
   selector: 'app-mwd-time',
   standalone: true,
-  imports: [CommonModule, DynamicTrackGeneratorComponent],
+  imports: [CommonModule, GenerateCanvasTracksComponent],
   providers: [LogHeadersService],
   template: `
-    <app-dynamic-track-generator 
+    <app-generate-canvas-tracks 
       [listOfTracks]="combinedTracks"
       [well]="well"
-      [wellbore]="wellbore"
-      [indexType]="'time'">
-    </app-dynamic-track-generator>
+      [wellbore]="wellbore">
+    </app-generate-canvas-tracks>
   `,
   styles: [`:host { display: block; width: 100%; height: 100%; }`]
 })
@@ -46,24 +45,33 @@ export class MwdTimeComponent implements OnInit {
   private initializeTracks(): void {
     this.combinedTracks = [
       {
+        trackNo: 0,
+        trackName: 'Time',
+        trackType: 'Index',
+        trackWidth: 120,
+        isIndex: true,
+        isDepth: false,  // false = time-based, true = depth-based
+        curves: []
+      },
+      {
         trackNo: 1,
-        trackName: 'MWD Gamma Ray (Time)',
+        trackName: 'ROPS (Time)',
         trackType: 'Linear',
         trackWidth: 100,
         isIndex: false,
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'HKHT', // Using available mnemonic instead of GR
-            displayName: 'Gamma Ray',
+            mnemonicId: 'ROPS',
+            displayName: 'Rate of Penetration',
             color: '#E74C3C',
             lineStyle: 'solid',
             lineWidth: 2,
             min: 0,
-            max: 150,
+            max: 80,
             autoScale: false,
             show: true,
-            LogId: 'Surface_Time_RS', // Using your actual LogId
+            LogId: 'Calc_Drilling',
             data: [],
             mnemonicLst: []
           }
@@ -71,23 +79,23 @@ export class MwdTimeComponent implements OnInit {
       },
       {
         trackNo: 2,
-        trackName: 'MWD Resistivity (Time)',
+        trackName: 'ROPSmin (Time)',
         trackType: 'Linear',
         trackWidth: 100,
         isIndex: false,
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'ROP', // Using available mnemonic instead of RT
-            displayName: 'Resistivity',
+            mnemonicId: 'ROPSmin',
+            displayName: 'ROP Smoothed Min',
             color: '#2ECC71',
             lineStyle: 'solid',
             lineWidth: 2,
-            min: 0.1,
-            max: 100,
+            min: 0,
+            max: 60,
             autoScale: false,
             show: true,
-            LogId: 'Surface_Time_RS', // Using your actual LogId
+            LogId: 'Calc_Drilling',
             data: [],
             mnemonicLst: []
           }
@@ -95,47 +103,23 @@ export class MwdTimeComponent implements OnInit {
       },
       {
         trackNo: 3,
-        trackName: 'Bulk Density (Time)',
+        trackName: 'Depth (Time)',
         trackType: 'Linear',
         trackWidth: 100,
         isIndex: false,
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'HKLI', // Using available mnemonic instead of RHOB
-            displayName: 'Bulk Density',
+            mnemonicId: 'Depth',
+            displayName: 'Bit Depth',
             color: '#3498DB',
             lineStyle: 'solid',
             lineWidth: 2,
-            min: 2.0,
-            max: 3.0,
+            min: 13000,
+            max: 15000,
             autoScale: false,
             show: true,
-            LogId: 'Surface_Time_RS', // Using your actual LogId
-            data: [],
-            mnemonicLst: []
-          }
-        ]
-      },
-      {
-        trackNo: 4,
-        trackName: 'PEF (Time)',
-        trackType: 'Linear',
-        trackWidth: 100,
-        isIndex: false,
-        isDepth: false,
-        curves: [
-          {
-            mnemonicId: 'TORQUE', // Using available mnemonic instead of PEF
-            displayName: 'Photoelectric Factor',
-            color: '#9B59B6',
-            lineStyle: 'solid',
-            lineWidth: 2,
-            min: 0,
-            max: 10,
-            autoScale: false,
-            show: true,
-            LogId: 'Surface_Time_RS', // Using your actual LogId
+            LogId: 'Calc_Drilling',
             data: [],
             mnemonicLst: []
           }

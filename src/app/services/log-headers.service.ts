@@ -221,10 +221,61 @@ export class LogHeadersService {
    */
   private sliceLogData(logDataArr: LogData[], startIndex: number, endIndex: number): LogData[] {
     return logDataArr.map(logData => {
+      // Detect if time-based by checking mnemonicList for time columns
+      const mnemonics = logData.mnemonicList.split(',').map(m => m.trim());
+      const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP', 'Time'];
+      const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
+      
+      let indexCol = -1;
+      let isTimeBased = false;
+      
+      // Try depth mnemonics first
+      for (const dm of depthMnemonics) {
+        indexCol = mnemonics.indexOf(dm);
+        if (indexCol !== -1) { isTimeBased = false; break; }
+      }
+      // If no depth, try time mnemonics
+      if (indexCol === -1) {
+        for (const tm of timeMnemonics) {
+          indexCol = mnemonics.indexOf(tm);
+          if (indexCol !== -1) { isTimeBased = true; break; }
+        }
+      }
+      // Fallback to first column as depth
+      if (indexCol === -1) { indexCol = 0; isTimeBased = false; }
+      
+      // Debug: Show the range being requested vs available data
+      if (!isTimeBased && logData.data.length > 0) {
+        const firstRow = logData.data[0].split(',');
+        const lastRow = logData.data[logData.data.length - 1].split(',');
+        const firstDepth = parseFloat(firstRow[indexCol]?.trim());
+        const lastDepth = parseFloat(lastRow[indexCol]?.trim());
+        console.log(`� Depth slicing for ${logData.uid}:`);
+        console.log(`   Requested: ${startIndex} to ${endIndex}`);
+        console.log(`   Available: ${firstDepth} to ${lastDepth}`);
+        console.log(`   Index column: ${mnemonics[indexCol]} at position ${indexCol}`);
+        console.log(`   Total rows: ${logData.data.length}`);
+      }
+      
       const slicedRows = logData.data.filter(row => {
-        const depthVal = parseFloat(row.split(',')[0]);
-        return depthVal >= startIndex && depthVal <= endIndex;
+        const cols = row.split(',');
+        const colStr = cols[indexCol]?.trim();
+        if (!colStr) return false;
+        
+        if (isTimeBased) {
+          const ts = new Date(colStr).getTime();
+          return !isNaN(ts) && ts >= startIndex && ts <= endIndex;
+        } else {
+          const depthVal = parseFloat(colStr);
+          return !isNaN(depthVal) && depthVal >= startIndex && depthVal <= endIndex;
+        }
       });
+      
+      if (isTimeBased) {
+        console.log(`🕐 Time slicing result: ${slicedRows.length} rows from ${logData.data.length} total`);
+      } else {
+        console.log(`📏 Depth slicing result: ${slicedRows.length} rows from ${logData.data.length} total`);
+      }
       
       // Handle office system data format - create startIndex/endIndex if they don't exist
       const startIndexObj = logData.startIndex || { '@uom': 'm', '#text': String(startIndex) };
