@@ -1551,8 +1551,9 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         } else {
           // For curves without explicit limits, calculate reasonable limits from data
           if (curveInfo.data && curveInfo.data.length > 0) {
-            const dataMin = Math.min(...curveInfo.data);
-            const dataMax = Math.max(...curveInfo.data);
+            // Use reduce instead of spread for better performance with large arrays
+            const dataMin = curveInfo.data.reduce((min, val) => val < min ? val : min, curveInfo.data[0]);
+            const dataMax = curveInfo.data.reduce((max, val) => val > max ? val : max, curveInfo.data[0]);
             const dataRange = dataMax - dataMin;
             
             if (Math.abs(dataRange) < 0.1) {
