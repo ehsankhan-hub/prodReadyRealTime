@@ -1509,6 +1509,13 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         console.log(`🔍 Curve ${curveInfo.mnemonicId}: using ${indexData.length} index values`);
         console.log(`📊 Index range: ${indexData[0]} to ${indexData[indexData.length - 1]}`);
         console.log(`📈 Data range: ${curveInfo.data[0]} to ${curveInfo.data[curveInfo.data.length - 1]}`);
+        
+        // Debug: Show sample data values for troubleshooting
+        if (curveInfo.mnemonicId === 'ROP') {
+          console.log(`🔍 ROP raw data sample:`, curveInfo.data.slice(0, 10));
+          console.log(`🔍 ROP non-zero values count:`, curveInfo.data.filter(v => v !== 0).length);
+          console.log(`🔍 ROP unique values:`, [...new Set(curveInfo.data.slice(0, 100))]);
+        }
 
         // Create GeoLogData
         const geoLogData = new GeoLogData(curveInfo.displayName);
@@ -1521,6 +1528,13 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           width: curveInfo.lineWidth,
         });
         curve.setName(curveInfo.displayName);
+        
+        // Debug curve styling
+        console.log(`🎨 Curve ${curveInfo.mnemonicId} styling:`, {
+          color: curveInfo.color,
+          width: curveInfo.lineWidth,
+          displayName: curveInfo.displayName
+        });
 
         // Set normalization limits if not auto scale
         if (!curveInfo.autoScale && curveInfo.min !== undefined && curveInfo.max !== undefined) {
