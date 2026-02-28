@@ -1475,8 +1475,15 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     let isTimeBased = false;
     let indexTrackFound = false;
     
+    // Check if listOfTracks exists and is an array
+    if (!this.listOfTracks || !Array.isArray(this.listOfTracks)) {
+      console.warn('⚠️ listOfTracks is not available - skipping index track creation');
+      return;
+    }
+    
     for (const trackInfo of this.listOfTracks) {
-      if (trackInfo.isIndex) {
+      // Add null check for trackInfo
+      if (trackInfo && trackInfo.isIndex) {
         isTimeBased = !trackInfo.isDepth;
         indexTrackFound = true;
         console.log(`📊 Index track type: ${isTimeBased ? 'Time-based' : 'Depth-based'}`);
@@ -1492,16 +1499,20 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     // Debug: Check actual depth values from WITSML data
     console.log('🔍 Verifying real WITSML depth values...');
     for (const trackInfo of this.listOfTracks) {
-      if (!trackInfo.isIndex && trackInfo.curves.length > 0) {
+      // Add null check for trackInfo
+      if (trackInfo && !trackInfo.isIndex && trackInfo.curves && trackInfo.curves.length > 0) {
         const firstCurve = trackInfo.curves[0];
-        const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
-        if (depthIndices && depthIndices.length > 0) {
-          console.log(`📏 Real WITSML depth values from ${firstCurve.mnemonicId}:`);
-          console.log(`   First depth: ${depthIndices[0]}`);
-          console.log(`   Second depth: ${depthIndices[1]}`);
-          console.log(`   Last depth: ${depthIndices[depthIndices.length - 1]}`);
-          console.log(`   Total points: ${depthIndices.length}`);
-          break;
+        // Add null check for firstCurve
+        if (firstCurve && firstCurve.mnemonicId) {
+          const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
+          if (depthIndices && depthIndices.length > 0) {
+            console.log(`📏 Real WITSML depth values from ${firstCurve.mnemonicId}:`);
+            console.log(`   First depth: ${depthIndices[0]}`);
+            console.log(`   Second depth: ${depthIndices[1]}`);
+            console.log(`   Last depth: ${depthIndices[depthIndices.length - 1]}`);
+            console.log(`   Total points: ${depthIndices.length}`);
+            break;
+          }
         }
       }
     }
@@ -1517,13 +1528,17 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     let fullMaxDepth = 0;
     
     for (const trackInfo of this.listOfTracks) {
-      if (!trackInfo.isIndex && trackInfo.curves.length > 0) {
+      // Add null check for trackInfo
+      if (trackInfo && !trackInfo.isIndex && trackInfo.curves && trackInfo.curves.length > 0) {
         const firstCurve = trackInfo.curves[0];
-        const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
-        if (depthIndices && depthIndices.length > 0) {
-          fullMinDepth = Math.min(fullMinDepth, depthIndices[0]);
-          fullMaxDepth = Math.max(fullMaxDepth, depthIndices[depthIndices.length - 1]);
-          break; // Use first curve to determine full range
+        // Add null check for firstCurve
+        if (firstCurve && firstCurve.mnemonicId) {
+          const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
+          if (depthIndices && depthIndices.length > 0) {
+            fullMinDepth = Math.min(fullMinDepth, depthIndices[0]);
+            fullMaxDepth = Math.max(fullMaxDepth, depthIndices[depthIndices.length - 1]);
+            break; // Use first curve to determine full range
+          }
         }
       }
     }
@@ -1558,41 +1573,6 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
   /**
    * Creates all tracks based on the input track configurations.
    * Iterates through track definitions and creates appropriate track types.
-   * 
-   * @private
-   */
-  private createTracks(): void {
-    // Check if we have an index track configuration before creating index tracks
-    const hasIndexTrack = this.listOfTracks.some(track => track.isIndex);
-    if (hasIndexTrack) {
-      console.log('🎯 Index track configuration found - creating real index tracks from WITSML data');
-      this.createRealIndexTracks();
-    } else {
-      console.log('ℹ️ No index track configuration found - skipping index track creation');
-    }
-    
-    // ================================================
-    // RESPONSIVE WIDTH CALCULATION
-    // Calculate optimal track widths based on number of tracks
-    // ================================================
-    const nonIndexTracks = this.listOfTracks.filter(track => !track.isIndex);
-    const trackCount = nonIndexTracks.length;
-    const responsiveWidth = this.calculateResponsiveTrackWidth(trackCount);
-    console.log(`📏 Responsive width calculation: ${trackCount} tracks → ${responsiveWidth}px each`);
-    
-    this.listOfTracks.forEach((trackInfo, trackIndex) => {
-      try {
-        console.log(`📊 Creating track ${trackIndex + 1}: ${trackInfo.trackName}`);
-        
-        let track: LogTrack;
-        
-        if (trackInfo.isIndex) {
-          // Skip index track creation - it's now created with real WITSML data
-          console.log('⚠️ Skipping index track creation - already created with real WITSML data');
-          return;
-        } else {
-          // Create regular track with RESPONSIVE width
-          track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
           
           // ================================================
