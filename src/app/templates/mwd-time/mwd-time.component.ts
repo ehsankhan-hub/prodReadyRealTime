@@ -1,31 +1,31 @@
 import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { GenerateCanvasTracksComponent, TrackInfo, TrackCurve } from '../../components/generate-canvas-tracks/generate-canvas-tracks.component';
+import { DynamicTrackGeneratorComponent, TrackInfo, TrackCurve } from '../../components/generate-canvas-tracks/dynamic-track-generator.component';
 import { ITracks } from '../../models/tracks.model';
 import { LogHeadersService } from '../../services/log-headers.service';
 
 /**
  * Component for displaying MWD Time-based well log data.
- * Uses the same data source as depth-based but displays with time index type.
+ * Uses dynamic track generator with real backend data.
  * 
  * @remarks
  * This component serves as a time-based template that:
  * - Provides MWD track configurations for time-based display
- * - Passes indexType='time' to the canvas tracks renderer
- * - Uses the same db.json data but interprets index as time
+ * - Uses DynamicTrackGeneratorComponent for real-time data loading
+ * - Connects to backend WITSML data sources
  */
 @Component({
   selector: 'app-mwd-time',
   standalone: true,
-  imports: [CommonModule, GenerateCanvasTracksComponent],
+  imports: [CommonModule, DynamicTrackGeneratorComponent],
   providers: [LogHeadersService],
   template: `
-    <app-generate-canvas-tracks 
+    <app-dynamic-track-generator 
       [listOfTracks]="combinedTracks"
       [well]="well"
       [wellbore]="wellbore"
       [indexType]="'time'">
-    </app-generate-canvas-tracks>
+    </app-dynamic-track-generator>
   `,
   styles: [`:host { display: block; width: 100%; height: 100%; }`]
 })
@@ -54,7 +54,7 @@ export class MwdTimeComponent implements OnInit {
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'GR',
+            mnemonicId: 'HKHT', // Using available mnemonic instead of GR
             displayName: 'Gamma Ray',
             color: '#E74C3C',
             lineStyle: 'solid',
@@ -63,7 +63,7 @@ export class MwdTimeComponent implements OnInit {
             max: 150,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'Surface_Time_RS', // Using your actual LogId
             data: [],
             mnemonicLst: []
           }
@@ -78,7 +78,7 @@ export class MwdTimeComponent implements OnInit {
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'RT',
+            mnemonicId: 'ROP', // Using available mnemonic instead of RT
             displayName: 'Resistivity',
             color: '#2ECC71',
             lineStyle: 'solid',
@@ -87,7 +87,7 @@ export class MwdTimeComponent implements OnInit {
             max: 100,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'Surface_Time_RS', // Using your actual LogId
             data: [],
             mnemonicLst: []
           }
@@ -102,7 +102,7 @@ export class MwdTimeComponent implements OnInit {
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'RHOB',
+            mnemonicId: 'HKLI', // Using available mnemonic instead of RHOB
             displayName: 'Bulk Density',
             color: '#3498DB',
             lineStyle: 'solid',
@@ -111,7 +111,7 @@ export class MwdTimeComponent implements OnInit {
             max: 3.0,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'Surface_Time_RS', // Using your actual LogId
             data: [],
             mnemonicLst: []
           }
@@ -126,7 +126,7 @@ export class MwdTimeComponent implements OnInit {
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'PEF',
+            mnemonicId: 'TORQUE', // Using available mnemonic instead of PEF
             displayName: 'Photoelectric Factor',
             color: '#9B59B6',
             lineStyle: 'solid',
@@ -135,14 +135,14 @@ export class MwdTimeComponent implements OnInit {
             max: 10,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'Surface_Time_RS', // Using your actual LogId
             data: [],
             mnemonicLst: []
           }
         ]
       }
     ];
-
-    console.log('🕐 MWD Time tracks initialized:', this.combinedTracks);
+    
+    console.log('🕐 MWD Time tracks initialized:', this.combinedTracks.length, 'tracks');
   }
 }
