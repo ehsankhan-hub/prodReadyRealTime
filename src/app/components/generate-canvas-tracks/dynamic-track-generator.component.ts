@@ -443,18 +443,43 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     console.log('mnemonics ----', mnemonics);
     const curveIndex = mnemonics.findIndex((m: any) => m.trim() === curve.mnemonicId);
     
-    // Try to find time index - look for common time-based mnemonics
-    const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP', 'DEPTH', 'MWD_Depth'];
-    let timeIndex = -1;
-    for (const timeMnemonic of timeMnemonics) {
-      timeIndex = mnemonics.findIndex((m: any) => m.trim() === timeMnemonic);
-      if (timeIndex !== -1) {
-        console.log(`🕐 Found time index: ${timeMnemonic} at position ${timeIndex}`);
+    // Determine if index is depth-based or time-based
+    const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
+    const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP'];
+    
+    let indexColIdx = -1;
+    let isDepthIndex = false;
+    
+    // First try depth mnemonics
+    for (const dm of depthMnemonics) {
+      indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
+      if (indexColIdx !== -1) {
+        isDepthIndex = true;
+        console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
         break;
       }
     }
     
-    console.log(`🔍 Parsing ${curve.mnemonicId}: curveIndex=${curveIndex}, timeIndex=${timeIndex}, dataRows=${innerLogData.data.length}`);
+    // If no depth index found, try time mnemonics
+    if (indexColIdx === -1) {
+      for (const tm of timeMnemonics) {
+        indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
+        if (indexColIdx !== -1) {
+          isDepthIndex = false;
+          console.log(`🕐 Found time index: ${tm} at position ${indexColIdx}`);
+          break;
+        }
+      }
+    }
+    
+    // Fallback: use first column
+    if (indexColIdx === -1) {
+      indexColIdx = 0;
+      isDepthIndex = true;
+      console.warn('⚠️ No index column found, defaulting to first column as depth');
+    }
+    
+    console.log(`🔍 Parsing ${curve.mnemonicId}: curveIndex=${curveIndex}, indexCol=${indexColIdx}, isDepth=${isDepthIndex}, dataRows=${innerLogData.data.length}`);
     
     if (curveIndex === -1) {
       console.warn('⚠️ Mnemonic not found:', curve.mnemonicId, '| Available:', mnemonics);
@@ -467,45 +492,50 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
       return;
     }
 
-    const times: number[] = [];
+    const indexValues: number[] = [];
     const values: number[] = [];
 
     innerLogData.data.forEach((dataRow: any) => {
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
         const value = parseFloat(cols[curveIndex]);
-        const timeString = timeIndex >= 0 ? cols[timeIndex] : null;
+        const indexStr = indexColIdx >= 0 ? cols[indexColIdx] : null;
         
-        // Convert time string to timestamp (milliseconds since epoch)
-        let timeValue = NaN;
-        if (timeString) {
-          try {
-            timeValue = new Date(timeString).getTime();
-          } catch (e) {
-            console.warn('⚠️ Invalid time format:', timeString);
+        let indexValue = NaN;
+        if (indexStr) {
+          if (isDepthIndex) {
+            // Depth-based: parse as a plain number
+            indexValue = parseFloat(indexStr);
+          } else {
+            // Time-based: convert ISO string to timestamp
+            try {
+              indexValue = new Date(indexStr).getTime();
+            } catch (e) {
+              console.warn('⚠️ Invalid time format:', indexStr);
+            }
           }
         }
         
-        if (!isNaN(value) && !isNaN(timeValue)) {
-          times.push(timeValue);
+        if (!isNaN(value) && !isNaN(indexValue)) {
+          indexValues.push(indexValue);
           values.push(value);
         }
       }
     });
 
     curve.data = values;
-    this.curveDepthIndices.set(curve.mnemonicId, times); // Store times instead of depths
+    this.curveDepthIndices.set(curve.mnemonicId, indexValues);
 
-    // Track loaded range
-    if (times.length > 0) {
+    // Track loaded range using actual index values (depth or time)
+    if (indexValues.length > 0) {
       this.loadedRanges.set(curve.mnemonicId, {
-        min: times[0],
-        max: times[times.length - 1],
+        min: indexValues[0],
+        max: indexValues[indexValues.length - 1],
       });
     }
 
-    console.log('✅ Parsed data for curve:', curve.mnemonicId, values.length, 'points',
-      times.length > 0 ? `time range: ${times[0]}-${times[times.length - 1]}` : '');
+    console.log(`✅ Parsed data for curve: ${curve.mnemonicId} ${values.length} points`,
+      indexValues.length > 0 ? `${isDepthIndex ? 'depth' : 'time'} range: ${indexValues[0]}-${indexValues[indexValues.length - 1]}` : '');
 
     // Only decrement pending loads when called directly (not from group loader)
     if (decrementPending) {
@@ -831,18 +861,41 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   private appendChunkData(logData: any, curve: TrackCurve): void {
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
-    const depthIdx = mnemonics.findIndex((m: string) => m.trim() === 'DEPTH');
-    if (curveIndex === -1 || depthIdx === -1) return;
+    
+    // Find index column: try depth mnemonics first, then time mnemonics
+    const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
+    const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP'];
+    let indexIdx = -1;
+    let isDepthIdx = false;
+    
+    for (const dm of depthMnemonics) {
+      indexIdx = mnemonics.findIndex((m: string) => m.trim() === dm);
+      if (indexIdx !== -1) { isDepthIdx = true; break; }
+    }
+    if (indexIdx === -1) {
+      for (const tm of timeMnemonics) {
+        indexIdx = mnemonics.findIndex((m: string) => m.trim() === tm);
+        if (indexIdx !== -1) { isDepthIdx = false; break; }
+      }
+    }
+    if (indexIdx === -1) { indexIdx = 0; isDepthIdx = true; }
+    
+    if (curveIndex === -1) return;
 
     const newDepths: number[] = [];
     const newValues: number[] = [];
 
     logData.data.forEach((row: string) => {
       const cols = row.split(',');
-      const depth = parseFloat(cols[depthIdx]);
+      let indexValue: number;
+      if (isDepthIdx) {
+        indexValue = parseFloat(cols[indexIdx]);
+      } else {
+        try { indexValue = new Date(cols[indexIdx]).getTime(); } catch (e) { indexValue = NaN; }
+      }
       const value = parseFloat(cols[curveIndex]);
-      if (!isNaN(depth) && !isNaN(value)) {
-        newDepths.push(depth);
+      if (!isNaN(indexValue) && !isNaN(value)) {
+        newDepths.push(indexValue);
         newValues.push(value);
       }
     });
