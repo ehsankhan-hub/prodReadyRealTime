@@ -442,7 +442,17 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     const mnemonics = innerLogData.mnemonicList.split(',');
     console.log('mnemonics ----', mnemonics);
     const curveIndex = mnemonics.findIndex((m: any) => m.trim() === curve.mnemonicId);
-    const timeIndex = mnemonics.findIndex((m: any) => m.trim() === 'MWD_Depth'); // Changed from DEPTH to MWD_Depth
+    
+    // Try to find time index - look for common time-based mnemonics
+    const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP', 'DEPTH', 'MWD_Depth'];
+    let timeIndex = -1;
+    for (const timeMnemonic of timeMnemonics) {
+      timeIndex = mnemonics.findIndex((m: any) => m.trim() === timeMnemonic);
+      if (timeIndex !== -1) {
+        console.log(`🕐 Found time index: ${timeMnemonic} at position ${timeIndex}`);
+        break;
+      }
+    }
     
     console.log(`🔍 Parsing ${curve.mnemonicId}: curveIndex=${curveIndex}, timeIndex=${timeIndex}, dataRows=${innerLogData.data.length}`);
     
