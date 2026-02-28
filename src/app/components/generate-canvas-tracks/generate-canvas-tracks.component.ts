@@ -983,7 +983,27 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     // Update index track to show full scale
     if (fullMinDepth !== Number.MAX_VALUE && fullMaxDepth !== Number.MIN_VALUE) {
       console.log(`📏 Updating index track full scale: ${fullMinDepth} to ${fullMaxDepth}`);
-      (indexTrack as any).setDepthLimits?.(fullMinDepth, fullMaxDepth);
+      try {
+        // Try different methods for setting depth limits based on GeoToolkit version
+        if (indexTrack.setDepthLimits && typeof indexTrack.setDepthLimits === 'function') {
+          // Standard method
+          indexTrack.setDepthLimits(fullMinDepth, fullMaxDepth);
+        }
+        else if ((indexTrack as any).setLimits && typeof (indexTrack as any).setLimits === 'function') {
+          // Alternative method
+          (indexTrack as any).setLimits(fullMinDepth, fullMaxDepth);
+        }
+        else if ((indexTrack as any).setRange && typeof (indexTrack as any).setRange === 'function') {
+          // Another alternative method
+          (indexTrack as any).setRange(fullMinDepth, fullMaxDepth);
+        }
+        else {
+          console.warn('⚠️ No suitable method found to set depth limits on index track');
+          console.log('🔍 Available methods:', Object.getOwnPropertyNames(indexTrack));
+        }
+      } catch (error) {
+        console.warn('⚠️ Error setting depth limits on index track:', error);
+      }
     }
   }
 
