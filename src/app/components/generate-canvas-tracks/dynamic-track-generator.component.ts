@@ -1545,14 +1545,6 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     });
   }
 
-        console.log(`✅ Curve ${curveInfo.mnemonicId} created successfully`);
-
-      } catch (error) {
-        console.error(`❌ Error creating curve ${curveInfo.mnemonicId}:`, error);
-      }
-    });
-  }
-
   /**
    * Calculates the maximum depth based on loaded curve data.
    * Finds the curve with the deepest data point.
