@@ -911,15 +911,18 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         for (let i = 0; i < trackCount; i++) {
           try {
             const track = (this.wellLogWidget as any).getTrack(i);
-            if (track && track.getName) {
+            console.log(`🔍 Track ${i}:`, track);
+            
+            if (track && typeof track === 'object' && track.getName) {
               const trackName = track.getName?.() || '';
-              console.log(`🔍 Track ${i}: ${trackName}`);
+              console.log(`🔍 Track ${i} name: ${trackName}`);
               if (trackName === 'Depth' || trackName === 'Time') {
+                console.log(`✅ Found index track at position ${i}: ${trackName}`);
                 indexTrack = track;
                 break;
               }
             } else {
-              console.log(`⚠️ Track ${i} is undefined or invalid`);
+              console.log(`⚠️ Track ${i} is undefined or invalid (type: ${typeof track})`);
             }
           } catch (trackError) {
             console.warn(`⚠️ Error getting track ${i}:`, trackError);
@@ -957,11 +960,19 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     }
     
     if (!indexTrack) {
-      console.log('ℹ️ No index track found');
+      console.log('ℹ️ No index track found, skipping depth limits update');
       return;
     }
     
     console.log('✅ Found index track:', indexTrack);
+    console.log('🔍 Index track type:', typeof indexTrack);
+    console.log('🔍 Index track methods:', Object.getOwnPropertyNames(indexTrack));
+    
+    // Verify the index track has the expected methods before proceeding
+    if (!indexTrack || typeof indexTrack !== 'object') {
+      console.warn('⚠️ Invalid index track object');
+      return;
+    }
     
     // Get the full depth range from all loaded data
     let fullMinDepth = Number.MAX_VALUE;
