@@ -893,6 +893,12 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   private updateIndexTrackScale(): void {
     if (!this.wellLogWidget) return;
     
+    // Check if getTracks method exists in this GeoToolkit version
+    if (typeof (this.wellLogWidget as any).getTracks !== 'function') {
+      console.warn('⚠️ getTracks() method not available in this GeoToolkit version - skipping index track scale update');
+      return;
+    }
+    
     // Find the index track - handle different GeoToolkit versions
     let indexTrack = null;
     
