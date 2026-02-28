@@ -1506,6 +1506,10 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         const indexData = this.curveDepthIndices.get(curveInfo.mnemonicId)
           || this.generateIndexData(curveInfo.data.length);
 
+        console.log(`🔍 Curve ${curveInfo.mnemonicId}: using ${indexData.length} index values`);
+        console.log(`📊 Index range: ${indexData[0]} to ${indexData[indexData.length - 1]}`);
+        console.log(`📈 Data range: ${curveInfo.data[0]} to ${curveInfo.data[curveInfo.data.length - 1]}`);
+
         // Create GeoLogData
         const geoLogData = new GeoLogData(curveInfo.displayName);
         geoLogData.setValues(indexData, curveInfo.data);
@@ -1531,6 +1535,15 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           info: curveInfo,
           trackName: trackInfo.trackName,
         });
+
+        console.log(`✅ Curve ${curveInfo.mnemonicId} created successfully`);
+        console.log(`📊 Curve ${curveInfo.mnemonicId}: ${curveInfo.data.length} points added to track ${trackInfo.trackName}`);
+
+      } catch (error) {
+        console.error(`❌ Error creating curve ${curveInfo.mnemonicId}:`, error);
+      }
+    });
+  }
 
         console.log(`✅ Curve ${curveInfo.mnemonicId} created successfully`);
 
