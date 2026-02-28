@@ -919,8 +919,9 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
             const track = (this.wellLogWidget as any).getTrack(i);
             console.log(`🔍 Track ${i}:`, track);
             
-            if (track && typeof track === 'object' && track.getName) {
-              const trackName = track.getName?.() || '';
+            if (track && typeof track === 'object') {
+              // Check if track has getName method before calling it
+              const trackName = (track.getName && typeof track.getName === 'function') ? track.getName() : '';
               console.log(`🔍 Track ${i} name: ${trackName}`);
               
               // Check for various index track names (depth-based and time-based)
@@ -933,7 +934,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
               
               // Fallback: check track type properties if available
               if (!isIndexTrack) {
-                const trackType = (track as any).getType?.() || (track as any).getTrackType?.() || '';
+                const trackType = (track.getType && typeof track.getType === 'function') ? track.getType() : 
+                                 (track.getTrackType && typeof track.getTrackType === 'function') ? track.getTrackType() : '';
                 console.log(`🔍 Track ${i} type: ${trackType}`);
                 
                 isIndexTrack = trackType === 'Index' || 
@@ -943,8 +945,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
               
               // Additional fallback: check if it's an index track by its properties
               if (!isIndexTrack) {
-                const isIndexType = (track as any).isIndex || (track as any).getIsIndex?.();
-                const isDepthType = (track as any).isDepth || (track as any).getIsDepth?.();
+                const isIndexType = track.isIndex || (track.getIsIndex && typeof track.getIsIndex === 'function' ? track.getIsIndex() : false);
+                const isDepthType = track.isDepth || (track.getIsDepth && typeof track.getIsDepth === 'function' ? track.getIsDepth() : false);
                 console.log(`🔍 Track ${i} properties: isIndex=${isIndexType}, isDepth=${isDepthType}`);
                 
                 isIndexTrack = isIndexType === true;
