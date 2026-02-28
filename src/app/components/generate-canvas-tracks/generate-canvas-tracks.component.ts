@@ -922,7 +922,35 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
             if (track && typeof track === 'object' && track.getName) {
               const trackName = track.getName?.() || '';
               console.log(`🔍 Track ${i} name: ${trackName}`);
-              if (trackName === 'Depth' || trackName === 'Time') {
+              
+              // Check for various index track names (depth-based and time-based)
+              let isIndexTrack = trackName === 'Depth' || 
+                                trackName === 'Time' || 
+                                trackName === 'Index' ||
+                                trackName.toLowerCase().includes('depth') ||
+                                trackName.toLowerCase().includes('time') ||
+                                trackName.toLowerCase().includes('index');
+              
+              // Fallback: check track type properties if available
+              if (!isIndexTrack) {
+                const trackType = (track as any).getType?.() || (track as any).getTrackType?.() || '';
+                console.log(`🔍 Track ${i} type: ${trackType}`);
+                
+                isIndexTrack = trackType === 'Index' || 
+                              trackType === 'IndexTrack' ||
+                              trackType.toLowerCase().includes('index');
+              }
+              
+              // Additional fallback: check if it's an index track by its properties
+              if (!isIndexTrack) {
+                const isIndexType = (track as any).isIndex || (track as any).getIsIndex?.();
+                const isDepthType = (track as any).isDepth || (track as any).getIsDepth?.();
+                console.log(`🔍 Track ${i} properties: isIndex=${isIndexType}, isDepth=${isDepthType}`);
+                
+                isIndexTrack = isIndexType === true;
+              }
+              
+              if (isIndexTrack) {
                 console.log(`✅ Found index track at position ${i}: ${trackName}`);
                 indexTrack = track;
                 break;
