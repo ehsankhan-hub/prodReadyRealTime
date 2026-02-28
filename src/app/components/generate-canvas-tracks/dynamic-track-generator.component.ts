@@ -909,14 +909,20 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         const trackCount = tracksResult;
         
         for (let i = 0; i < trackCount; i++) {
-          const track = (this.wellLogWidget as any).getTrack(i);
-          if (track) {
-            const trackName = track.getName?.() || '';
-            console.log(`🔍 Track ${i}: ${trackName}`);
-            if (trackName === 'Depth' || trackName === 'Time') {
-              indexTrack = track;
-              break;
+          try {
+            const track = (this.wellLogWidget as any).getTrack(i);
+            if (track && track.getName) {
+              const trackName = track.getName?.() || '';
+              console.log(`🔍 Track ${i}: ${trackName}`);
+              if (trackName === 'Depth' || trackName === 'Time') {
+                indexTrack = track;
+                break;
+              }
+            } else {
+              console.log(`⚠️ Track ${i} is undefined or invalid`);
             }
+          } catch (trackError) {
+            console.warn(`⚠️ Error getting track ${i}:`, trackError);
           }
         }
       }
