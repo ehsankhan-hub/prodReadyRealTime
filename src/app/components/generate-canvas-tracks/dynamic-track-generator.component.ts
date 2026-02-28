@@ -1549,9 +1549,25 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
             curve.setNormalizationLimits(curveInfo.min, curveInfo.max);
           }
         } else {
-          // Force auto-scale for all curves to ensure visibility
-          curve.setAutoScale(true);
-          console.log(`🔧 Auto-scale enabled for ${curveInfo.mnemonicId}`);
+          // For curves without explicit limits, calculate reasonable limits from data
+          if (curveInfo.data && curveInfo.data.length > 0) {
+            const dataMin = Math.min(...curveInfo.data);
+            const dataMax = Math.max(...curveInfo.data);
+            const dataRange = dataMax - dataMin;
+            
+            if (Math.abs(dataRange) < 0.1) {
+              // Expand small ranges for visibility
+              const center = (dataMin + dataMax) / 2;
+              const expandedRange = Math.max(1.0, Math.abs(center) * 0.1);
+              curve.setNormalizationLimits(center - expandedRange/2, center + expandedRange/2);
+              console.log(`🔧 Auto-expanded range for ${curveInfo.mnemonicId}: ${center - expandedRange/2} to ${center + expandedRange/2}`);
+            } else {
+              // Use actual data range with 10% padding
+              const padding = dataRange * 0.1;
+              curve.setNormalizationLimits(dataMin - padding, dataMax + padding);
+              console.log(`🔧 Auto-scaled range for ${curveInfo.mnemonicId}: ${dataMin - padding} to ${dataMax + padding}`);
+            }
+          }
         }
 
         track.addChild(curve);
