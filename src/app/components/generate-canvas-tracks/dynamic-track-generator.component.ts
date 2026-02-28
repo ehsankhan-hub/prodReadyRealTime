@@ -1583,8 +1583,15 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     let isTimeBased = false;
     let indexTrackFound = false;
     
+    // Check if listOfTracks exists and is an array
+    if (!this.listOfTracks || !Array.isArray(this.listOfTracks)) {
+      console.warn('⚠️ listOfTracks is not available - skipping index track creation');
+      return;
+    }
+    
     for (const trackInfo of this.listOfTracks) {
-      if (trackInfo.isIndex) {
+      // Add null check for trackInfo
+      if (trackInfo && trackInfo.isIndex) {
         isTimeBased = !trackInfo.isDepth;
         indexTrackFound = true;
         console.log(`📊 Index track type: ${isTimeBased ? 'Time-based' : 'Depth-based'}`);
@@ -1600,14 +1607,18 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     // Debug: Check actual depth values from backend data
     console.log('🔍 Verifying real backend depth values...');
     for (const trackInfo of this.listOfTracks) {
-      if (!trackInfo.isIndex && trackInfo.curves.length > 0) {
+      // Add null check for trackInfo
+      if (trackInfo && !trackInfo.isIndex && trackInfo.curves && trackInfo.curves.length > 0) {
         const firstCurve = trackInfo.curves[0];
-        const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
-        if (depthIndices && depthIndices.length > 0) {
-          console.log(`📏 Real backend depth values from ${firstCurve.mnemonicId}:`);
-          console.log(`  First depth: ${depthIndices[0]}, Last depth: ${depthIndices[depthIndices.length - 1]}`);
-          console.log(`  Total points: ${depthIndices.length}`);
-          break;
+        // Add null check for firstCurve
+        if (firstCurve && firstCurve.mnemonicId) {
+          const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
+          if (depthIndices && depthIndices.length > 0) {
+            console.log(`📏 Real backend depth values from ${firstCurve.mnemonicId}:`);
+            console.log(`  First depth: ${depthIndices[0]}, Last depth: ${depthIndices[depthIndices.length - 1]}`);
+            console.log(`  Total points: ${depthIndices.length}`);
+            break;
+          }
         }
       }
     }
@@ -1627,13 +1638,17 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     // Previous version only checked first track which caused other tracks to become invisible
     // ================================================
     for (const trackInfo of this.listOfTracks) {
-      if (!trackInfo.isIndex && trackInfo.curves.length > 0) {
+      // Add null check for trackInfo
+      if (trackInfo && !trackInfo.isIndex && trackInfo.curves && trackInfo.curves.length > 0) {
         for (const curve of trackInfo.curves) {
-          const depthIndices = this.curveDepthIndices.get(curve.mnemonicId);
-          if (depthIndices && depthIndices.length > 0) {
-            fullMinDepth = Math.min(fullMinDepth, depthIndices[0]);
-            fullMaxDepth = Math.max(fullMaxDepth, depthIndices[depthIndices.length - 1]);
-            console.log(`📏 Track ${trackInfo.trackName}, Curve ${curve.mnemonicId}: depth range ${depthIndices[0]}-${depthIndices[depthIndices.length - 1]}`);
+          // Add null check for curve
+          if (curve && curve.mnemonicId) {
+            const depthIndices = this.curveDepthIndices.get(curve.mnemonicId);
+            if (depthIndices && depthIndices.length > 0) {
+              fullMinDepth = Math.min(fullMinDepth, depthIndices[0]);
+              fullMaxDepth = Math.max(fullMaxDepth, depthIndices[depthIndices.length - 1]);
+              console.log(`📏 Track ${trackInfo.trackName}, Curve ${curve.mnemonicId}: depth range ${depthIndices[0]}-${depthIndices[depthIndices.length - 1]}`);
+            }
           }
         }
       }
