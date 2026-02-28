@@ -542,7 +542,7 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       // Create WellLogWidget
       this.wellLogWidget = new WellLogWidget({
         indextype: IndexType.Depth,
-        indexunit: 'm',
+        indexunit: 'ft',
         horizontalscrollable: false,
         verticalscrollable: true,
         header: {
@@ -592,8 +592,27 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
 
           this.wellLogWidget.updateLayout();
 
-          // Configure crosshair for tooltip
-          this.configureCrossHair();
+          // Configure crosshair for tooltip - DELAYED to ensure all data is fully initialized
+          setTimeout(() => {
+            // Force widget update to ensure all curves are properly attached
+            console.log('🔄 Forcing widget update before crosshair setup...');
+            this.wellLogWidget.updateLayout();
+            
+            // Check curve data status
+            console.log('📊 Checking curve data status...');
+            this.curveMap.forEach((entry, mnemonic) => {
+              const { logCurve } = entry;
+              if (logCurve && logCurve.getDataSource) {
+                const dataSource = logCurve.getDataSource();
+                const size = dataSource ? dataSource.getSize() : 0;
+                console.log(`📊 Curve ${mnemonic}: dataSource=${!!dataSource}, size=${size}`);
+              }
+            });
+            
+            // Now configure crosshair after ensuring data is ready
+            console.log('🎯 Configuring crosshair after widget update...');
+            this.configureCrossHair();
+          }, 1000);
 
           // Configure scroll-based lazy loading
           this.configureScrollLazyLoad();
@@ -880,48 +899,69 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    * @private
    */
   private updateIndexTrackScale(): void {
-    // Find the index track
-    const tracksIterable = (this.wellLogWidget.getTracks() as any);
+    // Find the index track - handle different GeoToolkit versions
     let indexTrack = null;
     
-    // Convert to array for easier iteration - handle different return types
-    const tracks: LogTrack[] = [];
     try {
-      if (tracksIterable && typeof tracksIterable.forEach === 'function') {
-        // It's array-like or has forEach
-        tracksIterable.forEach((track: any) => tracks.push(track));
-      } else if (tracksIterable && typeof tracksIterable.length === 'number') {
-        // It's array-like with length property
-        for (let i = 0; i < tracksIterable.length; i++) {
-          tracks.push(tracksIterable[i]);
+      // GeoToolkit 4.1.41: getTracks() returns a number (count)
+      // GeoToolkit 5.0.58: getTracks() returns an iterable collection
+      const tracksResult = (this.wellLogWidget as any).getTracks();
+      
+      console.log('🔍 getTracks() returned:', typeof tracksResult, tracksResult);
+      
+      if (typeof tracksResult === 'number') {
+        // GeoToolkit 4.1.41 - getTracks() returns count, need to use getTrack(index)
+        console.log('📋 Using GeoToolkit 4.1.41 approach (getTrack by index)');
+        const trackCount = tracksResult;
+        
+        for (let i = 0; i < trackCount; i++) {
+          const track = (this.wellLogWidget as any).getTrack(i);
+          if (track) {
+            const trackName = track.getName?.() || '';
+            console.log(`🔍 Track ${i}: ${trackName}`);
+            if (trackName === 'Depth' || trackName === 'Time') {
+              indexTrack = track;
+              break;
+            }
+          }
         }
-      } else if (tracksIterable && typeof tracksIterable[Symbol.iterator] === 'function') {
-        // It's iterable
-        for (const track of tracksIterable) {
-          tracks.push(track);
+      }
+      else if (tracksResult && typeof tracksResult.forEach === 'function') {
+        // GeoToolkit 5.0.58+ - getTracks() returns iterable
+        console.log('📋 Using GeoToolkit 5.0.58+ approach (forEach)');
+        tracksResult.forEach((track: any) => {
+          const trackName = track.getName?.() || '';
+          if (trackName === 'Depth' || trackName === 'Time') {
+            indexTrack = track;
+          }
+        });
+      }
+      else if (Array.isArray(tracksResult)) {
+        // Simple array
+        console.log('📋 Using array approach');
+        for (const track of tracksResult) {
+          const trackName = track.getName?.() || '';
+          if (trackName === 'Depth' || trackName === 'Time') {
+            indexTrack = track;
+            break;
+          }
         }
-      } else {
-        console.warn('⚠️ getTracks() returned non-iterable object:', tracksIterable);
+      }
+      else {
+        console.warn('⚠️ Unknown tracks result type:', typeof tracksResult, tracksResult);
         return;
       }
     } catch (error) {
-      console.error('❌ Error iterating tracks:', error);
+      console.warn('⚠️ Error getting tracks in updateIndexTrackScale:', error);
       return;
     }
     
-    // Iterate through tracks using array methods
-    for (let i = 0; i < tracks.length; i++) {
-      const track = tracks[i];
-      // Check if this is an index track by its name (typically "Depth" or "Time")
-      const trackName = (track as any).getName?.() || '';
-      if (trackName === 'Depth' || trackName === 'Time') {
-        indexTrack = track;
-        break;
-      }
-    }
     if (!indexTrack) {
+      console.log('ℹ️ No index track found');
       return;
     }
+    
+    console.log('✅ Found index track:', indexTrack);
     
     // Get the full depth range from all loaded data
     let fullMinDepth = Number.MAX_VALUE;
@@ -1153,15 +1193,16 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
               try {
                 const dataSource = logCurve.getDataSource();
                 if (dataSource) {
-                  const rawValue = dataSource.getValueAt(
-                    depth, 0, dataSource.getSize(), logCurve.getInterpolationType()
-                  );
-                  if (rawValue != null && !isNaN(rawValue) && isFinite(rawValue)) {
-                    value = rawValue;
+                  const dataSize = dataSource.getSize();
+                  
+                  // Try NaN approach first since that was working
+                  const nanResult = dataSource.getValueAt(NaN, 0, dataSize, logCurve.getInterpolationType());
+                  if (nanResult != null && !isNaN(nanResult) && isFinite(nanResult)) {
+                    value = nanResult;
                   }
                 }
-              } catch (_) {
-                // Data not available at this depth
+              } catch (error) {
+                // Silently handle tooltip errors to not break scrolling
               }
 
               curveValues.push({
@@ -1463,6 +1504,15 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       console.log('ℹ️ No index track configuration found - skipping index track creation');
     }
     
+    // ================================================
+    // RESPONSIVE WIDTH CALCULATION
+    // Calculate optimal track widths based on number of tracks
+    // ================================================
+    const nonIndexTracks = this.listOfTracks.filter(track => !track.isIndex);
+    const trackCount = nonIndexTracks.length;
+    const responsiveWidth = this.calculateResponsiveTrackWidth(trackCount);
+    console.log(`📏 Responsive width calculation: ${trackCount} tracks → ${responsiveWidth}px each`);
+    
     this.listOfTracks.forEach((trackInfo, trackIndex) => {
       try {
         console.log(`📊 Creating track ${trackIndex + 1}: ${trackInfo.trackName}`);
@@ -1474,10 +1524,17 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
           console.log('⚠️ Skipping index track creation - already created with real WITSML data');
           return;
         } else {
-          // Create regular track
+          // Create regular track with RESPONSIVE width
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
-          track.setWidth(trackInfo.trackWidth || 100);
+          
+          // ================================================
+          // APPLY RESPONSIVE WIDTH
+          // PRIORITIZE responsive width over configured width for optimal display
+          // ================================================
+          const finalWidth = responsiveWidth; // Always use responsive width
+          track.setWidth(finalWidth);
+          console.log(`📏 Track ${trackInfo.trackName}: width=${finalWidth}px (responsive: ${responsiveWidth}px, original: ${trackInfo.trackWidth || 'not set'}px)`);
         }
 
         // Create curves for this track
@@ -1585,6 +1642,32 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    */
   private generateIndexData(count: number): number[] {
     return Array.from({ length: count }, (_, i) => i * 1); // 1 meter per point
+  }
+
+  /**
+   * Calculates responsive track width based on the number of tracks.
+   * Ensures optimal space utilization for different track configurations.
+   * 
+   * @param trackCount - Number of non-index tracks
+   * @returns Optimal width in pixels for each track
+   * @private
+   */
+  private calculateResponsiveTrackWidth(trackCount: number): number {
+    // ================================================
+    // RESPONSIVE WIDTH RULES - FULL WIDTH UTILIZATION
+    // Use maximum available space - tracks will take remaining full width
+    // ================================================
+    
+    if (trackCount === 0) return 100;                    // Default fallback
+    if (trackCount === 1) return 1200;                  // Single track takes full width
+    if (trackCount === 2) return 600;                   // Two tracks split full width
+    if (trackCount === 3) return 400;                   // Three tracks share full width
+    if (trackCount === 4) return 350;                   // Four tracks get large space
+    if (trackCount === 5) return 320;                   // Five tracks take most of full width
+    if (trackCount === 6) return 300;                   // Six tracks get good space
+    
+    // For 7+ tracks, use minimal width to fit all
+    return Math.max(200, Math.floor(1400 / trackCount));
   }
 
   // Public methods for external control

@@ -192,7 +192,7 @@ export class LogHeadersService {
     console.log(`🌐 Fetching FULL logData for ${logId} (will cache for future chunk requests)`);
     const shared$ = this.http.get(`${this.baseUrl}/logData`).pipe(
       map((allData: any) => {
-        const filtered = allData.logs.filter((d: LogData) =>
+        const filtered = allData.filter((d: LogData) =>
           d.uidWell === well && d.uidWellbore === wellbore && d.uid === logId
         );
         // Store full dataset in cache

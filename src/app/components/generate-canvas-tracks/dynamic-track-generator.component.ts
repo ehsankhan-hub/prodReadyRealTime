@@ -509,6 +509,51 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   }
 
   /**
+   * AUTO-DETECTION: Determines if the loaded data is time-based or depth-based.
+   * Checks multiple sources to make the best determination:
+   * 1. Track configuration (isIndex track marked as non-depth)
+   * 2. Log header metadata (indexType contains 'time' or indexCurve contains 'time')
+   * 3. Defaults to depth-based if no time indicators found
+   * 
+   * @returns true if data is time-based, false if depth-based
+   * @private
+   */
+  private detectTimeBasedData(): boolean {
+    // ================================================
+    // METHOD 1: Check track configuration for time-based index track
+    // ================================================
+    const hasTimeIndexTrack = this.listOfTracks.some(track => 
+      track.isIndex && !track.isDepth
+    );
+    
+    if (hasTimeIndexTrack) {
+      console.log('🕐 Time-based data detected from track configuration (isIndex && !isDepth)');
+      return true;
+    }
+    
+    // ================================================
+    // METHOD 2: Check log header metadata for time indicators
+    // ================================================
+    if (this.cachedHeaders.length > 0) {
+      const firstHeader = this.cachedHeaders[0];
+      const indexTypeHasTime = firstHeader?.indexType?.toLowerCase().includes('time');
+      const indexCurveHasTime = firstHeader?.indexCurve?.toLowerCase().includes('time');
+      
+      if (indexTypeHasTime || indexCurveHasTime) {
+        console.log('🕐 Time-based data detected from log header metadata');
+        console.log(`   indexType: ${firstHeader?.indexType}, indexCurve: ${firstHeader?.indexCurve}`);
+        return true;
+      }
+    }
+    
+    // ================================================
+    // DEFAULT: Assume depth-based if no time indicators found
+    // ================================================
+    console.log('📏 Depth-based data assumed (no time indicators found)');
+    return false;
+  }
+
+  /**
    * Creates the scene with loaded data and sets proper depth limits.
    * Called after all data has been loaded to ensure data is available.
    * 
@@ -520,10 +565,17 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
 
       this.curveMap.clear();
 
-      // Create WellLogWidget
+      // ================================================
+      // AUTO-DETECTION: Determine if data is time-based or depth-based
+      // This allows one component to handle both data types dynamically
+      // ================================================
+      const isTimeBased = this.detectTimeBasedData();
+      console.log(`🔍 Data type detected: ${isTimeBased ? 'TIME-based' : 'DEPTH-based'}`);
+
+      // Create WellLogWidget with dynamic configuration
       this.wellLogWidget = new WellLogWidget({
-        indextype: IndexType.Time,  // Changed to Time for MWD_Depth data
-        indexunit: 's',             // Changed to seconds for time-based data
+        indextype: isTimeBased ? IndexType.Time : IndexType.Depth,  // Dynamic: Time or Depth
+        indexunit: isTimeBased ? 's' : 'ft',                        // Dynamic: seconds or feet
         horizontalscrollable: false,
         verticalscrollable: true,
         header: {
@@ -541,9 +593,22 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
       });
 
       // Create index track first to ensure it's always visible
-      const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
-      indexTrack.setWidth(60);
-      indexTrack.setName('Depth');
+      
+      // ================================================
+      // BACKEND DRIVEN INDEX TRACK CREATION
+      // Index depth calculation from backend service not GeoToolkit default
+      // This creates index track based on actual loaded data from all tracks
+      // ================================================
+      this.createRealIndexTracksFromBackend();
+      
+      // ================================================
+      // DEFAULT GEOTOOLKIT INDEX TRACK CREATION (COMMENTED)
+      // Fallback: Use default GeoToolkit logic if backend approach causes issues
+      // Uncomment the following lines and comment out the above call if needed:
+      // const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
+      // indexTrack.setWidth(60);
+      // indexTrack.setName('Depth');
+      // ================================================
 
       // Assign widget to BaseWidgetComponent
       this.widgetComponent.Widget = this.wellLogWidget;
@@ -828,48 +893,69 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   private updateIndexTrackScale(): void {
     if (!this.wellLogWidget) return;
     
-    // Find the index track - using the same working approach as GenerateCanvasTracks
-    const tracksIterable = (this.wellLogWidget.getTracks() as any);
+    // Find the index track - handle different GeoToolkit versions
     let indexTrack = null;
     
-    // Convert to array for easier iteration - handle different return types
-    const tracks: LogTrack[] = [];
     try {
-      if (tracksIterable && typeof tracksIterable.forEach === 'function') {
-        // It's array-like or has forEach
-        tracksIterable.forEach((track: any) => tracks.push(track));
-      } else if (tracksIterable && typeof tracksIterable.length === 'number') {
-        // It's array-like with length property
-        for (let i = 0; i < tracksIterable.length; i++) {
-          tracks.push(tracksIterable[i]);
+      // GeoToolkit 4.1.41: getTracks() returns a number (count)
+      // GeoToolkit 5.0.58: getTracks() returns an iterable collection
+      const tracksResult = (this.wellLogWidget as any).getTracks();
+      
+      console.log('🔍 getTracks() returned:', typeof tracksResult, tracksResult);
+      
+      if (typeof tracksResult === 'number') {
+        // GeoToolkit 4.1.41 - getTracks() returns count, need to use getTrack(index)
+        console.log('📋 Using GeoToolkit 4.1.41 approach (getTrack by index)');
+        const trackCount = tracksResult;
+        
+        for (let i = 0; i < trackCount; i++) {
+          const track = (this.wellLogWidget as any).getTrack(i);
+          if (track) {
+            const trackName = track.getName?.() || '';
+            console.log(`🔍 Track ${i}: ${trackName}`);
+            if (trackName === 'Depth' || trackName === 'Time') {
+              indexTrack = track;
+              break;
+            }
+          }
         }
-      } else if (tracksIterable && typeof tracksIterable[Symbol.iterator] === 'function') {
-        // It's iterable
-        for (const track of tracksIterable) {
-          tracks.push(track);
+      }
+      else if (tracksResult && typeof tracksResult.forEach === 'function') {
+        // GeoToolkit 5.0.58+ - getTracks() returns iterable
+        console.log('📋 Using GeoToolkit 5.0.58+ approach (forEach)');
+        tracksResult.forEach((track: any) => {
+          const trackName = track.getName?.() || '';
+          if (trackName === 'Depth' || trackName === 'Time') {
+            indexTrack = track;
+          }
+        });
+      }
+      else if (Array.isArray(tracksResult)) {
+        // Simple array
+        console.log('📋 Using array approach');
+        for (const track of tracksResult) {
+          const trackName = track.getName?.() || '';
+          if (trackName === 'Depth' || trackName === 'Time') {
+            indexTrack = track;
+            break;
+          }
         }
-      } else {
-        console.warn('⚠️ getTracks() returned non-iterable object:', tracksIterable);
+      }
+      else {
+        console.warn('⚠️ Unknown tracks result type:', typeof tracksResult, tracksResult);
         return;
       }
     } catch (error) {
-      console.error('❌ Error iterating tracks:', error);
+      console.warn('⚠️ Error getting tracks in updateIndexTrackScale:', error);
       return;
     }
     
-    // Iterate through tracks using array methods
-    for (let i = 0; i < tracks.length; i++) {
-      const track = tracks[i];
-      // Check if this is an index track by its name (typically "Depth" or "Time")
-      const trackName = (track as any).getName?.() || '';
-      if (trackName === 'Depth' || trackName === 'Time') {
-        indexTrack = track;
-        break;
-      }
-    }
     if (!indexTrack) {
+      console.log('ℹ️ No index track found');
       return;
     }
+    
+    console.log('✅ Found index track:', indexTrack);
     
     // Get the full depth range from all loaded data
     let fullMinDepth = Number.MAX_VALUE;
@@ -1412,6 +1498,93 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   }
 
   // Public methods for external control
+
+  /**
+   * Creates real depth/time-based index tracks from backend data.
+   * Extracts actual DEPTH or TIME values from all loaded track data.
+   * Index tracks automatically use the depth/time scale from the data tracks.
+   * 
+   * FIXED VERSION: Calculates depth range from ALL tracks, not just first track
+   * This prevents the scrolling issue where only first track data was visible
+   * 
+   * @private
+   */
+  private createRealIndexTracksFromBackend(): void {
+    console.log('🎯 Creating real index tracks from backend data...');
+    
+    // Find index track configuration to determine type
+    let isTimeBased = false;
+    let indexTrackFound = false;
+    
+    for (const trackInfo of this.listOfTracks) {
+      if (trackInfo.isIndex) {
+        isTimeBased = !trackInfo.isDepth;
+        indexTrackFound = true;
+        console.log(`📊 Index track type: ${isTimeBased ? 'Time-based' : 'Depth-based'}`);
+        break;
+      }
+    }
+    
+    if (!indexTrackFound) {
+      console.warn('⚠️ No index track configuration found - using default depth-based');
+      isTimeBased = false;
+    }
+    
+    // Debug: Check actual depth values from backend data
+    console.log('🔍 Verifying real backend depth values...');
+    for (const trackInfo of this.listOfTracks) {
+      if (!trackInfo.isIndex && trackInfo.curves.length > 0) {
+        const firstCurve = trackInfo.curves[0];
+        const depthIndices = this.curveDepthIndices.get(firstCurve.mnemonicId);
+        if (depthIndices && depthIndices.length > 0) {
+          console.log(`📏 Real backend depth values from ${firstCurve.mnemonicId}:`);
+          console.log(`  First depth: ${depthIndices[0]}, Last depth: ${depthIndices[depthIndices.length - 1]}`);
+          console.log(`  Total points: ${depthIndices.length}`);
+          break;
+        }
+      }
+    }
+    
+    // Create real index track - GeoToolkit will automatically use depth/time from data tracks
+    const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
+    indexTrack.setWidth(60);
+    indexTrack.setName(isTimeBased ? 'Time' : 'Depth');
+    
+    // Configure index track to show full scale instead of just visible range
+    // Get the full depth range from ALL loaded data (FIXED: check all tracks, not just first)
+    let fullMinDepth = Number.MAX_VALUE;
+    let fullMaxDepth = Number.MIN_VALUE;
+    
+    // ================================================
+    // FIXED: Calculate depth range from ALL tracks to prevent scrolling issues
+    // Previous version only checked first track which caused other tracks to become invisible
+    // ================================================
+    for (const trackInfo of this.listOfTracks) {
+      if (!trackInfo.isIndex && trackInfo.curves.length > 0) {
+        for (const curve of trackInfo.curves) {
+          const depthIndices = this.curveDepthIndices.get(curve.mnemonicId);
+          if (depthIndices && depthIndices.length > 0) {
+            fullMinDepth = Math.min(fullMinDepth, depthIndices[0]);
+            fullMaxDepth = Math.max(fullMaxDepth, depthIndices[depthIndices.length - 1]);
+            console.log(`📏 Track ${trackInfo.trackName}, Curve ${curve.mnemonicId}: depth range ${depthIndices[0]}-${depthIndices[depthIndices.length - 1]}`);
+          }
+        }
+      }
+    }
+    
+    // Set the index track to show the full scale
+    if (fullMinDepth !== Number.MAX_VALUE && fullMaxDepth !== Number.MIN_VALUE) {
+      console.log(`📏 Setting index track full scale from ALL tracks: ${fullMinDepth} to ${fullMaxDepth}`);
+      // Configure the index track to show full scale
+      indexTrack.setDepthLimits(fullMinDepth, fullMaxDepth);
+    } else {
+      console.warn('⚠️ No depth data found for index track scale - using default behavior');
+    }
+    
+    console.log(`✅ Created real ${isTimeBased ? 'time-based' : 'depth-based'} index track from backend data`);
+    console.log('📏 Index track will show full depth scale from backend data');
+    console.log('🎯 All tracks should remain visible during scrolling');
+  }
 
   /**
    * Refreshes the tracks by reloading log headers and recreating the scene.
