@@ -307,14 +307,19 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     this.pendingLoads = logIdGroups.size;
     console.log(`🔄 ${this.pendingLoads} unique LogId(s) to fetch (chunk size: ${this.CHUNK_SIZE})`);
 
-    // Version 2: Load initial chunk per LogId using actual header start/end values
+    // Version 3: Load only the LAST chunk (most recent depth) initially.
+    // On scroll up, checkAndLoadChunks will fetch earlier data in chunks.
     const loadPromises: Promise<void>[] = [];
     logIdGroups.forEach(({ header, curves }, logId) => {
-      // Use the actual startIndex and endIndex from the header
-      const startIndex = header.startIndex?.['#text'] || header.startIndex || '0';
-      const endIndex = header.endIndex?.['#text'] || header.endIndex || '1000';
-      console.log(`📦 Loading initial chunk for LogId ${logId}: ${startIndex}-${endIndex} (${curves.length} curves)`);
-      loadPromises.push(this.loadLogDataForGroup(header, curves, startIndex, endIndex));
+      const headerEnd = parseFloat(header.endIndex?.['#text'] || header.endIndex || '1000');
+      const headerStart = parseFloat(header.startIndex?.['#text'] || header.startIndex || '0');
+      
+      // Load only the last CHUNK_SIZE from the end
+      const chunkStart = Math.max(headerStart, headerEnd - this.CHUNK_SIZE);
+      const chunkEnd = headerEnd;
+      
+      console.log(`📦 Loading initial chunk for LogId ${logId}: ${chunkStart}-${chunkEnd} (of full range ${headerStart}-${headerEnd}, ${curves.length} curves)`);
+      loadPromises.push(this.loadLogDataForGroup(header, curves, chunkStart.toString(), chunkEnd.toString()));
     });
 
     // Wait for all data loading to complete before proceeding
