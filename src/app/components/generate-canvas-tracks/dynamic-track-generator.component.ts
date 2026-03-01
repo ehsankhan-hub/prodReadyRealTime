@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, AfterViewInit, ViewChild, OnDestroy, NgZone } from '@angular/core';
+import { Component, Input, OnInit, AfterViewInit, ViewChild, OnDestroy, NgZone, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
@@ -748,6 +748,9 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           this.configureScrollLazyLoad();
 
           console.log('✅ Scene created with data successfully');
+          
+          // 🎯 Optimize track widths for full width utilization
+          this.optimizeInitialTrackWidths();
         } catch (error) {
           console.error('❌ Error setting depth limits:', error);
         }
@@ -1948,5 +1951,52 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    */
   public getWidget(): WellLogWidget {
     return this.wellLogWidget;
+  }
+
+  // --- Simple Dynamic Width Recalculation ---
+  /**
+   * Handles window resize events with simple approach.
+   * Automatically adjusts track widths based on new container size.
+   */
+  @HostListener('window:resize')
+  onWindowResize() {
+    setTimeout(() => this.updateTrackWidths(), 100);
+  }
+
+  /**
+   * Updates track widths based on current container size.
+   * Simple implementation without complex logic.
+   */
+  private updateTrackWidths() {
+    if (!this.wellLogWidget) return;
+    
+    const containerWidth = this.widgetComponent.nativeElement.clientWidth;
+    const trackCount = this.listOfTracks.filter(t => !t.isIndex).length;
+    
+    if (trackCount === 0) return;
+    
+    const newWidth = Math.floor((containerWidth - 60) / trackCount);
+    
+    this.listOfTracks.forEach((track, index) => {
+      if (!track.isIndex) {
+        const geoTrack = this.wellLogWidget.getTrack(index);
+        if (geoTrack) geoTrack.setWidth(newWidth);
+      }
+    });
+    
+    this.wellLogWidget.updateLayout();
+  }
+
+  /**
+   * Optimizes track widths to fit full container width on initial load.
+   * Called after widget creation to ensure tracks utilize available space.
+   */
+  private optimizeInitialTrackWidths() {
+    setTimeout(() => {
+      if (this.wellLogWidget && this.widgetComponent) {
+        console.log('🎯 Optimizing initial track widths for full width utilization');
+        this.updateTrackWidths();
+      }
+    }, 200); // Small delay to ensure widget is fully rendered
   }
 }

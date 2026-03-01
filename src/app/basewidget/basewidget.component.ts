@@ -84,6 +84,16 @@ export class BaseWidgetComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     /**
+     * Gets the container element for the widget.
+     * Provides access to the DOM element for resize calculations.
+     * 
+     * @returns The ElementRef for the container
+     */
+    get ContainerElement (): ElementRef {
+        return this._canvas;
+    }
+
+    /**
      * Angular lifecycle hook called before component destruction.
      * Disposes the Plot to prevent memory leaks.
      */

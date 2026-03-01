@@ -226,6 +226,16 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
   /** Handle for the scroll polling interval */
   private scrollPollHandle: any = null;
 
+  // --- Dynamic Width Recalculation ---
+  /** Handle for window resize timeout (debouncing) */
+  private resizeTimeout: any = null;
+  /** Last known container width for change detection */
+  private lastContainerWidth: number = 0;
+  /** Minimum width threshold to trigger recalculation */
+  private readonly WIDTH_CHANGE_THRESHOLD = 50; // 50px minimum change
+  /** Resize debounce delay in milliseconds */
+  private readonly RESIZE_DEBOUNCE_DELAY = 300;
+
   // --- Live polling state ---
   /** Handle for live data polling interval */
   private livePollHandle: any = null;
@@ -256,6 +266,10 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
   ngOnInit(): void {
     console.log('🎨 Generate Canvas Tracks Component initialized');
     console.log('📊 Input tracks:', this.listOfTracks);
+    
+    // Initialize window resize listener for dynamic width adjustment
+    this.initializeWindowResizeListener();
+    
     this.loadLogHeadersAndCreateTracks();
   }
 
@@ -284,6 +298,12 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
     }
+    if (this.resizeTimeout) {
+      clearTimeout(this.resizeTimeout);
+      this.resizeTimeout = null;
+    }
+    // Remove window resize listener
+    window.removeEventListener('resize', this.onWindowResize.bind(this));
     this.stopLivePolling();
   }
 
@@ -2118,6 +2138,247 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
   }
 
   /**
+   * Initializes window resize listener for dynamic width adjustment.
+   * Sets up debounced resize handling to optimize performance.
+   * 
+   * @private
+   */
+  private initializeWindowResizeListener(): void {
+    console.log('🔄 Initializing window resize listener for dynamic width adjustment');
+    
+    // Add window resize event listener
+    window.addEventListener('resize', this.onWindowResize.bind(this));
+    
+    // Initialize last container width with fallback
+    setTimeout(() => {
+      this.lastContainerWidth = this.getContainerWidth();
+      // Fallback: use window width if container measurement fails
+      if (this.lastContainerWidth === 0) {
+        this.lastContainerWidth = window.innerWidth;
+        console.log('🔧 Using window.innerWidth as fallback:', this.lastContainerWidth);
+      }
+      console.log('📏 Initial container width:', this.lastContainerWidth, 'px');
+    }, 100);
+  }
+
+  /**
+   * Handles window resize events with debouncing.
+   * Recalculates track widths when container size changes significantly.
+   * 
+   * @private
+   */
+  private onWindowResize(): void {
+    console.log('🔍 Debug - onWindowResize() called');
+    
+    // Clear existing timeout to debounce rapid resize events
+    if (this.resizeTimeout) {
+      clearTimeout(this.resizeTimeout);
+    }
+    
+    // Debounce resize handling to improve performance
+    this.resizeTimeout = setTimeout(() => {
+      console.log('🔍 Debug - Debounced resize handler executing');
+      this.handleResize();
+    }, this.RESIZE_DEBOUNCE_DELAY);
+  }
+
+  /**
+   * Handles the actual resize logic after debouncing.
+   * Checks if container width changed significantly and recalculates track widths.
+   * 
+   * @private
+   */
+  private handleResize(): void {
+    console.log('🔍 Debug - handleResize() called');
+    
+    if (!this.wellLogWidget) {
+      console.log('⏳ Widget not ready for resize handling');
+      return;
+    }
+    
+    const currentContainerWidth = this.getContainerWidth();
+    const widthDifference = Math.abs(currentContainerWidth - this.lastContainerWidth);
+    
+    console.log(`📏 Resize detected: ${this.lastContainerWidth}px → ${currentContainerWidth}px (diff: ${widthDifference}px)`);
+    console.log(`🔍 Debug - Width threshold: ${this.WIDTH_CHANGE_THRESHOLD}px`);
+    
+    // Only recalculate if width change exceeds threshold
+    if (widthDifference > this.WIDTH_CHANGE_THRESHOLD) {
+      console.log('🔄 Significant width change detected - recalculating track widths');
+      this.recalculateTrackWidths();
+      this.lastContainerWidth = currentContainerWidth;
+    } else {
+      console.log('⏭️ Width change too small - skipping recalculation');
+    }
+  }
+
+  /**
+   * Recalculates and applies new track widths based on current container size.
+   * Dynamically adjusts all non-index tracks to utilize available space optimally.
+   * 
+   * @private
+   */
+  private recalculateTrackWidths(): void {
+    try {
+      console.log('🔄 Starting dynamic track width recalculation');
+      
+      const containerWidth = this.getContainerWidth();
+      const nonIndexTrackCount = this.getNonIndexTrackCount();
+      
+      console.log(`📊 Container: ${containerWidth}px, Non-index tracks: ${nonIndexTrackCount}`);
+      
+      if (nonIndexTrackCount === 0) {
+        console.log('⏭️ No non-index tracks to resize');
+        return;
+      }
+      
+      // Calculate new responsive widths based on current container size
+      const newWidths = this.calculateDynamicWidths(containerWidth, nonIndexTrackCount);
+      
+      // Apply new widths to tracks
+      this.applyTrackWidths(newWidths);
+      
+      // Update widget layout to reflect changes
+      this.wellLogWidget.updateLayout();
+      
+      console.log('✅ Dynamic track width recalculation completed');
+    } catch (error) {
+      console.error('❌ Error during track width recalculation:', error);
+    }
+  }
+
+  /**
+   * Gets the current container width in pixels.
+   * Uses the widget component's container element for accurate measurements.
+   * 
+   * @returns Container width in pixels
+   * @private
+   */
+  private getContainerWidth(): number {
+    try {
+      // Try multiple approaches to get container width
+      const canvasElement = this.widgetComponent?.Canvas?.nativeElement;
+      const containerElement = this.widgetComponent?.ContainerElement?.nativeElement;
+      
+      console.log('🔍 Debug - Canvas element:', !!canvasElement, 'Container element:', !!containerElement);
+      
+      // Try canvas element first, then container element
+      let width = canvasElement?.clientWidth || 
+                 containerElement?.clientWidth || 
+                 this.widgetComponent?.Canvas?.nativeElement?.clientWidth || 0;
+      
+      // Fallback: use window width if container measurement fails
+      if (width === 0) {
+        width = window.innerWidth;
+        console.log('🔧 Using window.innerWidth as fallback:', width);
+      }
+      
+      console.log('🔍 Debug - Measured width:', width);
+      return width;
+    } catch (error) {
+      console.warn('⚠️ Error getting container width:', error);
+      return window.innerWidth; // Final fallback
+    }
+  }
+
+  /**
+   * Counts the number of non-index tracks in the configuration.
+   * Excludes depth/time index tracks from width calculations.
+   * 
+   * @returns Number of non-index tracks
+   * @private
+   */
+  private getNonIndexTrackCount(): number {
+    return this.listOfTracks.filter(track => !track.isIndex).length;
+  }
+
+  /**
+   * Calculates optimal track widths based on container width and track count.
+   * Uses responsive logic to maximize space utilization while maintaining readability.
+   * 
+   * @param containerWidth - Available container width in pixels
+   * @param trackCount - Number of non-index tracks
+   * @returns Array of optimal widths for each track
+   * @private
+   */
+  private calculateDynamicWidths(containerWidth: number, trackCount: number): number[] {
+    console.log(`📏 Calculating dynamic widths for ${trackCount} tracks in ${containerWidth}px container`);
+    
+    // Reserve space for index track (depth/time)
+    const indexTrackWidth = 60; // Standard depth track width
+    const availableWidth = containerWidth - indexTrackWidth;
+    
+    console.log(`📊 Available width for tracks: ${availableWidth}px (after ${indexTrackWidth}px index track)`);
+    
+    // Calculate base width per track
+    const baseWidth = Math.floor(availableWidth / trackCount);
+    
+    // Apply minimum and maximum constraints
+    const minWidth = 200;  // Minimum readable width
+    const maxWidth = 1200; // Maximum reasonable width
+    
+    let finalWidth = Math.max(minWidth, Math.min(maxWidth, baseWidth));
+    
+    // Special handling for very small containers
+    if (containerWidth < 768) {
+      // Mobile: use more compact layout
+      finalWidth = Math.max(150, Math.min(400, baseWidth));
+    } else if (containerWidth < 1024) {
+      // Tablet: moderate layout
+      finalWidth = Math.max(180, Math.min(600, baseWidth));
+    }
+    
+    console.log(`📏 Final calculated width per track: ${finalWidth}px`);
+    
+    // Return array with same width for all tracks (can be customized for different strategies)
+    return Array(trackCount).fill(finalWidth);
+  }
+
+  /**
+   * Applies calculated widths to the actual GeoToolkit tracks.
+   * Updates each non-index track with its new width and logs the changes.
+   * 
+   * @param widths - Array of new widths for tracks
+   * @private
+   */
+  private applyTrackWidths(widths: number[]): void {
+    console.log('🔄 Applying new track widths to GeoToolkit tracks');
+    
+    let trackIndex = 0;
+    
+    this.listOfTracks.forEach((trackInfo, index) => {
+      if (trackInfo.isIndex) {
+        console.log(`⏭️ Skipping index track: ${trackInfo.trackName}`);
+        return;
+      }
+      
+      if (trackIndex >= widths.length) {
+        console.warn(`⚠️ Width array index out of bounds for track ${trackIndex}`);
+        return;
+      }
+      
+      try {
+        // Get the actual GeoToolkit track
+        const geoTrack = this.wellLogWidget.getTrack(index);
+        if (geoTrack) {
+          const oldWidth = geoTrack.getWidth();
+          const newWidth = widths[trackIndex];
+          
+          geoTrack.setWidth(newWidth);
+          
+          console.log(`📏 Track ${trackInfo.trackName}: ${oldWidth}px → ${newWidth}px`);
+        } else {
+          console.warn(`⚠️ Could not find GeoToolkit track for ${trackInfo.trackName}`);
+        }
+      } catch (error) {
+        console.error(`❌ Error setting width for track ${trackInfo.trackName}:`, error);
+      }
+      
+      trackIndex++;
+    });
+  }
+
+  /**
    * Calculates responsive track width based on the number of tracks.
    * Ensures optimal space utilization for different track configurations.
    * 
@@ -2161,5 +2422,42 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    */
   public getWidget(): WellLogWidget {
     return this.wellLogWidget;
+  }
+
+  /**
+   * Manually triggers track width recalculation.
+   * Useful for testing or when container size changes programmatically.
+   */
+  public triggerWidthRecalculation(): void {
+    console.log('🔄 Manual track width recalculation triggered');
+    this.recalculateTrackWidths();
+  }
+
+  /**
+   * Gets the current container width for debugging purposes.
+   * 
+   * @returns Current container width in pixels
+   */
+  public getCurrentContainerWidth(): number {
+    const width = this.getContainerWidth();
+    console.log('🔍 Debug - getCurrentContainerWidth() called, returning:', width);
+    return width;
+  }
+
+  /**
+   * Debug method to check if resize listener is properly initialized.
+   * 
+   * @returns Debug information about the resize system
+   */
+  public getResizeDebugInfo(): any {
+    return {
+      lastContainerWidth: this.lastContainerWidth,
+      widgetExists: !!this.wellLogWidget,
+      widgetComponentExists: !!this.widgetComponent,
+      containerElementExists: !!this.widgetComponent?.ContainerElement,
+      containerElementNativeElement: !!this.widgetComponent?.ContainerElement?.nativeElement,
+      currentWidth: this.getContainerWidth(),
+      nonIndexTrackCount: this.getNonIndexTrackCount()
+    };
   }
 }
