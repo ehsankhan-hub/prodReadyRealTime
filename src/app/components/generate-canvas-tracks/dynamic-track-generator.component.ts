@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, AfterViewInit, ViewChild, OnDestroy, NgZone, HostListener } from '@angular/core';
+import { Component, Input, OnInit, AfterViewInit, ViewChild, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
@@ -16,6 +16,8 @@ import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
 import { Events as CrossHairEvents } from '@int/geotoolkit/controls/tools/CrossHair';
 import { Subscription } from 'rxjs';
+import { fromEvent } from 'rxjs';
+import { debounceTime } from 'rxjs/operators';
 import { WellDataService } from "../../../service/well-service/well.service";
 import {
   ILogDataQueryParameter,
@@ -233,6 +235,13 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     }
     // Version 2: Clean up live polling on destroy
     this.stopLivePolling();
+    
+    // Clean up resize subscription
+    if (this.resizeSubscription) {
+      this.resizeSubscription.unsubscribe();
+      this.resizeSubscription = null;
+      console.log('🧹 Resize subscription cleaned up');
+    }
   }
 
   /**
@@ -1289,8 +1298,8 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         logName: header.objectName,
         indexType: header.indexType,
         indexCurve: header.indexCurve,
-        startIndex: start,
-        endIndex: end,
+        startIndex: start.toString(),
+        endIndex: end.toString(),
         isGrowing: header.objectGrowing,
         mnemonicList: '',
       };
@@ -1954,13 +1963,25 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   }
 
   // --- Simple Dynamic Width Recalculation ---
+  /** RxJS subscription for window resize events */
+  private resizeSubscription: Subscription | null = null;
+
   /**
-   * Handles window resize events with simple approach.
-   * Automatically adjusts track widths based on new container size.
+   * Initializes window resize listener using RxJS fromEvent.
+   * More reliable than @HostListener for window events.
    */
-  @HostListener('window:resize')
-  onWindowResize() {
-    setTimeout(() => this.updateTrackWidths(), 100);
+  private initializeResizeListener(): void {
+    console.log('🔄 Initializing RxJS window resize listener');
+    
+    // Use RxJS fromEvent for more reliable window resize detection
+    this.resizeSubscription = fromEvent(window, 'resize')
+      .pipe(debounceTime(200)) // Debounce to avoid excessive calls
+      .subscribe(() => {
+        console.log('🔍 Debug - Window resize detected via RxJS');
+        this.updateTrackWidths();
+      });
+      
+    console.log('✅ RxJS resize listener initialized');
   }
 
   /**
@@ -1968,23 +1989,45 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    * Simple implementation without complex logic.
    */
   private updateTrackWidths() {
-    if (!this.wellLogWidget) return;
+    console.log('🔍 Debug - updateTrackWidths called');
+    
+    if (!this.wellLogWidget) {
+      console.log('⚠️ Debug - wellLogWidget not available');
+      return;
+    }
+    
+    if (!this.widgetComponent) {
+      console.log('⚠️ Debug - widgetComponent not available');
+      return;
+    }
     
     const containerWidth = this.widgetComponent.nativeElement.clientWidth;
     const trackCount = this.listOfTracks.filter(t => !t.isIndex).length;
     
-    if (trackCount === 0) return;
+    console.log(`🔍 Debug - Container: ${containerWidth}px, Tracks: ${trackCount}`);
+    
+    if (trackCount === 0) {
+      console.log('⚠️ Debug - No tracks to resize');
+      return;
+    }
     
     const newWidth = Math.floor((containerWidth - 60) / trackCount);
+    console.log(`🔍 Debug - New width per track: ${newWidth}px`);
     
     this.listOfTracks.forEach((track, index) => {
       if (!track.isIndex) {
         const geoTrack = this.wellLogWidget.getTrack(index);
-        if (geoTrack) geoTrack.setWidth(newWidth);
+        if (geoTrack) {
+          geoTrack.setWidth(newWidth);
+          console.log(`✅ Debug - Track ${track.trackName}: width set to ${newWidth}px`);
+        } else {
+          console.log(`⚠️ Debug - Could not find GeoToolkit track for ${track.trackName}`);
+        }
       }
     });
     
     this.wellLogWidget.updateLayout();
+    console.log('✅ Debug - Layout updated');
   }
 
   /**
@@ -1992,10 +2035,21 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    * Called after widget creation to ensure tracks utilize available space.
    */
   private optimizeInitialTrackWidths() {
+    console.log('🔍 Debug - optimizeInitialTrackWidths called');
     setTimeout(() => {
+      console.log('🔍 Debug - Initial optimization timeout triggered');
+      console.log(`🔍 Debug - Widget available: ${!!this.wellLogWidget}`);
+      console.log(`🔍 Debug - WidgetComponent available: ${!!this.widgetComponent}`);
+      console.log(`🔍 Debug - Track count: ${this.listOfTracks?.length || 0}`);
+      
       if (this.wellLogWidget && this.widgetComponent) {
         console.log('🎯 Optimizing initial track widths for full width utilization');
         this.updateTrackWidths();
+        
+        // Initialize resize listener after initial optimization
+        this.initializeResizeListener();
+      } else {
+        console.log('⚠️ Debug - Initial optimization skipped - widget or component not ready');
       }
     }, 200); // Small delay to ensure widget is fully rendered
   }
