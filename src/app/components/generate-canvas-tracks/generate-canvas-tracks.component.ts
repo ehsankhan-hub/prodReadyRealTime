@@ -192,14 +192,14 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
     /* Track styling - following GeoToolkit demo patterns */
     .canvas-wrapper ::ng-deep .geotoolkit.welllog.LogTrack {
       fillstyle: #e8f4f8; /* Light blue background for data tracks */
-      strokestyle: #2c3e50; /* Dark blue border */
-      strokewidth: 1;
+      linestyle-color: #2c3e50; /* Dark blue border */
+      linestyle-width: 1;
     }
     
     .canvas-wrapper ::ng-deep .geotoolkit.welllog.IndexTrack {
       fillstyle: #d4e8f0; /* Slightly different shade for index tracks */
-      strokestyle: #2c3e50; /* Same border color as data tracks */
-      strokewidth: 1;
+      linestyle-color: #2c3e50; /* Same border color as data tracks */
+      linestyle-width: 1;
     }
   `]
 })
