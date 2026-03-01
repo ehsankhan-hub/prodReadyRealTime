@@ -30,6 +30,7 @@ import { IndexType } from '@int/geotoolkit/welllog/IndexType';
 import { Events as CrossHairEvents } from '@int/geotoolkit/controls/tools/CrossHair';
 import { Subscription } from 'rxjs';
 import { CrossTooltipComponent, CrossTooltipData, TooltipCurveValue } from '../cross-tooltip/cross-tooltip.component';
+import { CssStyle } from '@int/geotoolkit/css/CssStyle';
 
 /**
  * Interface representing a single curve within a track.
@@ -187,19 +188,6 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
     }
     .canvas-wrapper ::ng-deep .plot-canvas {
       background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
-    }
-    
-    /* Track styling - following GeoToolkit demo patterns */
-    .canvas-wrapper ::ng-deep .geotoolkit.welllog.LogTrack {
-      fillstyle: #e8f4f8; /* Light blue background for data tracks */
-      linestyle-color: #2c3e50; /* Dark blue border */
-      linestyle-width: 1;
-    }
-    
-    .canvas-wrapper ::ng-deep .geotoolkit.welllog.IndexTrack {
-      fillstyle: #d4e8f0; /* Slightly different shade for index tracks */
-      linestyle-color: #2c3e50; /* Same border color as data tracks */
-      linestyle-width: 1;
     }
   `]
 })
@@ -785,6 +773,9 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       // Assign widget to BaseWidgetComponent
       this.widgetComponent.Widget = this.wellLogWidget;
       console.log('✅ Widget assigned to BaseWidgetComponent');
+
+      // Apply track styling following GeoToolkit demo pattern
+      this.applyTrackStyling();
 
       // Create data tracks
       this.createTracks();
@@ -2517,5 +2508,39 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       currentWidth: this.getContainerWidth(),
       nonIndexTrackCount: this.getNonIndexTrackCount()
     };
+  }
+
+  /**
+   * Applies track styling following GeoToolkit demo pattern.
+   * Uses CssStyle class to programmatically set track backgrounds and borders.
+   * 
+   * @private
+   */
+  private applyTrackStyling(): void {
+    try {
+      console.log('🎨 Applying track styling using GeoToolkit demo pattern...');
+      
+      // Create CSS style following the demo pattern
+      const LOG_CONTAINER_CSS = new CssStyle({
+        css: [
+          '.geotoolkit.welllog.LogTrack {',
+          '   fillstyle: #e8f4f8;', /* Light blue background for data tracks */
+          '   linestyle-color: #2c3e50;', /* Dark blue border */
+          '   linestyle-width: 1;',
+          '}',
+          '.geotoolkit.welllog.IndexTrack {',
+          '   fillstyle: #d4e8f0;', /* Slightly different shade for index tracks */
+          '   linestyle-color: #2c3e50;', /* Same border color as data tracks */
+          '   linestyle-width: 1;',
+          '}'
+        ].join('\n') + '\n.geotoolkit.welllog.Header {\n   fillstyle: red;\n}'
+      });
+
+      // Apply the CSS to the widget using the setCss method
+      this.wellLogWidget.setCss(LOG_CONTAINER_CSS);
+      console.log('✅ Track styling applied successfully using CssStyle');
+    } catch (error) {
+      console.error('❌ Error applying track styling:', error);
+    }
   }
 }

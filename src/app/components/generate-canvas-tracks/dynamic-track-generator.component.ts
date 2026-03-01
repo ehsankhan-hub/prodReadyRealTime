@@ -31,6 +31,7 @@ import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
+import { CssStyle } from '@int/geotoolkit/css/CssStyle';
 import { Events as CrossHairEvents } from '@int/geotoolkit/controls/tools/CrossHair';
 import { Subscription } from 'rxjs';
 import { WellDataService } from '../../../service/well-service/well.service';
@@ -771,6 +772,9 @@ export class DynamicTrackGeneratorComponent
       // Assign widget to BaseWidgetComponent
       this.widgetComponent.Widget = this.wellLogWidget;
       console.log('✅ Widget assigned to BaseWidgetComponent');
+
+      // Apply track styling following GeoToolkit demo pattern
+      this.applyTrackStyling();
 
       // Create data tracks
       this.createTracks();
@@ -2220,8 +2224,40 @@ export class DynamicTrackGeneratorComponent
   public getWidget(): WellLogWidget {
     return this.wellLogWidget;
   }
+
+  /**
+   * Applies custom styling to well log tracks using GeoToolkit CSS.
+   * Sets background colors and borders for data tracks and index tracks.
+   * 
+   * @private
+   */
+  private applyTrackStyling(): void {
+    try {
+      console.log('🎨 Applying track styling using GeoToolkit demo pattern...');
+      
+      // Create CSS style following the demo pattern
+      const LOG_CONTAINER_CSS = new CssStyle({
+        css: [
+          '.geotoolkit.welllog.LogTrack {',
+          '   fillstyle: #e8f4f8;', /* Light blue background for data tracks */
+          '   linestyle-color: #2c3e50;', /* Dark blue border */
+          '   linestyle-width: 1;',
+          '}',
+          '.geotoolkit.welllog.IndexTrack {',
+          '   fillstyle: #d4e8f0;', /* Slightly different shade for index tracks */
+          '   linestyle-color: #2c3e50;', /* Same border color as data tracks */
+          '   linestyle-width: 1;',
+          '}'
+        ].join('\n')
+      });
+
+      // Apply the CSS to the widget using the setCss method
+      this.wellLogWidget.setCss(LOG_CONTAINER_CSS);
+      console.log('✅ Track styling applied successfully using CssStyle');
+    } catch (error) {
+      console.error('❌ Error applying track styling:', error);
+    }
+  }
 }
-
-
 
 /////////////////////////////////
