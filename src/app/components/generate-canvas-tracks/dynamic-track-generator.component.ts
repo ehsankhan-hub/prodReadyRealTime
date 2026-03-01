@@ -187,7 +187,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   /** Live polling interval in milliseconds */
   private readonly LIVE_POLL_INTERVAL = 5000;
   /** Flag to enable/disable live data polling */
-  private isLivePolling = false;
+  public isLivePolling = false;
   /** Whether the current data is time-based (detected from headers/config) */
   private isTimeBasedData = false;
   /** Stores the raw header start/end index strings for time-based API calls */
