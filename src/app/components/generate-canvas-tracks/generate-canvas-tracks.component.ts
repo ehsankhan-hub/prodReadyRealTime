@@ -153,22 +153,22 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
        CANVAS COLOR OPTIONS - Choose one that matches your image:
        
        OPTION 1: Dark Professional (Default)
-       background: #1a1a1a;  /* Dark charcoal */
+       background: #1a1a1a;
        
        OPTION 2: Light Gray
-       background: #f8f9fa;  /* Light gray */
+       background: #f8f9fa;
        
        OPTION 3: Blue Professional
-       background: #2c3e50;  /* Dark blue */
+       background: #2c3e50;
        
        OPTION 4: Green Technical
-       background: #1e3a2e;  /* Dark green */
+       background: #1e3a2e;
        
        OPTION 5: White Clean
-       background: #ffffff;  /* Pure white */
+       background: #ffffff;
        
        OPTION 6: Black High Contrast
-       background: #000000;  /* Pure black */
+       background: #000000;
        ========================================== */
     
     .canvas-wrapper { 
@@ -177,17 +177,17 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
       position: relative; 
       overflow: hidden; 
       height: 400px; 
-      background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
+      background: #808080; /* Gray background */
     }
     .canvas-wrapper app-basewidget { 
       width: 100%; 
       height: 100%; 
     }
     .canvas-wrapper ::ng-deep .basewidget-container {
-      background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
+      background: #808080; /* Gray background */
     }
     .canvas-wrapper ::ng-deep .plot-canvas {
-      background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
+      background: #808080; /* Gray background */
     }
   `]
 })
@@ -2533,7 +2533,7 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
           '   linestyle-color: #2c3e50;', /* Same border color as data tracks */
           '   linestyle-width: 1;',
           '}'
-        ].join('\n') + '\n.geotoolkit.welllog.Header {\n   fillstyle: red;\n}'
+        ].join('\n') + '\n.geotoolkit.welllog.header.AdaptiveLogCurveVisualHeader {\n   textstyle-color: black;\n   fillstyle: white;\n}'
       });
 
       // Apply the CSS to the widget using the setCss method

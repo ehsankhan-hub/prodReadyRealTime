@@ -2248,7 +2248,7 @@ export class DynamicTrackGeneratorComponent
           '   linestyle-color: #2c3e50;', /* Same border color as data tracks */
           '   linestyle-width: 1;',
           '}'
-        ].join('\n')
+        ].join('\n') + '\n.geotoolkit.welllog.header.AdaptiveLogCurveVisualHeader {\n   textstyle-color: black;\n   fillstyle: white;\n}'
       });
 
       // Apply the CSS to the widget using the setCss method
