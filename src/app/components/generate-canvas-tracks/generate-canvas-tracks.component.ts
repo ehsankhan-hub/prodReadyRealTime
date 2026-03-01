@@ -147,8 +147,60 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
       animation: pulse 1s infinite;
     }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; height: 400px; }
-    .canvas-wrapper app-basewidget { width: 100%; height: 100%; }
+    
+    /* ==========================================
+       CANVAS COLOR OPTIONS - Choose one that matches your image:
+       
+       OPTION 1: Dark Professional (Default)
+       background: #1a1a1a;  /* Dark charcoal */
+       
+       OPTION 2: Light Gray
+       background: #f8f9fa;  /* Light gray */
+       
+       OPTION 3: Blue Professional
+       background: #2c3e50;  /* Dark blue */
+       
+       OPTION 4: Green Technical
+       background: #1e3a2e;  /* Dark green */
+       
+       OPTION 5: White Clean
+       background: #ffffff;  /* Pure white */
+       
+       OPTION 6: Black High Contrast
+       background: #000000;  /* Pure black */
+       ========================================== */
+    
+    .canvas-wrapper { 
+      flex: 1; 
+      min-height: 0; 
+      position: relative; 
+      overflow: hidden; 
+      height: 400px; 
+      background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
+    }
+    .canvas-wrapper app-basewidget { 
+      width: 100%; 
+      height: 100%; 
+    }
+    .canvas-wrapper ::ng-deep .basewidget-container {
+      background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
+    }
+    .canvas-wrapper ::ng-deep .plot-canvas {
+      background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
+    }
+    
+    /* Track styling - following GeoToolkit demo patterns */
+    .canvas-wrapper ::ng-deep .geotoolkit.welllog.LogTrack {
+      fillstyle: #e8f4f8; /* Light blue background for data tracks */
+      strokestyle: #2c3e50; /* Dark blue border */
+      strokewidth: 1;
+    }
+    
+    .canvas-wrapper ::ng-deep .geotoolkit.welllog.IndexTrack {
+      fillstyle: #d4e8f0; /* Slightly different shade for index tracks */
+      strokestyle: #2c3e50; /* Same border color as data tracks */
+      strokewidth: 1;
+    }
   `]
 })
 export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnDestroy {
@@ -1922,6 +1974,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     indexTrack.setWidth(isTimeBased ? 120 : 60); // Wider for time display
     indexTrack.setName(isTimeBased ? 'Time' : 'Depth');
     
+    // Index track styling handled through CSS
+    
     // Configure time-based index track with proper date formatting
     if (isTimeBased) {
       console.log('🕐 Configuring time-based index track with date formatting');
@@ -1974,8 +2028,10 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     indexTrack.setWidth(60);
     indexTrack.setName('Depth');
     
+    // Fallback index track styling handled through CSS
+    
     console.log('🔄 Created fallback synthetic index track for demo data');
-    console.log('� Index track will use synthetic depth scale for demo purposes');
+    console.log('📏 Index track will use synthetic depth scale for demo purposes');
   }
 
   /**
@@ -2025,6 +2081,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
           track.setWidth(trackInfo.trackWidth || 100);
+          
+          // Track styling handled through CSS
         }
 
         // Create curves for this track
