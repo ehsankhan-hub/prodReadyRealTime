@@ -271,9 +271,6 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
 
     this.isLoading = true;
     (async () => {
-      // Create empty scene immediately for better UX
-      this.createEmptyScene();
-      
       this.wellboreObjects = await this.logHeadersService.getLogHeader(
         this.well,
         this.wellbore
@@ -565,12 +562,6 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     console.log(`✅ Parsed data for curve: ${curve.mnemonicId} ${values.length} points`,
       indexValues.length > 0 ? `${isDepthIndex ? 'depth' : 'time'} range: ${indexValues[0]}-${indexValues[indexValues.length - 1]}` : '');
 
-    // If scene is already created (empty scene), populate the curve immediately
-    if (this.sceneReady && this.curveMap.has(curve.mnemonicId)) {
-      console.log(`🔄 Populating existing curve with new data: ${curve.mnemonicId}`);
-      this.populateCurveWithData(curve);
-    }
-
     // Only decrement pending loads when called directly (not from group loader)
     if (decrementPending) {
       this.pendingLoads--;
@@ -628,26 +619,28 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   }
 
   /**
-   * Creates empty scene with tracks immediately for better UX.
-   * Shows blank tracks that will be populated as data loads.
+   * Creates the scene with loaded data and sets proper depth limits.
+   * Called after all data has been loaded to ensure data is available.
    * 
    * @private
    */
-  private createEmptyScene(): void {
+  private createSceneWithData(): void {
     try {
-      console.log('🎨 Creating empty scene with blank tracks');
+      console.log('🔧 Creating scene with loaded data');
 
       this.curveMap.clear();
-      this.sceneReady = true;
 
-      // Auto-detect if data is time-based or depth-based (using defaults for empty scene)
+      // ================================================
+      // AUTO-DETECTION: Determine if data is time-based or depth-based
+      // This allows one component to handle both data types dynamically
+      // ================================================
       const isTimeBased = this.detectTimeBasedData();
       console.log(`🔍 Data type detected: ${isTimeBased ? 'TIME-based' : 'DEPTH-based'}`);
 
       // Create WellLogWidget with dynamic configuration
       this.wellLogWidget = new WellLogWidget({
-        indextype: isTimeBased ? IndexType.Time : IndexType.Depth,
-        indexunit: isTimeBased ? 's' : 'ft',
+        indextype: isTimeBased ? IndexType.Time : IndexType.Depth,  // Dynamic: Time or Depth
+        indexunit: isTimeBased ? 's' : 'ft',                        // Dynamic: seconds or feet
         horizontalscrollable: false,
         verticalscrollable: true,
         header: {
@@ -664,165 +657,34 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         left: 0, top: 0, right: 0, bottom: 0
       });
 
-      // Create index track first
+      // Create index track first to ensure it's always visible
+      
+      // ================================================
+      // BACKEND DRIVEN INDEX TRACK CREATION
+      // Index depth calculation from backend service not GeoToolkit default
+      // This creates index track based on actual loaded data from all tracks
+      // ================================================
       this.createRealIndexTracksFromBackend();
       
-      // Create empty data tracks (without data)
-      this.createEmptyTracks();
+      // ================================================
+      // DEFAULT GEOTOOLKIT INDEX TRACK CREATION (COMMENTED)
+      // Fallback: Use default GeoToolkit logic if backend approach causes issues
+      // Uncomment the following lines and comment out the above call if needed:
+      // const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
+      // indexTrack.setWidth(60);
+      // indexTrack.setName('Depth');
+      // ================================================
 
       // Assign widget to BaseWidgetComponent
       this.widgetComponent.Widget = this.wellLogWidget;
-      console.log('✅ Empty scene created and widget assigned');
+      console.log('✅ Widget assigned to BaseWidgetComponent');
+      
+      // Create data tracks first
+      this.createTracks();
 
-      // Apply theme to empty tracks
-      console.log('🎨 Applying theme to empty scene - flag:', this.theamFlage);
+      // Apply theme after tracks are created
+      console.log('🎨 Applying theme after track creation - flag:', this.theamFlage);
       this.applyCurrentTheme();
-
-      // Set initial depth limits (will be updated when data loads)
-      setTimeout(() => {
-        try {
-          const initialMaxDepth = this.headerMaxDepth > 0 ? this.headerMaxDepth : 10000;
-          console.log('📊 Setting initial depth limits: 0 to', initialMaxDepth);
-          this.wellLogWidget.setDepthLimits(0, initialMaxDepth);
-          this.wellLogWidget.updateLayout();
-
-          // Configure crosshair for tooltip
-          this.configureCrossHair();
-          
-          console.log('✅ Empty scene configured successfully');
-        } catch (error) {
-          console.error('❌ Error configuring empty scene:', error);
-        }
-      }, 100);
-
-    } catch (error) {
-      console.error('❌ Error creating empty scene:', error);
-    }
-  }
-
-  /**
-   * Creates empty data tracks (without data) for immediate display.
-   * Tracks will be populated with data as it becomes available.
-   * 
-   * @private
-   */
-  private createEmptyTracks(): void {
-    console.log('🎯 Creating empty data tracks');
-    
-    this.listOfTracks.forEach((trackInfo: TrackInfo, trackIndex: number) => {
-      if (trackInfo.isIndex) {
-        return; // Skip index tracks - they're handled separately
-      }
-
-      const track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
-      track.setName(trackInfo.trackName);
-      track.setWidth(trackInfo.trackWidth || 200);
-      
-      console.log(`✅ Created empty track: ${trackInfo.trackName}`);
-      
-      // Create empty curves for this track
-      this.createEmptyCurves(track, trackInfo);
-    });
-  }
-
-  /**
-   * Creates empty curves (without data) for immediate display.
-   * Curves will be populated with data as it becomes available.
-   * 
-   * @param track - The LogTrack to add curves to
-   * @param trackInfo - Track configuration containing curve definitions
-   * @private
-   */
-  private createEmptyCurves(track: LogTrack, trackInfo: TrackInfo): void {
-    trackInfo.curves.forEach((curveInfo: TrackCurve, curveIndex: number) => {
-      try {
-        if (!curveInfo.show) {
-          console.warn(`⚠️ Skipping hidden curve ${curveInfo.mnemonicId}`);
-          return;
-        }
-
-        console.log(`📈 Creating empty curve: ${curveInfo.mnemonicId}`);
-
-        // Create GeoLogData with empty arrays
-        const geoLogData = new GeoLogData(curveInfo.displayName);
-        const emptyData: number[] = [];
-        const emptyIndexData: number[] = [];
-        geoLogData.setValues(emptyIndexData, emptyData);
-
-        // Create LogCurve
-        const logCurve = new LogCurve(geoLogData);
-        logCurve.setLineStyle({
-          color: curveInfo.color || '#000000',
-          width: curveInfo.lineWidth || 1,
-        });
-        logCurve.setName(curveInfo.displayName);
-
-        // Store curve reference for later data population
-        this.curveMap.set(curveInfo.mnemonicId, {
-          logCurve: logCurve,
-          info: curveInfo,
-          trackName: trackInfo.trackName
-        });
-        
-        // Add curve to track
-        track.addChild(logCurve);
-        
-        console.log(`✅ Created empty curve: ${curveInfo.mnemonicId}`);
-
-      } catch (error) {
-        console.error(`❌ Error creating empty curve ${curveInfo.mnemonicId}:`, error);
-      }
-    });
-  }
-
-  /**
-   * Populates existing curve with data when it becomes available.
-   * This is called when data is parsed to update the empty curves.
-   * 
-   * @param curveInfo - Curve configuration with data
-   * @private
-   */
-  private populateCurveWithData(curveInfo: TrackCurve): void {
-    const curveRef = this.curveMap.get(curveInfo.mnemonicId);
-    if (!curveRef) {
-      console.warn(`⚠️ Curve ${curveInfo.mnemonicId} not found in curveMap`);
-      return;
-    }
-
-    if (!curveInfo.data || curveInfo.data.length === 0) {
-      console.warn(`⚠️ No data to populate for curve ${curveInfo.mnemonicId}`);
-      return;
-    }
-
-    try {
-      console.log(`🔄 Populating curve ${curveInfo.mnemonicId} with ${curveInfo.data.length} points`);
-
-      // Get stored depth indices or generate fallback
-      const indexData = this.curveDepthIndices.get(curveInfo.mnemonicId)
-        || this.generateIndexData(curveInfo.data.length);
-
-      // Update the curve's GeoLogData
-      const geoLogData = new GeoLogData(curveInfo.displayName);
-      geoLogData.setValues(indexData, curveInfo.data);
-      
-      curveRef.logCurve.setData(geoLogData);
-      
-      console.log(`✅ Successfully populated curve ${curveInfo.mnemonicId}`);
-
-    } catch (error) {
-      console.error(`❌ Error populating curve ${curveInfo.mnemonicId}:`, error);
-    }
-  }
-
-  /**
-   * Updates the existing scene with loaded data and sets proper depth limits.
-   * Called after all data has been loaded to update depth limits and layout.
-   * 
-   * @private
-   */
-  private createSceneWithData(): void {
-    try {
-      console.log('🔧 Updating scene with loaded data');
 
       // Set depth limits, show recent data first, and configure crosshair + scroll listener
       setTimeout(() => {
@@ -843,15 +705,21 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           }
 
           this.wellLogWidget.updateLayout();
-          console.log('✅ Scene updated successfully with loaded data');
-          
+
+          // Configure crosshair for tooltip
+          this.configureCrossHair();
+
+          // Configure scroll-based lazy loading
+          this.configureScrollLazyLoad();
+
+          console.log('✅ Scene created and configured successfully');
         } catch (error) {
-          console.error('❌ Error updating scene:', error);
+          console.error('❌ Error configuring scene:', error);
         }
       }, 100);
 
     } catch (error) {
-      console.error('❌ Error in createSceneWithData:', error);
+      console.error('❌ Error creating scene:', error);
     }
   }
 
