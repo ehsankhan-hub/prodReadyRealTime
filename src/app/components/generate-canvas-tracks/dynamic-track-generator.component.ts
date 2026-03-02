@@ -338,7 +338,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     // Version 3: Load only the LAST chunk (most recent depth) initially.
     // On scroll up, checkAndLoadChunks will fetch earlier data in chunks.
     const loadPromises: Promise<void>[] = [];
-    logIdGroups.forEach(({ header, curves }, logId) => {
+    logIdGroups.forEach(({ header, curves }: { header: IWellboreObject; curves: TrackCurve[] }, logId: string) => {
       const headerEnd = parseFloat(header.endIndex?.['#text'] || header.endIndex || '1000');
       const headerStart = parseFloat(header.startIndex?.['#text'] || header.startIndex || '0');
       
@@ -395,7 +395,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
             console.log('logDataArray  ---', logDataArray);
             if (logDataArray != null) {
               // Version 2: Parse using backend response format (logs[0].logData)
-              curves.forEach(curve => this.parseCurveData(logDataArray, curve, false));
+              curves.forEach((curve: TrackCurve) => this.parseCurveData(logDataArray, curve, false));
             } else {
               console.warn(`⚠️ No log data found for LogId: ${header.objectName}`);
             }
@@ -421,7 +421,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           console.log('logDataArray  ---', result);
           if (result != null) {
             // Version 2: Parse using backend response format (logs[0].logData)
-            curves.forEach(curve => this.parseCurveData(result, curve, false));
+            curves.forEach((curve: TrackCurve) => this.parseCurveData(result, curve, false));
           } else {
             console.warn(`⚠️ No log data found for LogId: ${header.objectName}`);
           }
@@ -469,7 +469,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
       return;
     }
    const mnemonics = innerLogData.mnemonicList.split(',');
-   const curveIndex = mnemonics.findIndex((m: any) => m.trim() === curve.mnemonicId);
+   const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
     
     // Determine if index is depth-based or time-based
     const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
@@ -480,7 +480,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     
     // First try depth mnemonics
     for (const dm of depthMnemonics) {
-      indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
+      indexColIdx = mnemonics.findIndex((m: string) => m.trim() === dm);
       if (indexColIdx !== -1) {
         isDepthIndex = true;
         console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
@@ -491,7 +491,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     // If no depth index found, try time mnemonics
     if (indexColIdx === -1) {
       for (const tm of timeMnemonics) {
-        indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
+        indexColIdx = mnemonics.findIndex((m: string) => m.trim() === tm);
         if (indexColIdx !== -1) {
           isDepthIndex = false;
           console.log(`🕐 Found time index: ${tm} at position ${indexColIdx}`);
@@ -523,7 +523,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     const indexValues: number[] = [];
     const values: number[] = [];
 
-    innerLogData.data.forEach((dataRow: any) => {
+    innerLogData.data.forEach((dataRow: string) => {
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
         const value = parseFloat(cols[curveIndex]);
@@ -709,7 +709,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   private createEmptyTracks(): void {
     console.log('🎯 Creating empty data tracks');
     
-    this.listOfTracks.forEach((trackInfo, trackIndex) => {
+    this.listOfTracks.forEach((trackInfo: TrackInfo, trackIndex: number) => {
       if (trackInfo.isIndex) {
         return; // Skip index tracks - they're handled separately
       }
@@ -734,7 +734,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    * @private
    */
   private createEmptyCurves(track: LogTrack, trackInfo: TrackInfo): void {
-    trackInfo.curves.forEach((curveInfo, curveIndex) => {
+    trackInfo.curves.forEach((curveInfo: TrackCurve, curveIndex: number) => {
       try {
         if (!curveInfo.show) {
           console.warn(`⚠️ Skipping hidden curve ${curveInfo.mnemonicId}`);
@@ -935,7 +935,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
       });
     });
 
-    logIdCurves.forEach(({ header, curves, range }, logId) => {
+    logIdCurves.forEach(({ header, curves, range }: { header: IWellboreObject; curves: TrackCurve[]; range: { min: number; max: number } }, logId: string) => {
       // For unloaded curves (range.max === 0), load data around visible area
       if (range.max === 0) {
         const chunkStart = Math.max(0, needMin - this.CHUNK_SIZE / 2);
@@ -981,7 +981,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
       }
     };
 
-    chunkRequests.forEach(({ header, curves, start, end }, key) => {
+    chunkRequests.forEach(({ header, curves, start, end }: { header: IWellboreObject; curves: TrackCurve[]; start: number; end: number }, key: string) => {
       // Mark range as in-flight immediately to prevent duplicates
       this.inFlightRanges.add(key);
       console.log(`  📥 Chunk: ${start}-${end} for ${header.objectId}`);
@@ -1002,7 +1002,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           // Version 2: Convert backend response and append chunk data (was previously commented out)
           if (logDataArray != null && logDataArray.logs && logDataArray.logs.length > 0 && logDataArray.logs[0].logData?.data?.length > 0) {
             const convertedLogData = this.convertResponseToLogData(logDataArray.logs[0]);
-            curves.forEach(curve => this.appendChunkData(convertedLogData, curve));
+            curves.forEach((curve: TrackCurve) => this.appendChunkData(convertedLogData, curve));
           }
           onDone(key);
         },
@@ -1273,6 +1273,101 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
   }
 
   /**
+   * Applies custom track widths from track configuration.
+   * Handles different GeoToolkit versions for track access.
+   * 
+   * @private
+   */
+  private applyTrackWidths(): void {
+    if (!this.wellLogWidget) return;
+    
+    // Check if getTracks method exists in this GeoToolkit version
+    if (typeof (this.wellLogWidget as any).getTracks !== 'function') {
+      console.warn('⚠️ getTracks() method not available in this GeoToolkit version - skipping track width application');
+      return;
+    }
+    
+    try {
+      // GeoToolkit 4.1.41: getTracks() returns a number (count)
+      // GeoToolkit 5.0.58: getTracks() returns an iterable collection
+      const tracksResult = (this.wellLogWidget as any).getTracks();
+      
+      console.log('🔍 getTracks() returned for width application:', typeof tracksResult, tracksResult);
+      
+      if (typeof tracksResult === 'number') {
+        // GeoToolkit 4.1.41: getTracks() returns count, access tracks by index
+        console.log('📋 Using GeoToolkit 4.1.41 approach for width application (count:', tracksResult, ')');
+        
+        for (let i = 0; i < tracksResult; i++) {
+          try {
+            const track = (this.wellLogWidget as any).getTrack(i);
+            if (track && typeof track === 'object') {
+              const trackName = track.getName?.() || '';
+              console.log(`🔍 Applying width to track ${i}: ${trackName}`);
+              
+              // Find matching track configuration
+              const trackConfig = this.listOfTracks.find(config => config.trackName === trackName);
+              if (trackConfig && trackConfig.trackWidth) {
+                console.log(`📏 Setting width ${trackConfig.trackWidth}px for track: ${trackName}`);
+                track.setWidth(trackConfig.trackWidth);
+              } else {
+                console.log(`ℹ️ No custom width for track: ${trackName}, using default`);
+              }
+            } else {
+              console.log(`⚠️ Track ${i} is undefined or invalid (type: ${typeof track})`);
+            }
+          } catch (trackError) {
+            console.warn(`⚠️ Error applying width to track ${i}:`, trackError);
+          }
+        }
+      }
+      else if (tracksResult && typeof tracksResult.forEach === 'function') {
+        // GeoToolkit 5.0.58+ - getTracks() returns iterable
+        console.log('📋 Using GeoToolkit 5.0.58+ approach for width application (forEach)');
+        tracksResult.forEach((track: any) => {
+          const trackName = track.getName?.() || '';
+          console.log(`🔍 Applying width to track: ${trackName}`);
+          
+          // Find matching track configuration
+          const trackConfig = this.listOfTracks.find(config => config.trackName === trackName);
+          if (trackConfig && trackConfig.trackWidth) {
+            console.log(`📏 Setting width ${trackConfig.trackWidth}px for track: ${trackName}`);
+            track.setWidth(trackConfig.trackWidth);
+          } else {
+            console.log(`ℹ️ No custom width for track: ${trackName}, using default`);
+          }
+        });
+      }
+      else if (Array.isArray(tracksResult)) {
+        // Simple array
+        console.log('📋 Using array approach for width application');
+        for (const track of tracksResult) {
+          const trackName = track.getName?.() || '';
+          console.log(`🔍 Applying width to track: ${trackName}`);
+          
+          // Find matching track configuration
+          const trackConfig = this.listOfTracks.find(config => config.trackName === trackName);
+          if (trackConfig && trackConfig.trackWidth) {
+            console.log(`📏 Setting width ${trackConfig.trackWidth}px for track: ${trackName}`);
+            track.setWidth(trackConfig.trackWidth);
+          } else {
+            console.log(`ℹ️ No custom width for track: ${trackName}, using default`);
+          }
+        }
+      }
+      else {
+        console.warn('⚠️ Unknown tracks result type for width application:', typeof tracksResult, tracksResult);
+        return;
+      }
+      
+      console.log('✅ Track width application completed');
+      
+    } catch (error) {
+      console.warn('⚠️ Error applying track widths:', error);
+    }
+  }
+
+  /**
    * Configures the built-in GeoToolkit crosshair tool to emit tooltip data.
    * Collects all curve values at the crosshair depth and updates the tooltip panel.
    * 
@@ -1357,7 +1452,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
 
     if (logIdCurves.size === 0) return;
 
-    logIdCurves.forEach(({ header, curves, maxLoaded }, logId) => {
+    logIdCurves.forEach(({ header, curves, maxLoaded }: { header: IWellboreObject; curves: TrackCurve[]; maxLoaded: number }, logId: string) => {
       const start = maxLoaded + 1;
       const end = start + this.CHUNK_SIZE;
       const key = `live_${logId}_${start}_${end}`;
@@ -1386,7 +1481,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
           if (response && response.logs && response.logs.length > 0 && response.logs[0].logData?.data?.length > 0) {
             // Convert response to flat LogData format for appendChunkData
             const logData = this.convertResponseToLogData(response.logs[0]);
-            curves.forEach(curve => this.appendChunkData(logData, curve));
+            curves.forEach((curve: TrackCurve) => this.appendChunkData(logData, curve));
             
             console.log(`✅ Live data loaded: ${response.logs[0].logData.data.length} rows for ${logId}`);
           }
@@ -1669,7 +1764,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    * @private
    */
   private createTracks(): void {
-    this.listOfTracks.forEach((trackInfo, trackIndex) => {
+    this.listOfTracks.forEach((trackInfo: TrackInfo, trackIndex: number) => {
       try {
         console.log(`📊 Creating track ${trackIndex + 1}: ${trackInfo.trackName}`);
         
@@ -1707,7 +1802,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    * @private
    */
   private createCurves(track: LogTrack, trackInfo: TrackInfo): void {
-    trackInfo.curves.forEach((curveInfo, curveIndex) => {
+    trackInfo.curves.forEach((curveInfo: TrackCurve, curveIndex: number) => {
       try {
         if (!curveInfo.show || !curveInfo.data || curveInfo.data.length === 0) {
           console.warn(`⚠️ Skipping curve ${curveInfo.mnemonicId} - no data or hidden`);
