@@ -6,10 +6,10 @@ import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
-import { BaseWidgetComponent } from '../../../components/core/basewidget/basewidget.component'; 
-import { RealTimeDisplayService ,  LogData } from '../../../service/real-time-display.service'; 
+import { BaseWidgetComponent } from '../../basewidget/basewidget.component'; 
+import { LogHeadersService } from '../../services/log-headers.service'; 
 
-import { PrintPropertiesDialogComponent , PrintPropertiesData, PrintPropertiesResult} from '../../../components/core/basewidget/print-properties-dialog/print-properties-dialog.component'; 
+import { PrintPropertiesDialogComponent , PrintPropertiesData, PrintPropertiesResult} from '../../components/print-properties-dialog/print-properties-dialog.component'; 
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
@@ -18,13 +18,12 @@ import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
 import { Events as CrossHairEvents } from '@int/geotoolkit/controls/tools/CrossHair';
 import { Subscription } from 'rxjs';
-import { WellDataService } from "../../../service/well-service/well.service";
 import {
   ILogDataQueryParameter,
   IMnemonic,
   IWellboreLogData,
   IWellboreObject,
-} from "../../../models/wellbore/wellbore-object";
+} from "../../models/wellbore/wellbore-object";
 import { MatIconModule } from '@angular/material/icon';
 import { CssStyle } from '@int/geotoolkit/css/CssStyle';
 import { AddDynamicTracksDialogComponent } from '../add-dynamic-tracks-dialog/add-dynamic-tracks-dialog.component';
@@ -218,7 +217,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    * @param logHeadersService - Service for fetching log headers and data
    */
   constructor(
-    private logHeadersService: WellDataService,
+    private logHeadersService: LogHeadersService,
     private dialog: MatDialog,
     private ngZone: NgZone
   ) {}
@@ -270,11 +269,11 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
     }
 
     this.isLoading = true;
-    (async () => {
-      this.wellboreObjects = await this.logHeadersService.getLogHeader(
-        this.well,
-        this.wellbore
-      );
+    this.logHeadersService.getLogHeaders(
+      this.well,
+      this.wellbore
+    ).subscribe(async (headers) => {
+      this.wellboreObjects = headers;
 
       // console.log('this.wellboreObjects  ', this.wellboreObjects);
       // console.log('📊 Log Headers loaded:', this.wellboreObjects);
@@ -284,7 +283,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
 
       await this.processLogHeaders(this.wellboreObjects);
       this.isLoading = false;
-    })();
+    });
   }
 
   /**
