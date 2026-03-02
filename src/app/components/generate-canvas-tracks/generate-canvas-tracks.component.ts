@@ -109,15 +109,18 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
   providers: [LogHeadersService],
   template: `
     <div class="well-log-container">
-      <div class="toolbar">
+      <div class="toolbar" [ngClass]="getToolbarThemeClass()">
         <label for="scaleSelect">Scale:</label>
         <select id="scaleSelect" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
           <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
         </select>
         <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">&#9881;</button>
+        <button class="theme-btn" (click)="toggleDarkTheme()" title="Toggle Theme">
+          <i class="theme-icon" [class]="isDarkTheme ? 'fa fa-sun' : 'fa fa-moon'"></i>
+        </button>
         <span class="loading-indicator" *ngIf="isLoadingChunk">Loading...</span>
       </div>
-      <div class="canvas-wrapper">
+      <div class="canvas-wrapper" [ngClass]="getCanvasThemeClass()">
         <app-basewidget #canvasWidget></app-basewidget>
         <app-cross-tooltip [data]="tooltipData"></app-cross-tooltip>
       </div>
@@ -143,6 +146,14 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
       color: #555; transition: all 0.2s;
     }
     .settings-btn:hover { background: #e8e8e8; border-color: #999; color: #333; }
+    .theme-btn {
+      padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px;
+      background: white; cursor: pointer; font-size: 16px; line-height: 1;
+      color: #555; transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+      width: 32px; height: 28px;
+    }
+    .theme-btn:hover { background: #e8e8e8; border-color: #999; color: #333; }
+    .theme-icon { font-size: 14px; }
     .loading-indicator {
       font-size: 12px; color: #667eea; font-weight: 600; margin-left: 8px;
       animation: pulse 1s infinite;
@@ -178,6 +189,13 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
       overflow: hidden; 
       height: 400px; 
       background: #808080; /* Gray background */
+      transition: background-color 0.3s ease;
+    }
+    .canvas-wrapper.dark-theme { 
+      background: #1a1a1a; /* Dark theme background */
+    }
+    .canvas-wrapper.light-theme { 
+      background: #f8f9fa; /* Light theme background */
     }
     .canvas-wrapper app-basewidget { 
       width: 100%; 
@@ -185,9 +203,49 @@ export const WELL_SERVICE_TOKEN = new InjectionToken<any>('WellService');
     }
     .canvas-wrapper ::ng-deep .basewidget-container {
       background: #808080; /* Gray background */
+      transition: background-color 0.3s ease;
+    }
+    .canvas-wrapper.dark-theme ::ng-deep .basewidget-container {
+      background: #1a1a1a; /* Dark theme background */
+    }
+    .canvas-wrapper.light-theme ::ng-deep .basewidget-container {
+      background: #f8f9fa; /* Light theme background */
     }
     .canvas-wrapper ::ng-deep .plot-canvas {
       background: #808080; /* Gray background */
+      transition: background-color 0.3s ease;
+    }
+    .canvas-wrapper.dark-theme ::ng-deep .plot-canvas {
+      background: #1a1a1a; /* Dark theme background */
+    }
+    .canvas-wrapper.light-theme ::ng-deep .plot-canvas {
+      background: #f8f9fa; /* Light theme background */
+    }
+    
+    /* Theme-specific toolbar styles */
+    .toolbar.dark-theme {
+      background: #2d3748; border-bottom: 1px solid #4a5568;
+    }
+    .toolbar.dark-theme label { color: #e2e8f0; }
+    .toolbar.dark-theme .settings-btn,
+    .toolbar.dark-theme .theme-btn {
+      background: #4a5568; border-color: #718096; color: #e2e8f0;
+    }
+    .toolbar.dark-theme .settings-btn:hover,
+    .toolbar.dark-theme .theme-btn:hover {
+      background: #718096; border-color: #a0aec0; color: #fff;
+    }
+    .toolbar.light-theme {
+      background: #ffffff; border-bottom: 1px solid #e2e8f0;
+    }
+    .toolbar.light-theme label { color: #2d3748; }
+    .toolbar.light-theme .settings-btn,
+    .toolbar.light-theme .theme-btn {
+      background: #f7fafc; border-color: #cbd5e0; color: #4a5568;
+    }
+    .toolbar.light-theme .settings-btn:hover,
+    .toolbar.light-theme .theme-btn:hover {
+      background: #edf2f7; border-color: #a0aec0; color: #2d3748;
     }
   `]
 })
@@ -242,6 +300,9 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
 
   /** Currently selected depth scale value */
   selectedScale: number = 1000;
+
+  /** Theme state */
+  isDarkTheme = false;
 
   /** Tooltip data for the cross-tooltip component */
   tooltipData: CrossTooltipData | null = null;
@@ -849,8 +910,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       this.widgetComponent.Widget = this.wellLogWidget;
       console.log('✅ Widget assigned to BaseWidgetComponent');
 
-      // Apply track styling following GeoToolkit demo pattern
-      this.applyTrackStyling();
+      // Apply initial theme styling to GeoToolkit elements
+      this.applyGeoToolkitTheme();
 
       // Create data tracks
       this.createTracks();
@@ -883,6 +944,18 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
           console.log('📊 Current visible limits after setup:', currentVisible);
 
           this.wellLogWidget.updateLayout();
+
+          // Ensure the widget takes full width on initial load
+          // Force recalculation by resetting lastContainerWidth
+          console.log('🔄 Triggering initial width calculation for full width display');
+          this.lastContainerWidth = 0; // Reset to force recalculation
+          this.recalculateTrackWidths();
+          
+          setTimeout(() => {
+            console.log('🔄 Triggering delayed width calculation for full width display');
+            this.lastContainerWidth = 0; // Reset to force recalculation
+            this.recalculateTrackWidths();
+          }, 100);
 
           // Configure crosshair for tooltip - DELAYED to ensure all data is fully initialized
           setTimeout(() => {
@@ -2293,8 +2366,6 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    * @private
    */
   private onWindowResize(): void {
-    console.log('🔍 Debug - onWindowResize() called');
-    
     // Clear existing timeout to debounce rapid resize events
     if (this.resizeTimeout) {
       clearTimeout(this.resizeTimeout);
@@ -2302,7 +2373,6 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     
     // Debounce resize handling to improve performance
     this.resizeTimeout = setTimeout(() => {
-      console.log('🔍 Debug - Debounced resize handler executing');
       this.handleResize();
     }, this.RESIZE_DEBOUNCE_DELAY);
   }
@@ -2314,26 +2384,18 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    * @private
    */
   private handleResize(): void {
-    console.log('🔍 Debug - handleResize() called');
-    
     if (!this.wellLogWidget) {
-      console.log('⏳ Widget not ready for resize handling');
       return;
     }
     
     const currentContainerWidth = this.getContainerWidth();
     const widthDifference = Math.abs(currentContainerWidth - this.lastContainerWidth);
     
-    console.log(`📏 Resize detected: ${this.lastContainerWidth}px → ${currentContainerWidth}px (diff: ${widthDifference}px)`);
-    console.log(`🔍 Debug - Width threshold: ${this.WIDTH_CHANGE_THRESHOLD}px`);
-    
     // Only recalculate if width change exceeds threshold
     if (widthDifference > this.WIDTH_CHANGE_THRESHOLD) {
       console.log('🔄 Significant width change detected - recalculating track widths');
       this.recalculateTrackWidths();
       this.lastContainerWidth = currentContainerWidth;
-    } else {
-      console.log('⏭️ Width change too small - skipping recalculation');
     }
   }
 
@@ -2385,8 +2447,6 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       const canvasElement = this.widgetComponent?.Canvas?.nativeElement;
       const containerElement = this.widgetComponent?.ContainerElement?.nativeElement;
       
-      console.log('🔍 Debug - Canvas element:', !!canvasElement, 'Container element:', !!containerElement);
-      
       // Try canvas element first, then container element
       let width = canvasElement?.clientWidth || 
                  containerElement?.clientWidth || 
@@ -2395,10 +2455,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       // Fallback: use window width if container measurement fails
       if (width === 0) {
         width = window.innerWidth;
-        console.log('🔧 Using window.innerWidth as fallback:', width);
       }
       
-      console.log('🔍 Debug - Measured width:', width);
       return width;
     } catch (error) {
       console.warn('⚠️ Error getting container width:', error);
@@ -2427,13 +2485,9 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    * @private
    */
   private calculateDynamicWidths(containerWidth: number, trackCount: number): number[] {
-    console.log(`📏 Calculating dynamic widths for ${trackCount} tracks in ${containerWidth}px container`);
-    
     // Reserve space for index track (depth/time)
     const indexTrackWidth = 60; // Standard depth track width
     const availableWidth = containerWidth - indexTrackWidth;
-    
-    console.log(`📊 Available width for tracks: ${availableWidth}px (after ${indexTrackWidth}px index track)`);
     
     // Calculate base width per track
     const baseWidth = Math.floor(availableWidth / trackCount);
@@ -2453,8 +2507,6 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       finalWidth = Math.max(180, Math.min(600, baseWidth));
     }
     
-    console.log(`📏 Final calculated width per track: ${finalWidth}px`);
-    
     // Return array with same width for all tracks (can be customized for different strategies)
     return Array(trackCount).fill(finalWidth);
   }
@@ -2467,18 +2519,15 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    * @private
    */
   private applyTrackWidths(widths: number[]): void {
-    console.log('🔄 Applying new track widths to GeoToolkit tracks');
-    
     let trackIndex = 0;
     
     this.listOfTracks.forEach((trackInfo, index) => {
       if (trackInfo.isIndex) {
-        console.log(`⏭️ Skipping index track: ${trackInfo.trackName}`);
-        return;
+        return; // Skip index tracks
       }
       
       if (trackIndex >= widths.length) {
-        console.warn(`⚠️ Width array index out of bounds for track ${trackIndex}`);
+        console.warn(` Width array index out of bounds for track ${trackIndex}`);
         return;
       }
       
@@ -2486,17 +2535,12 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
         // Get the actual GeoToolkit track
         const geoTrack = this.wellLogWidget.getTrack(index);
         if (geoTrack) {
-          const oldWidth = geoTrack.getWidth();
           const newWidth = widths[trackIndex];
-          
           geoTrack.setWidth(newWidth);
-          
-          console.log(`📏 Track ${trackInfo.trackName}: ${oldWidth}px → ${newWidth}px`);
-        } else {
-          console.warn(`⚠️ Could not find GeoToolkit track for ${trackInfo.trackName}`);
+          console.log(` Track ${trackInfo.trackName}: set to ${newWidth}px`);
         }
       } catch (error) {
-        console.error(`❌ Error setting width for track ${trackInfo.trackName}:`, error);
+        console.warn(` Error applying width to track ${trackInfo.trackName}:`, error);
       }
       
       trackIndex++;
@@ -2549,74 +2593,157 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     return this.wellLogWidget;
   }
 
+
   /**
-   * Manually triggers track width recalculation.
-   * Useful for testing or when container size changes programmatically.
+   * Toggles between dark and light theme.
+   * Updates the theme state and applies appropriate CSS classes to GeoToolkit elements.
    */
-  public triggerWidthRecalculation(): void {
-    console.log('🔄 Manual track width recalculation triggered');
-    this.recalculateTrackWidths();
+  public toggleDarkTheme(): void {
+    this.isDarkTheme = !this.isDarkTheme;
+    console.log('🎨 Theme toggled to:', this.isDarkTheme ? 'dark' : 'light');
+    
+    // Apply theme to GeoToolkit headers and tracks
+    this.applyGeoToolkitTheme();
   }
 
   /**
-   * Gets the current container width for debugging purposes.
+   * Gets the current CSS class for the canvas wrapper based on theme.
    * 
-   * @returns Current container width in pixels
+   * @returns CSS class string for theme
    */
-  public getCurrentContainerWidth(): number {
-    const width = this.getContainerWidth();
-    console.log('🔍 Debug - getCurrentContainerWidth() called, returning:', width);
-    return width;
+  public getCanvasThemeClass(): string {
+    return this.isDarkTheme ? 'dark-theme' : 'light-theme';
   }
 
   /**
-   * Debug method to check if resize listener is properly initialized.
+   * Gets the current CSS class for the toolbar based on theme.
    * 
-   * @returns Debug information about the resize system
+   * @returns CSS class string for theme
    */
-  public getResizeDebugInfo(): any {
-    return {
-      lastContainerWidth: this.lastContainerWidth,
-      widgetExists: !!this.wellLogWidget,
-      widgetComponentExists: !!this.widgetComponent,
-      containerElementExists: !!this.widgetComponent?.ContainerElement,
-      containerElementNativeElement: !!this.widgetComponent?.ContainerElement?.nativeElement,
-      currentWidth: this.getContainerWidth(),
-      nonIndexTrackCount: this.getNonIndexTrackCount()
-    };
+  public getToolbarThemeClass(): string {
+    return this.isDarkTheme ? 'dark-theme' : 'light-theme';
   }
 
   /**
-   * Applies track styling following GeoToolkit demo pattern.
-   * Uses CssStyle class to programmatically set track backgrounds and borders.
+   * Applies theme styling to GeoToolkit headers and tracks.
+   * Uses CssStyle to programmatically set colors for headers, tracks, and curves.
    * 
    * @private
    */
-  private applyTrackStyling(): void {
+  private applyGeoToolkitTheme(): void {
+    if (!this.wellLogWidget) {
+      console.warn('⚠️ WellLogWidget not available for theme application');
+      return;
+    }
+
     try {
-      console.log('🎨 Applying track styling using GeoToolkit demo pattern...');
+      console.log('🎨 Applying GeoToolkit theme:', this.isDarkTheme ? 'dark' : 'light');
       
-      // Create CSS style following the demo pattern
-      const LOG_CONTAINER_CSS = new CssStyle({
+      // Define theme colors
+      const theme = this.isDarkTheme ? {
+        headerBg: 'transparent',
+        headerText: '#e2e8f0',
+        headerBorder: '#4a5568',
+        trackBg: '#1a202c',
+        trackBorder: '#4a5568',
+        gridLines: '#1a202c',
+        axisText: '#e2e8f0',
+        curveColors: ['#63b3ed', '#f687b3', '#68d391', '#fbb6ce', '#90cdf4']
+      } : {
+        headerBg: 'transparent',
+        headerText: '#2d3748',
+        headerBorder: '#e2e8f0',
+        trackBg: '#f7fafc',
+        trackBorder: '#cbd5e0',
+        gridLines: '#e2e8f0',
+        axisText: '#4a5568',
+        curveColors: ['#3182ce', '#d53f8c', '#38a169', '#ed64a6', '#2b6cb0']
+      };
+
+      // Create comprehensive CSS for GeoToolkit elements
+      const geoToolkitCSS = new CssStyle({
         css: [
-          '.geotoolkit.welllog.LogTrack {',
-          '   fillstyle: #e8f4f8;', /* Light blue background for data tracks */
-          '   linestyle-color: #2c3e50;', /* Dark blue border */
-          '   linestyle-width: 1;',
+          /* Header styles */
+          '.geotoolkit.welllog.header.Header {',
+          `  fillstyle: ${theme.headerBg};`,
+          `  textstyle-color: ${theme.headerText};`,
+          `  linestyle-color: ${theme.headerBorder};`,
+          '  linestyle-width: 1;',
           '}',
+          
+          /* Track container styles */
+          '.geotoolkit.welllog.LogTrack {',
+          `  fillstyle: ${theme.trackBg};`,
+          `  linestyle-color: ${theme.trackBorder};`,
+          '  linestyle-width: 1;',
+          '}',
+          
+          /* Index track styles */
           '.geotoolkit.welllog.IndexTrack {',
-          '   fillstyle: #d4e8f0;', /* Slightly different shade for index tracks */
-          '   linestyle-color: #2c3e50;', /* Same border color as data tracks */
-          '   linestyle-width: 1;',
+          `  fillstyle: ${theme.trackBg};`,
+          `  linestyle-color: ${theme.trackBorder};`,
+          '  linestyle-width: 1;',
+          '}',
+          
+          /* Grid lines */
+          '.geotoolkit.welllog.grid.Grid {',
+          `  linestyle-color: ${theme.gridLines};`,
+          '  linestyle-width: 0.5;',
+          '}',
+          
+          /* Axis labels and text */
+          '.geotoolkit.welllog.axis.Axis {',
+          `  textstyle-color: ${theme.axisText};`,
+          `  linestyle-color: ${theme.gridLines};`,
+          '  linestyle-width: 1;',
+          '}',
+          
+          /* Curve visual headers */
+          '.geotoolkit.welllog.header.AdaptiveLogCurveVisualHeader {',
+          `  textstyle-color: ${theme.headerText};`,
+          `  fillstyle: ${theme.headerBg};`,
+          `  linestyle-color: ${theme.headerBorder};`,
+          '  linestyle-width: 1;',
+          '}',
+          
+          /* Track title headers */
+          '.geotoolkit.welllog.header.TitleHeader {',
+          `  textstyle-color: ${theme.headerText};`,
+          `  fillstyle: ${theme.headerBg};`,
+          `  linestyle-color: ${theme.headerBorder};`,
+          '  linestyle-width: 1;',
+          '}',
+          
+          /* Depth scale headers */
+          '.geotoolkit.welllog.header.ScaleHeader {',
+          `  textstyle-color: ${theme.headerText};`,
+          `  fillstyle: ${theme.headerBg};`,
+          `  linestyle-color: ${theme.headerBorder};`,
+          '  linestyle-width: 1;',
+          '}',
+          
+          /* Cross-hair tool */
+          '.geotoolkit.controls.tools.CrossHair {',
+          `  linestyle-color: ${theme.axisText};`,
+          '  linestyle-width: 1;',
+          `  textstyle-color: ${theme.axisText};`,
+          '}',
+          
+          /* Selection box */
+          '.geotoolkit.controls.tools.SelectionBox {',
+          `  linestyle-color: ${theme.curveColors[0]};`,
+          '  linestyle-width: 2;',
+          `  fillstyle: ${theme.curveColors[0]}20;`, // Semi-transparent
           '}'
-        ].join('\n') + '\n.geotoolkit.welllog.header.AdaptiveLogCurveVisualHeader {\n   textstyle-color: black;\n   fillstyle: white;\n}'
+        ].join('\n')
       });
 
-      // Apply the CSS to the widget using the setCss method
-      this.wellLogWidget.setCss(LOG_CONTAINER_CSS);
-      console.log('✅ Track styling applied successfully using CssStyle');
+      // Apply the CSS to the widget
+      this.wellLogWidget.setCss(geoToolkitCSS);
+      console.log('✅ GeoToolkit theme applied successfully');
+      
     } catch (error) {
-      console.error('❌ Error applying track styling:', error);
+      console.error('❌ Error applying GeoToolkit theme:', error);
     }
   }
 }
