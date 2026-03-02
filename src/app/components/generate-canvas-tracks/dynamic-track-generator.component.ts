@@ -276,8 +276,8 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
         this.wellbore
       );
 
-      console.log('this.wellboreObjects  ', this.wellboreObjects);
-      console.log('📊 Log Headers loaded:', this.wellboreObjects);
+      // console.log('this.wellboreObjects  ', this.wellboreObjects);
+      // console.log('📊 Log Headers loaded:', this.wellboreObjects);
 
       // Version 2: Store wellboreObjects as cachedHeaders for chunk loading & live polling
       this.cachedHeaders = this.wellboreObjects;
@@ -295,7 +295,7 @@ export class DynamicTrackGeneratorComponent implements OnInit, AfterViewInit, On
    * @private
    */
   private async processLogHeaders(headers: IWellboreObject[]): Promise<void> {
-    console.log('processLogHeaders ', headers);
+  //  console.log('processLogHeaders ', headers);
 
     // Version 2: Calculate headerMaxDepth from backend endIndex for proper depth limits
     headers?.forEach(h => {
