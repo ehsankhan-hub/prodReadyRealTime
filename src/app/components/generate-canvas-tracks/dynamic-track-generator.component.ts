@@ -196,12 +196,6 @@ export class DynamicTrackGeneratorComponent
   /** Tooltip data for the cross-tooltip component */
   //  tooltipData: CrossTooltipData | null = null;
 
-  /** Map of curve mnemonic to GeoToolkit LogCurve reference for crosshair lookup */
-  private curveMap: Map<
-    string,
-    { logCurve: LogCurve; info: TrackCurve; trackName: string }
-  > = new Map();
-
   // --- Chunked loading state ---
   /** Cached log headers for lazy loading */
   private cachedHeaders: IWellboreObject[] = [];
@@ -210,9 +204,9 @@ export class DynamicTrackGeneratorComponent
   /** The overall max depth from headers (not from loaded data) */
   private headerMaxDepth = 0;
   /** Tracks which depth ranges have been loaded per curve */
-  private loadedRanges: Map<string, { min: number; max: number }> = new Map();
+  private loadedRanges: { [key: string]: { min: number; max: number } } = {};
   /** Depth indices per curve (parallel to data values) */
-  private curveDepthIndices: Map<string, number[]> = new Map();
+  private curveDepthIndices: { [key: string]: number[] } = {};
   /** Tracks in-flight chunk ranges to prevent duplicate requests */
   private inFlightRanges: Set<string> = new Set();
 
@@ -1105,21 +1099,11 @@ export class DynamicTrackGeneratorComponent
     const existingDepths = this.curveDepthIndices.get(curve.mnemonicId) || [];
     const existingValues = curve.data || [];
 
-    // Create a map for deduplication
-    const depthValueMap = new Map<number, number>();
-    for (let i = 0; i < existingDepths.length; i++) {
-      depthValueMap.set(existingDepths[i], existingValues[i]);
-    }
-    for (let i = 0; i < newDepths.length; i++) {
-      depthValueMap.set(newDepths[i], newValues[i]);
-    }
+    const mergedDepths = [...existingDepths, ...newDepths];
+    const mergedValues = [...existingValues, ...newValues];
 
-    // Sort by depth
-    const sortedEntries = Array.from(depthValueMap.entries()).sort(
-      (a, b) => a[0] - b[0]
-    );
-    const mergedDepths = sortedEntries.map((e) => e[0]);
-    const mergedValues = sortedEntries.map((e) => e[1]);
+    mergedDepths.sort((a, b) => a - b);
+    mergedValues.sort((a, b) => mergedDepths.indexOf(a) - mergedDepths.indexOf(b));
 
     curve.data = mergedValues;
     this.curveDepthIndices.set(curve.mnemonicId, mergedDepths);
@@ -1454,12 +1438,13 @@ export class DynamicTrackGeneratorComponent
           logIdCurves.get(curve.LogId)!.curves.push(curve);
           return;
         }
-        const matchingHeader = this.cachedHeaders.find((h) =>
+        const ngHeader = this.cachedHeaders.find((h) =>
           h.objectId.includes(curve.LogId)
         );
         const range = this.loadedRanges.get(curve.mnemonicId);
-        if (!matchingHeader || !range) return;
+        if (!ngHeader || !range) return;
         logIdCurves.set(curve.LogId, {
+          header: ngHeader,
           header: matchingHeader,
           curves: [curve],
           maxLoaded: range.max,

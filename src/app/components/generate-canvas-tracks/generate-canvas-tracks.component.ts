@@ -394,6 +394,9 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
           }));
           
           this.cachedHeaders = headers;
+          
+          // Detect time-based data before processing headers
+          this.detectTimeBasedData();
           this.processLogHeaders(headers);
           
           // Store wellboreObjects for live data access
@@ -413,6 +416,9 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
         next: (headers) => {
           console.log(`📋 Loaded ${headers.length} log headers via HTTP`);
           this.cachedHeaders = headers;
+          
+          // Detect time-based data before processing headers
+          this.detectTimeBasedData();
           this.processLogHeaders(headers);
         },
         error: (error) => {
@@ -420,6 +426,9 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
           console.log('🔄 Falling back to mock headers for demo');
           const mockHeaders = this.createMockHeaders();
           this.cachedHeaders = mockHeaders;
+          
+          // Detect time-based data before processing headers
+          this.detectTimeBasedData();
           this.processLogHeaders(mockHeaders);
         }
       });
@@ -484,9 +493,23 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
    * @private
    */
   private processLogHeaders(headers: LogHeader[]): void {
+    // Store raw header start/end index strings for time-based API calls
+    if (this.isTimeBasedData && headers.length > 0) {
+      this.headerStartIndex = headers[0].startIndex?.['#text'] || '';
+      this.headerEndIndex = headers[0].endIndex?.['#text'] || '';
+      console.log('🕐 Stored time-based header indices:', this.headerStartIndex, 'to', this.headerEndIndex);
+    }
+
     // Determine overall max depth from headers
     headers.forEach(h => {
-      const end = parseFloat(h.endIndex?.['#text'] || '0');
+      let end: number;
+      if (this.isTimeBasedData) {
+        // For time-based data, convert ISO string to timestamp
+        end = h.endIndex?.['#text'] ? new Date(h.endIndex['#text']).getTime() : 0;
+      } else {
+        // For depth-based data, parse as float
+        end = parseFloat(h.endIndex?.['#text'] || '0');
+      }
       if (end > this.headerMaxDepth) this.headerMaxDepth = end;
     });
 
@@ -510,8 +533,21 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
 
     // Load initial chunk per LogId: most recent data
     logIdGroups.forEach(({ header, curves }, logId) => {
-      const endIndex = parseFloat(header.endIndex?.['#text'] || '1000');
-      const startIndex = Math.max(0, endIndex - this.CHUNK_SIZE);
+      let endIndex: number;
+      let startIndex: number;
+      
+      if (this.isTimeBasedData) {
+        // For time-based data, work with timestamps
+        const endTime = new Date(header.endIndex?.['#text'] || new Date().toISOString()).getTime();
+        const startTime = new Date(header.startIndex?.['#text'] || new Date(endTime - this.CHUNK_SIZE * 1000).toISOString()).getTime();
+        endIndex = endTime;
+        startIndex = Math.max(startTime, endTime - this.CHUNK_SIZE * 1000); // CHUNK_SIZE seconds in ms
+      } else {
+        // For depth-based data, parse as float
+        endIndex = parseFloat(header.endIndex?.['#text'] || '1000');
+        startIndex = Math.max(0, endIndex - this.CHUNK_SIZE);
+      }
+      
       console.log(`📦 Loading initial chunk for LogId ${logId}: ${startIndex}-${endIndex} (${curves.length} curves)`);
       this.loadLogDataForGroup(header, curves, startIndex, endIndex);
     });
@@ -530,6 +566,16 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
   private loadLogDataForGroup(header: LogHeader, curves: TrackCurve[], startIndex: number, endIndex: number): void {
     console.log(`🔄 Loading data for LogId: ${header.uid}, range: ${startIndex}-${endIndex}`);
     
+    // Convert timestamps back to ISO strings for time-based API calls
+    let apiStartIndex: any = startIndex;
+    let apiEndIndex: any = endIndex;
+    
+    if (this.isTimeBasedData) {
+      apiStartIndex = new Date(startIndex).toISOString();
+      apiEndIndex = new Date(endIndex).toISOString();
+      console.log(`🕐 Time-based API call: ${apiStartIndex} to ${apiEndIndex}`);
+    }
+    
     // Prepare queryParameter for real backend API
     const queryParameter: ILogDataQueryParameter = {
       wellUid: this.well,
@@ -538,8 +584,8 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       logName: header.name,
       indexType: header.indexType,
       indexCurve: header.indexCurve,
-      startIndex: startIndex,
-      endIndex: endIndex,
+      startIndex: apiStartIndex,
+      endIndex: apiEndIndex,
       isGrowing: true, // Convert string to boolean
       mnemonicList: '',
     };
@@ -757,6 +803,35 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
         viewcache: true,
         trackcontainer: {
           border: { visible: true }
+        }
+      });
+
+      // Enable rubber band zoom tool by default (simple implementation like demo)
+      const rubberBandTool = this.wellLogWidget.getToolByName('rubberband');
+      if (rubberBandTool) {
+        rubberBandTool.setEnabled(true);
+        
+        // Add event listener to keep tool enabled and handle state changes
+        rubberBandTool.on('enabledStateChanged', (evt: any, tool: any) => {
+          console.log('🔲 Rubber band tool state changed:', tool.isEnabled());
+          // Re-enable if it gets disabled after zoom
+          if (!tool.isEnabled()) {
+            setTimeout(() => {
+              tool.setEnabled(true);
+              console.log('🔲 Rubber band tool re-enabled');
+            }, 100);
+          }
+        });
+        
+        console.log('✅ Rubber band zoom enabled by default');
+      }
+      
+      // Disable conflicting tools that might interfere with rubber band zoom
+      ['TrackZoom', 'TrackPanning', 'pick'].forEach((toolName) => {
+        const tool = this.wellLogWidget.getToolByName(toolName);
+        if (tool) {
+          tool.setEnabled(false);
+          console.log(`🔧 Disabled conflicting tool: ${toolName}`);
         }
       });
 
@@ -1247,6 +1322,7 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
 
     // Sort by depth
     const sortedEntries = Array.from(depthValueMap.entries()).sort((a, b) => a[0] - b[0]);
+    
     const mergedDepths = sortedEntries.map(e => e[0]);
     const mergedValues = sortedEntries.map(e => e[1]);
 

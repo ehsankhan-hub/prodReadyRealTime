@@ -1,8 +1,9 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, Input, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GenerateCanvasTracksComponent, TrackInfo, TrackCurve } from '../../components/generate-canvas-tracks/generate-canvas-tracks.component';
 import { ITracks } from '../../models/tracks.model';
 import { LogHeadersService } from '../../services/log-headers.service';
+import { Subscription } from 'rxjs';
 
 /**
  * Component for displaying MWD Time-based well log data.
@@ -11,8 +12,10 @@ import { LogHeadersService } from '../../services/log-headers.service';
  * @remarks
  * This component serves as a time-based template that:
  * - Provides MWD track configurations for time-based display
- * - Uses DynamicTrackGeneratorComponent for real-time data loading
+ * - Uses GenerateCanvasTracksComponent for real-time data loading
  * - Connects to backend WITSML data sources
+ * - Supports automatic time-based data detection
+ * - Optimized for time-based index tracks with proper width
  */
 @Component({
   selector: 'app-mwd-time',
@@ -28,18 +31,33 @@ import { LogHeadersService } from '../../services/log-headers.service';
   `,
   styles: [`:host { display: block; width: 100%; height: 100%; }`]
 })
-export class MwdTimeComponent implements OnInit {
+export class MwdTimeComponent implements OnInit, OnDestroy {
   /** Unique identifier for the well */
-  @Input() well: string = '';
+  @Input() well: string = 'HWYH_1389';
   /** Unique identifier for the wellbore */
-  @Input() wellbore: string = '';
+  @Input() wellbore: string = 'HWYH_1389_0';
 
   /** Combined track configurations in TrackInfo format */
   combinedTracks: TrackInfo[] = [];
+  
+  /** Subscription for cleanup */
+  private subscription: Subscription | null = null;
 
   ngOnInit(): void {
     console.log('🕐 MWD Time Component initialized');
+    console.log('🕐 Time-based configuration detected');
+    console.log('🕐 Well:', this.well, 'Wellbore:', this.wellbore);
     this.initializeTracks();
+    this.validateTimeConfiguration();
+  }
+  
+  ngOnDestroy(): void {
+    // Clean up subscriptions to prevent memory leaks
+    if (this.subscription) {
+      this.subscription.unsubscribe();
+      this.subscription = null;
+    }
+    console.log('🕐 MWD Time Component destroyed');
   }
 
   private initializeTracks(): void {
@@ -48,30 +66,30 @@ export class MwdTimeComponent implements OnInit {
         trackNo: 0,
         trackName: 'Time',
         trackType: 'Index',
-        trackWidth: 120,
+        trackWidth: 120, // Optimized width for time-based index track (MM/DD/YYYY HH:MM:SS)
         isIndex: true,
         isDepth: false,  // false = time-based, true = depth-based
         curves: []
       },
       {
         trackNo: 1,
-        trackName: 'ROPS (Time)',
+        trackName: 'GR',
         trackType: 'Linear',
         trackWidth: 100,
         isIndex: false,
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'ROPS',
-            displayName: 'Rate of Penetration',
+            mnemonicId: 'GR',
+            displayName: 'Gamma Ray',
             color: '#E74C3C',
             lineStyle: 'solid',
             lineWidth: 2,
             min: 0,
-            max: 80,
-            autoScale: false,
+            max: 100,
+            autoScale: true,  // Enable autoScale for time-based data
             show: true,
-            LogId: 'Calc_Drilling',
+            LogId: 'MWD_Time',
             data: [],
             mnemonicLst: []
           }
@@ -79,23 +97,23 @@ export class MwdTimeComponent implements OnInit {
       },
       {
         trackNo: 2,
-        trackName: 'ROPSmin (Time)',
+        trackName: 'RT',
         trackType: 'Linear',
         trackWidth: 100,
         isIndex: false,
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'ROPSmin',
-            displayName: 'ROP Smoothed Min',
+            mnemonicId: 'RT',
+            displayName: 'Resistivity',
             color: '#2ECC71',
             lineStyle: 'solid',
             lineWidth: 2,
             min: 0,
-            max: 60,
-            autoScale: false,
+            max: 80,
+            autoScale: true,  // Enable autoScale for time-based data
             show: true,
-            LogId: 'Calc_Drilling',
+            LogId: 'MWD_Time',
             data: [],
             mnemonicLst: []
           }
@@ -103,23 +121,71 @@ export class MwdTimeComponent implements OnInit {
       },
       {
         trackNo: 3,
-        trackName: 'Depth (Time)',
+        trackName: 'NPHI',
         trackType: 'Linear',
         trackWidth: 100,
         isIndex: false,
         isDepth: false,
         curves: [
           {
-            mnemonicId: 'Depth',
-            displayName: 'Bit Depth',
+            mnemonicId: 'NPHI',
+            displayName: 'Neutron Porosity',
             color: '#3498DB',
             lineStyle: 'solid',
             lineWidth: 2,
-            min: 13000,
-            max: 15000,
-            autoScale: false,
+            min: 0,
+            max: 20000,
+            autoScale: true,  // Enable autoScale for time-based data
             show: true,
-            LogId: 'Calc_Drilling',
+            LogId: 'MWD_Time',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
+      },
+      {
+        trackNo: 4,
+        trackName: 'RHOB',
+        trackType: 'Linear',
+        trackWidth: 100,
+        isIndex: false,
+        isDepth: false,
+        curves: [
+          {
+            mnemonicId: 'RHOB',
+            displayName: 'Bulk Density',
+            color: '#9B59B6',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: 0,
+            max: 60,
+            autoScale: true,  // Enable autoScale for time-based data
+            show: true,
+            LogId: 'MWD_Time',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
+      },
+      {
+        trackNo: 5,
+        trackName: 'PEF',
+        trackType: 'Linear',
+        trackWidth: 100,
+        isIndex: false,
+        isDepth: false,
+        curves: [
+          {
+            mnemonicId: 'PEF',
+            displayName: 'Photoelectric Factor',
+            color: '#F39C12',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: 0,
+            max: 250,
+            autoScale: true,  // Enable autoScale for time-based data
+            show: true,
+            LogId: 'MWD_Time',
             data: [],
             mnemonicLst: []
           }
@@ -128,5 +194,63 @@ export class MwdTimeComponent implements OnInit {
     ];
     
     console.log('🕐 MWD Time tracks initialized:', this.combinedTracks.length, 'tracks');
+    console.log('🕐 Track configuration:');
+    this.combinedTracks.forEach(track => {
+      console.log(`  - Track ${track.trackNo}: ${track.trackName} (${track.trackType}, ${track.trackWidth}px)`);
+      if (track.curves.length > 0) {
+        track.curves.forEach(curve => {
+          console.log(`    * ${curve.mnemonicId}: ${curve.displayName}`);
+        });
+      }
+    });
+  }
+  
+  /**
+   * Updates track visibility for performance optimization
+   * @param trackNo Track number to show/hide
+   * @param visible Whether the track should be visible
+   */
+  public setTrackVisibility(trackNo: number, visible: boolean): void {
+    const track = this.combinedTracks.find(t => t.trackNo === trackNo);
+    if (track) {
+      track.curves.forEach(curve => {
+        curve.show = visible;
+      });
+      console.log(`🕐 Track ${trackNo} visibility set to: ${visible}`);
+    }
+  }
+  
+  /**
+   * Gets the current track configuration
+   * @returns Array of TrackInfo objects
+   */
+  public getTracks(): TrackInfo[] {
+    return this.combinedTracks;
+  }
+  
+  /**
+   * Validates that all tracks are properly configured for time-based data
+   * @returns boolean indicating if configuration is valid
+   */
+  public validateTimeConfiguration(): boolean {
+    const indexTrack = this.combinedTracks.find(t => t.isIndex);
+    if (!indexTrack) {
+      console.error('❌ No index track found in MWD Time configuration');
+      return false;
+    }
+    
+    if (indexTrack.isDepth !== false) {
+      console.error('❌ Index track is not properly configured for time-based data');
+      return false;
+    }
+    
+    const allTimeBased = this.combinedTracks.every(t => t.isDepth === false);
+    if (!allTimeBased) {
+      console.error('❌ Some tracks are configured as depth-based in time component');
+      return false;
+    }
+    
+    console.log('✅ MWD Time configuration validation passed');
+    return true;
   }
 }
