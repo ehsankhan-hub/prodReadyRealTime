@@ -305,7 +305,7 @@ export class DynamicTrackGeneratorComponent
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
     }
-    // Version 2: Clean up live polling on destroy
+    // Clean up live polling on destroy
     this.stopLivePolling();
   }
 
@@ -331,7 +331,7 @@ export class DynamicTrackGeneratorComponent
       // console.log('this.wellboreObjects  ', this.wellboreObjects);
       // console.log('📊 Log Headers loaded:', this.wellboreObjects);
 
-      // Version 2: Store wellboreObjects as cachedHeaders for chunk loading & live polling
+      // Store wellboreObjects as cachedHeaders for chunk loading & live polling
       this.cachedHeaders = this.wellboreObjects;
 
       await this.processLogHeaders(this.wellboreObjects);
@@ -349,7 +349,7 @@ export class DynamicTrackGeneratorComponent
   private async processLogHeaders(headers: IWellboreObject[]): Promise<void> {
     console.log('processLogHeaders ', headers);
 
-    // Version 2: Calculate headerMaxDepth from backend endIndex for proper depth limits
+    // Calculate headerMaxDepth from backend endIndex for proper depth limits
     headers?.forEach((h) => {
       // endIndex can be a string number (depth) or a date string (time)
       const endVal = h.endIndex?.['#text'] || h.endIndex;
@@ -432,7 +432,7 @@ export class DynamicTrackGeneratorComponent
    * Loads log data for a group of curves that share the same LogId.
    * Makes one API call and distributes data to all curves in the group.
    *
-   * Version 2: Fixed - removed duplicate API calls and hardcoded params.
+   * Fixed - removed duplicate API calls and hardcoded params.
    * Now uses dynamic header values and single API call with proper response parsing.
    *
    * @param header - Log header containing metadata
@@ -472,7 +472,7 @@ export class DynamicTrackGeneratorComponent
           next: (logDataArray: IWellboreLogData) => {
             console.log('logDataArray  ---', logDataArray);
             if (logDataArray != null) {
-              // Version 2: Parse using backend response format (logs[0].logData)
+              // Parse using backend response format (logs[0].logData)
               curves.forEach((curve) =>
                 this.parseCurveData(logDataArray, curve, false)
               );
@@ -506,7 +506,7 @@ export class DynamicTrackGeneratorComponent
         try {
           console.log('logDataArray  ---', result);
           if (result != null) {
-            // Version 2: Parse using backend response format (logs[0].logData)
+            // Parse using backend response format (logs[0].logData)
             curves.forEach((curve) =>
               this.parseCurveData(result, curve, false)
             );
@@ -541,7 +541,7 @@ export class DynamicTrackGeneratorComponent
    * Parses raw log data and extracts values for a specific curve.
    * Also stores depth indices for each curve for correct mapping.
    *
-   * Version 2: Handles real backend response format { logs: [{ logData: { data, mnemonicList } }] }
+   * Handles real backend response format { logs: [{ logData: { data, mnemonicList } }] }
    *
    * @param logData - Log data from backend (full response with logs array)
    * @param curve - Track curve object to populate with parsed data
@@ -1419,7 +1419,7 @@ export class DynamicTrackGeneratorComponent
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Version 2: LIVE DATA POLLING
+  // LIVE DATA POLLING
   //
   // Polls the backend at regular intervals for new data beyond the current
   // loaded max depth. Groups requests by LogId (same as checkAndLoadChunks).
@@ -1427,7 +1427,7 @@ export class DynamicTrackGeneratorComponent
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Version 2: Starts live data polling at LIVE_POLL_INTERVAL.
+   * Starts live data polling at LIVE_POLL_INTERVAL.
    * Call this after initial data load is complete.
    */
   startLivePolling(): void {
@@ -1441,7 +1441,7 @@ export class DynamicTrackGeneratorComponent
   }
 
   /**
-   * Version 2: Stops live data polling and clears the interval.
+   * Stops live data polling and clears the interval.
    */
   stopLivePolling(): void {
     if (this.livePollHandle) {
@@ -1540,7 +1540,7 @@ export class DynamicTrackGeneratorComponent
   }
 
   /**
-   * Version 2: Converts real backend response to flat LogData format for appendChunkData.
+   * Converts real backend response to flat LogData format for appendChunkData.
    * Backend returns: { logData: { data: [...], mnemonicList: "...", unitList: "..." } }
    * This converts to flat: { mnemonicList: "...", data: [...], unitList: "..." }
    *
