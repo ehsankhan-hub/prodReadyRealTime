@@ -1659,9 +1659,12 @@ export class DynamicTrackGeneratorComponent
       this.wellLogWidget.setVisibleDepthLimits(0, maxDepth);
       this.wellLogWidget.fitToHeight();
     } else {
-      // Set visible range based on scale
+      // Set visible range based on scale - SHOW MOST RECENT DATA WITH BUFFER
       const visibleRange = Math.min(scale, maxDepth);
-      this.wellLogWidget.setVisibleDepthLimits(0, visibleRange);
+      const buffer = Math.min(visibleRange * 0.5, 500); // 50% buffer or max 500 units
+      const recentStart = Math.max(0, maxDepth - visibleRange - buffer);
+      const recentEnd = Math.min(maxDepth, maxDepth + buffer);
+      this.wellLogWidget.setVisibleDepthLimits(recentStart, recentEnd);
     }
 
     this.wellLogWidget.updateLayout();
@@ -1678,153 +1681,13 @@ export class DynamicTrackGeneratorComponent
   /**
    * Handles scale change from the UI dropdown.
    * Dynamically updates the visible depth limits based on the selected scale.
-   * Loads required data chunks for the scaling range before applying the scale.
    *
    * @param scale - New scale value selected by the user
    */
-  async onScaleChange(scale: number): void {
+  onScaleChange(scale: number): void {
     this.selectedScale = Number(scale);
     console.log('🔄 Scale changed to:', this.selectedScale);
-    
-    // Calculate the depth range needed for this scale
-    const maxDepth = this.headerMaxDepth > 0 ? this.headerMaxDepth : this.getMaxDepth();
-    let targetMinDepth: number;
-    let targetMaxDepth: number;
-    
-    if (scale === 0) {
-      // Fit to height - need full data range
-      targetMinDepth = 0;
-      targetMaxDepth = maxDepth;
-    } else {
-      // Set visible range based on scale
-      const visibleRange = Math.min(scale, maxDepth);
-      targetMinDepth = 0;
-      targetMaxDepth = visibleRange;
-    }
-    
-    console.log(`📏 Target range for scale ${scale}: ${targetMinDepth}-${targetMaxDepth}`);
-    
-    // Check if we need to load data for this range
-    const missingChunks = this.getMissingChunksForRange(targetMinDepth, targetMaxDepth);
-    
-    if (missingChunks.length > 0) {
-      console.log(`🔄 Loading ${missingChunks.length} missing chunks for scaling...`);
-      await this.loadChunksForScaleRange(missingChunks);
-      console.log('✅ Required chunks loaded for scaling');
-    } else {
-      console.log('✅ Data already available for scaling range');
-    }
-    
-    // Apply the scale now that data is available
     this.applyScale(this.selectedScale);
-  }
-
-  /**
-   * Determines which chunks are missing for a given depth range.
-   * Checks loaded ranges for all curves and identifies gaps.
-   *
-   * @param minDepth - Minimum depth needed
-   * @param maxDepth - Maximum depth needed
-   * @returns Array of missing chunk ranges [{start, end}]
-   * @private
-   */
-  private getMissingChunksForRange(minDepth: number, maxDepth: number): {start: number, end: number}[] {
-    const missingChunks: {start: number, end: number}[] = [];
-    
-    // Check all curves to find gaps in loaded data
-    this.listOfTracks.forEach(track => {
-      track.curves.forEach(curve => {
-        const loadedRange = this.loadedRanges.get(curve.mnemonicId);
-        
-        if (!loadedRange || loadedRange.min > minDepth || loadedRange.max < maxDepth) {
-          // Calculate missing chunks for this curve
-          const curveMinDepth = loadedRange?.min ?? maxDepth;
-          const curveMaxDepth = loadedRange?.max ?? 0;
-          
-          // Check if we need data below current loaded range
-          if (minDepth < curveMinDepth) {
-            const chunkStart = Math.max(0, curveMinDepth - this.CHUNK_SIZE);
-            const chunkEnd = curveMinDepth;
-            missingChunks.push({ start: chunkStart, end: chunkEnd });
-          }
-          
-          // Check if we need data above current loaded range
-          if (maxDepth > curveMaxDepth) {
-            const chunkStart = curveMaxDepth;
-            const chunkEnd = Math.min(maxDepth, curveMaxDepth + this.CHUNK_SIZE);
-            missingChunks.push({ start: chunkStart, end: chunkEnd });
-          }
-        }
-      });
-    });
-    
-    // Remove duplicates and sort
-    const uniqueChunks = missingChunks.filter((chunk, index, self) =>
-      index === self.findIndex(c => c.start === chunk.start && c.end === chunk.end)
-    ).sort((a, b) => a.start - b.start);
-    
-    console.log(`🔍 Missing chunks for range ${minDepth}-${maxDepth}:`, uniqueChunks);
-    return uniqueChunks;
-  }
-
-  /**
-   * Loads data chunks for a specific scaling range.
-   * Groups requests by LogId to avoid duplicate API calls.
-   *
-   * @param chunks - Array of chunk ranges to load
-   * @returns Promise that resolves when all chunks are loaded
-   * @private
-   */
-  private async loadChunksForScaleRange(chunks: {start: number, end: number}[]): Promise<void> {
-    console.log(`🔄 Loading ${chunks.length} chunks for scaling range`);
-    
-    // Group chunks by LogId to avoid duplicate API calls
-    const logIdRequests = new Map<string, {header: IWellboreObject, curves: TrackCurve[], ranges: {start: number, end: number}[]}>();
-    
-    chunks.forEach(chunk => {
-      // Find curves that need this chunk
-      this.listOfTracks.forEach(track => {
-        track.curves.forEach(curve => {
-          // Find matching header for this curve's LogId
-          const matchingHeader = this.cachedHeaders.find(h => h.objectId.includes(curve.LogId));
-          if (!matchingHeader) return;
-          
-          const logId = curve.LogId;
-          if (!logIdRequests.has(logId)) {
-            logIdRequests.set(logId, {
-              header: matchingHeader,
-              curves: [],
-              ranges: []
-            });
-          }
-          
-          const request = logIdRequests.get(logId)!;
-          if (!request.curves.find(c => c.mnemonicId === curve.mnemonicId)) {
-            request.curves.push(curve);
-          }
-          
-          // Add this range if not already added
-          const rangeExists = request.ranges.some(r => r.start === chunk.start && r.end === chunk.end);
-          if (!rangeExists) {
-            request.ranges.push(chunk);
-          }
-        });
-      });
-    });
-    
-    // Load chunks for each LogId
-    const loadPromises: Promise<void>[] = [];
-    
-    logIdRequests.forEach(({header, curves, ranges}, logId) => {
-      ranges.forEach(range => {
-        const promise = this.loadLogDataForGroup(header, curves, range.start.toString(), range.end.toString());
-        loadPromises.push(promise);
-      });
-    });
-    
-    // Wait for all chunks to load
-    await Promise.all(loadPromises);
-    console.log('✅ All scaling chunks loaded successfully');
   }
 
   /**
