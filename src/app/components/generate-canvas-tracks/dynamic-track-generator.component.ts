@@ -2806,11 +2806,15 @@ export class DynamicTrackGeneratorComponent
    */
   private applyTrackWidths(widths: number[]): void {
     console.log('🔄 Applying new track widths to GeoToolkit tracks');
+    console.log('🔍 applyTrackWidths() called with widths:', widths);
     
     if (!this.wellLogWidget) {
       console.warn('⚠️ WellLogWidget not available for width application');
       return;
     }
+    
+    console.log('✅ WellLogWidget is available');
+    console.log('🔍 Checking getTracks method...');
 
     // Check if getTracks method exists in this GeoToolkit version
     if (typeof (this.wellLogWidget as any).getTracks !== 'function') {
