@@ -3,6 +3,7 @@
   height: 100%;
   position: relative;
   overflow: hidden;
+  min-height: 400px;
 }
 
 .plot-canvas {

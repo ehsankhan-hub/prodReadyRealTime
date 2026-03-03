@@ -1,7 +1,7 @@
 <div class="simple-canvas-container">
-  <mat-tab-group class="template-tabs" animationDuration="0ms">
+  <mat-tab-group class="template-tabs" animationDuration="0ms" (selectedTabChange)="onTabChange($event)">
     <mat-tab label="MWD Depth">
-      <div class="canvas-container">
+      <div class="canvas-container" *ngIf="activeTab === 0">
         <app-mwd-density 
           [well]="'HWYH_1389'"
           [wellbore]="'HWYH_1389_0'"
@@ -11,7 +11,7 @@
       </div>
     </mat-tab>
     <mat-tab label="MWD_Time">
-      <div class="canvas-container">
+      <div class="canvas-container" *ngIf="activeTab === 1">
         <app-mwd-time
           [well]="'HWYH_1389'"
           [wellbore]="'HWYH_1389_0'">

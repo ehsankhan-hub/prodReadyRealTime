@@ -1,6 +1,7 @@
 import { Component, OnInit, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatTabsModule } from '@angular/material/tabs';
+import { MatTabChangeEvent } from '@angular/material/tabs';
 import { LogHeadersService, LogHeader, LogData } from '../../services/log-headers.service';
 import { HttpClientModule } from '@angular/common/http';
 import { MwdDensityComponent } from '../../templates/mwd-density/mwd-density.component';
@@ -33,6 +34,8 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
   mwdTracks: ITracks[] = [];
   /** Density track configurations */
   densityTracks: ITracks[] = [];
+  /** Active tab index for conditional rendering */
+  activeTab: number = 0;
 
   /**
    * Creates an instance of SimpleCanvasComponent.
@@ -203,6 +206,15 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
     console.log(' Simple Canvas Component view initialized');
     // WellLogWidget is now handled by MWD Density component
     // No need to initialize the old widget since we're using the new template
+  }
+
+  /**
+   * Handles tab change events to enable conditional rendering
+   * @param event - MatTabChangeEvent containing the new tab index
+   */
+  onTabChange(event: MatTabChangeEvent): void {
+    this.activeTab = event.index;
+    console.log(` Tab changed to: ${event.index === 0 ? 'MWD Depth' : 'MWD_Time'}`);
   }
 
   // Old WellLogWidget methods removed - now using MWD Density component
