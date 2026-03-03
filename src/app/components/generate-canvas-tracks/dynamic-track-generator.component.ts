@@ -2814,7 +2814,50 @@ export class DynamicTrackGeneratorComponent
 
     // Check if getTracks method exists in this GeoToolkit version
     if (typeof (this.wellLogWidget as any).getTracks !== 'function') {
-      console.warn('⚠️ getTracks() method not available in this GeoToolkit version - skipping width application');
+      console.warn('⚠️ getTracks() method not available - trying alternative methods');
+      
+      // Try alternative methods for different GeoToolkit versions
+      if (typeof (this.wellLogWidget as any).getTrackCount === 'function') {
+        const trackCount = (this.wellLogWidget as any).getTrackCount();
+        console.log(`📋 Using getTrackCount() approach: found ${trackCount} tracks`);
+        
+        let trackIndex = 0;
+        Array.from({ length: trackCount }).forEach((_, i) => {
+          try {
+            const track = (this.wellLogWidget as any).getTrack(i);
+            if (track && typeof track === 'object') {
+              const trackName = track.getName?.() || '';
+              
+              // Find matching track configuration to determine if it's an index track
+              const trackConfig = this.listOfTracks.find((config) => config.trackName === trackName);
+              
+              if (trackConfig?.isIndex) {
+                console.log(`⏭️ Skipping index track: ${trackName}`);
+                return;
+              }
+
+              if (trackIndex >= widths.length) {
+                console.warn(`⚠️ Width array index out of bounds for track ${trackIndex}`);
+                return;
+              }
+
+              const oldWidth = track.getWidth?.() || 'unknown';
+              const newWidth = widths[trackIndex];
+              
+              track.setWidth(newWidth);
+              
+              console.log(`📏 Track ${trackName}: ${oldWidth}px → ${newWidth}px`);
+              trackIndex++;
+            }
+          } catch (trackError) {
+            console.warn(`⚠️ Error applying width to track ${i}:`, trackError);
+          }
+        });
+        return;
+      }
+      
+      // Try direct iteration with numeric access
+      console.warn('⚠️ No track access methods available - width adjustment not supported in this GeoToolkit version');
       return;
     }
 
