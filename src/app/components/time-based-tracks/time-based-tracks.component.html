@@ -1,0 +1,134 @@
+<div class="time-based-tracks-container">
+  <!-- Loading Indicator -->
+  <div *ngIf="showLoading" class="loading-overlay">
+    <div class="loading-spinner">
+      <div class="spinner"></div>
+      <p>Loading time-based data...</p>
+    </div>
+  </div>
+
+  <!-- Header Controls -->
+  <div class="time-controls-header">
+    <div class="controls-left">
+      <h3>Time-Based Well Log Visualization</h3>
+      <div class="time-info">
+        <span *ngIf="indexCurveTime.length > 0">
+          Time Range: {{ indexCurveTime[0] | date:'short' }} - {{ indexCurveTime[indexCurveTime.length - 1] | date:'short' }}
+        </span>
+        <span *ngIf="isLiveTracking" class="live-indicator">
+          <span class="live-dot"></span>
+          LIVE
+        </span>
+      </div>
+    </div>
+    
+    <div class="controls-right">
+      <!-- Time Scale Selector -->
+      <div class="scale-selector">
+        <label for="timeScale">Time Scale:</label>
+        <select id="timeScale" [value]="selectedScale" #scaleSelect (change)="onScaleChange(scaleSelect.value)">
+          <option value="0">Fit to Height</option>
+          <option value="0.5">30 min</option>
+          <option value="1">1 hour</option>
+          <option value="2">2 hours</option>
+          <option value="4">4 hours</option>
+          <option value="6">6 hours</option>
+          <option value="12">12 hours</option>
+          <option value="24">24 hours</option>
+        </select>
+      </div>
+
+      <!-- Theme Toggle -->
+      <div class="theme-toggle">
+        <button 
+          class="theme-btn" 
+          (click)="toggleTheme()"
+          [attr.aria-label]="isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'"
+        >
+          <span class="theme-icon">{{ isDarkTheme ? '🌙' : '☀️' }}</span>
+          {{ isDarkTheme ? 'Dark' : 'Light' }}
+        </button>
+      </div>
+
+      <!-- Live Data Controls -->
+      <div class="live-controls">
+        <button 
+          class="live-btn"
+          [class.active]="isLiveTracking"
+          (click)="isLiveTracking ? stopLivePolling() : startLivePolling()"
+        >
+          <span class="live-icon">{{ isLiveTracking ? '⏸️' : '▶️' }}</span>
+          {{ isLiveTracking ? 'Stop Live' : 'Start Live' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time Range Selector -->
+  <div class="time-range-selector" *ngIf="indexCurveTime.length > 0">
+    <div class="range-info">
+      <label>Custom Time Range:</label>
+      <input 
+        type="datetime-local" 
+        [value]="formatDateTimeForInput(indexCurveTime[0])"
+        #startTimeInput
+      >
+      <span>to</span>
+      <input 
+        type="datetime-local" 
+        [value]="formatDateTimeForInput(indexCurveTime[indexCurveTime.length - 1])"
+        #endTimeInput
+      >
+      <button (click)="applyCustomTimeRange(startTimeInput.value, endTimeInput.value)">
+        Apply Range
+      </button>
+    </div>
+  </div>
+
+  <!-- Widget Container -->
+  <div class="widget-container">
+    <app-basewidget #widgetComponent></app-basewidget>
+  </div>
+
+  <!-- Time Statistics -->
+  <div class="time-statistics" *ngIf="indexCurveTime.length > 0">
+    <div class="stat-item">
+      <span class="stat-label">Total Points:</span>
+      <span class="stat-value">{{ indexCurveTime.length }}</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Duration:</span>
+      <span class="stat-value">{{ calculateDuration() }}</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Data Points/Hour:</span>
+      <span class="stat-value">{{ calculateDataPointsPerHour() }}</span>
+    </div>
+  </div>
+
+  <!-- Track Information -->
+  <div class="track-information" *ngIf="listOfTracks.length > 0">
+    <h4>Active Tracks</h4>
+    <div class="track-list">
+      <div 
+        *ngFor="let track of listOfTracks; let i = index" 
+        class="track-item"
+        [class.index-track]="track.isIndex"
+      >
+        <div class="track-header">
+          <span class="track-name">{{ track.trackTitle }}</span>
+          <span class="track-type">{{ track.isIndex ? 'Index' : 'Data' }}</span>
+        </div>
+        <div class="track-curves">
+          <span 
+            *ngFor="let curve of track.curves" 
+            class="curve-badge"
+            [style.background-color]="getCurveColor(i)"
+          >
+            {{ curve.mnemonic }}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -566,7 +566,20 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       let end: number;
       if (this.isTimeBasedData) {
         // For time-based data, convert ISO string to timestamp
-        end = h.endIndex?.['#text'] ? new Date(h.endIndex['#text']).getTime() : 0;
+        if (h.endIndex?.['#text']) {
+          try {
+            end = new Date(h.endIndex['#text']).getTime();
+            if (isNaN(end) || end <= 0) {
+              console.warn(`⚠️ Invalid endIndex in header: ${h.endIndex['#text']}, using 0`);
+              end = 0;
+            }
+          } catch (error) {
+            console.error(`❌ Error parsing endIndex: ${h.endIndex['#text']}`, error);
+            end = 0;
+          }
+        } else {
+          end = 0;
+        }
       } else {
         // For depth-based data, parse as float
         end = parseFloat(h.endIndex?.['#text'] || '0');
@@ -599,8 +612,35 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
       
       if (this.isTimeBasedData) {
         // For time-based data, work with timestamps
-        const endTime = new Date(header.endIndex?.['#text'] || new Date().toISOString()).getTime();
-        const startTime = new Date(header.startIndex?.['#text'] || new Date(endTime - this.CHUNK_SIZE * 1000).toISOString()).getTime();
+        let endTime: number;
+        let startTime: number;
+        
+        try {
+          // Parse endTime with fallback
+          const endTimeStr = header.endIndex?.['#text'] || new Date().toISOString();
+          endTime = new Date(endTimeStr).getTime();
+          
+          if (isNaN(endTime) || endTime <= 0) {
+            console.warn(`⚠️ Invalid endTime from header: ${endTimeStr}, using current time`);
+            endTime = Date.now();
+          }
+          
+          // Parse startTime with fallback
+          const startTimeStr = header.startIndex?.['#text'] || new Date(endTime - this.CHUNK_SIZE * 1000).toISOString();
+          startTime = new Date(startTimeStr).getTime();
+          
+          if (isNaN(startTime) || startTime <= 0) {
+            console.warn(`⚠️ Invalid startTime from header: ${startTimeStr}, calculating from endTime`);
+            startTime = endTime - this.CHUNK_SIZE * 1000;
+          }
+          
+        } catch (error) {
+          console.error(`❌ Error parsing time-based indices:`, error);
+          // Fallback to current time
+          endTime = Date.now();
+          startTime = endTime - this.CHUNK_SIZE * 1000;
+        }
+        
         endIndex = endTime;
         startIndex = Math.max(startTime, endTime - this.CHUNK_SIZE * 1000); // CHUNK_SIZE seconds in ms
       } else {
@@ -632,9 +672,28 @@ export class GenerateCanvasTracksComponent implements OnInit, AfterViewInit, OnD
     let apiEndIndex: any = endIndex;
     
     if (this.isTimeBasedData) {
-      apiStartIndex = new Date(startIndex).toISOString();
-      apiEndIndex = new Date(endIndex).toISOString();
-      console.log(`🕐 Time-based API call: ${apiStartIndex} to ${apiEndIndex}`);
+      // Validate timestamps before creating Date objects
+      if (isNaN(startIndex) || startIndex <= 0) {
+        console.warn(`⚠️ Invalid startIndex: ${startIndex}, using current time`);
+        startIndex = Date.now();
+      }
+      if (isNaN(endIndex) || endIndex <= 0) {
+        console.warn(`⚠️ Invalid endIndex: ${endIndex}, using current time`);
+        endIndex = Date.now();
+      }
+      
+      try {
+        apiStartIndex = new Date(startIndex).toISOString();
+        apiEndIndex = new Date(endIndex).toISOString();
+        console.log(`🕐 Time-based API call: ${apiStartIndex} to ${apiEndIndex}`);
+      } catch (error) {
+        console.error(`❌ Error converting timestamps to ISO:`, error);
+        // Fallback to current time
+        const now = new Date();
+        apiStartIndex = new Date(now.getTime() - 3600000).toISOString(); // 1 hour ago
+        apiEndIndex = now.toISOString();
+        console.log(`🕐 Fallback time-based API call: ${apiStartIndex} to ${apiEndIndex}`);
+      }
     }
     
     // Prepare queryParameter for real backend API

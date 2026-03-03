@@ -794,6 +794,9 @@ export class DynamicTrackGeneratorComponent
       this.widgetComponent.Widget = this.wellLogWidget;
       console.log('✅ Widget assigned to BaseWidgetComponent');
 
+      // Apply initial theme styling to GeoToolkit elements
+      this.applyGeoToolkitTheme();
+
       // Apply track styling following GeoToolkit demo pattern
       console.log('theam flag--', this.theamFlage);
 
