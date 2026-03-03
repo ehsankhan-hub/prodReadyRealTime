@@ -2867,6 +2867,8 @@ export class DynamicTrackGeneratorComponent
       const tracksResult = (this.wellLogWidget as any).getTracks();
 
       console.log('🔍 getTracks() returned for width application:', typeof tracksResult, tracksResult);
+      console.log('🔍 tracksResult constructor:', tracksResult?.constructor?.name);
+      console.log('🔍 tracksResult methods:', tracksResult ? Object.getOwnPropertyNames(tracksResult) : 'null/undefined');
 
       let trackIndex = 0;
 
