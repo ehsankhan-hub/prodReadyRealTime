@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, ElementRef, ChangeDetectorRef, AfterViewInit } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, ElementRef, ChangeDetectorRef, AfterViewInit, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
@@ -101,13 +101,27 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private trackMap: Map<number, LogTrack> = new Map();
   loadedTimeRanges: Map<string, { min: number, max: number }> = new Map();
   
+  // --- Chunked loading state ---
+  /** Number of time rows per chunk (in milliseconds) */
+  private readonly TIME_CHUNK_SIZE = 3600000; // 1 hour in milliseconds
+  /** Tracks which time ranges have been loaded per curve */
+  private inFlightTimeRanges: Set<string> = new Set();
+  /** Handle for the scroll polling interval */
+  private scrollPollHandle: any = null;
+  /** Last known visible time range for change detection */
+  private lastVisibleMin = -1;
+  private lastVisibleMax = -1;
+  /** Loading state for chunk fetches */
+  isLoadingChunk = false;
+  
   // Subscriptions
   private subscriptions: any[] = [];
 
   constructor(
     private timeBasedLogService: TimeBasedLogService,
     private timeBasedThemeService: TimeBasedThemeService,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private ngZone: NgZone
   ) {}
 
   ngOnInit(): void {
@@ -136,6 +150,12 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   private cleanup(): void {
+    // Clean up scroll polling
+    if (this.scrollPollHandle) {
+      clearInterval(this.scrollPollHandle);
+      this.scrollPollHandle = null;
+    }
+    
     // Clean up widget
     if (this.wellLogWidget) {
       try {
@@ -636,9 +656,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       this.wellLogWidget.setDepthScale(msPerPixel);
       console.log(`🎯 Set depth scale: ${msPerPixel} ms per pixel (~1 hour per 100px)`);
       
-      // Then set the visible window (show a reasonable window around the data)
+      // Then set the visible window (show only a portion to enable scrolling)
+      const visibleWindow = 4 * 3600000; // 4 hours in milliseconds
       const visibleMin = minTime;
-      const visibleMax = maxTime + (range * 0.1); // Add 10% padding
+      const visibleMax = minTime + visibleWindow;
       
       this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
       console.log(`🎯 Set visible range: ${visibleMin} to ${visibleMax} (data range: ${minTime} to ${maxTime})`);
@@ -646,8 +667,237 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       // Force widget update to render curves
       this.wellLogWidget.updateLayout();
       console.log('🔄 Widget updated to render curves');
+      
+      // Configure scroll-based lazy loading for time data
+      this.configureTimeScrollLazyLoading();
     } else {
       console.warn('⚠️ No time data available to set visible range');
+    }
+  }
+
+  /**
+   * Configures scroll-based lazy loading for time-based data
+   */
+  private configureTimeScrollLazyLoading(): void {
+    if (!this.wellLogWidget) return;
+
+    try {
+      const initialLimits: any = this.wellLogWidget.getVisibleDepthLimits();
+      if (initialLimits) {
+        this.lastVisibleMin = initialLimits.getLow ? initialLimits.getLow() : 0;
+        this.lastVisibleMax = initialLimits.getHigh ? initialLimits.getHigh() : 0;
+        console.log(`📊 Initial visible time range: ${this.lastVisibleMin} - ${this.lastVisibleMax}`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Error getting initial visible limits:', error);
+      this.lastVisibleMin = 0;
+      this.lastVisibleMax = 0;
+    }
+    
+    // Poll every 500ms for visible time changes
+    this.scrollPollHandle = setInterval(() => {
+      if (!this.wellLogWidget) return;
+      try {
+        const visibleLimits: any = this.wellLogWidget.getVisibleDepthLimits();
+        if (!visibleLimits) return;
+        const vMin = visibleLimits.getLow ? visibleLimits.getLow() : 0;
+        const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
+
+        // Skip invalid ranges (0-0 indicates widget not ready)
+        if (vMin === 0 && vMax === 0) {
+          return;
+        }
+
+        // Only trigger if visible range actually changed beyond tolerance
+        const tolerance = 60000; // 1 minute tolerance for time data
+        const minDiff = Math.abs(vMin - this.lastVisibleMin);
+        const maxDiff = Math.abs(vMax - this.lastVisibleMax);
+        
+        // Detect scroll direction
+        const scrollDirection = vMin < this.lastVisibleMin ? 'past' : 
+                               vMax > this.lastVisibleMax ? 'future' : 'none';
+        
+        if (minDiff > tolerance || maxDiff > tolerance) {
+          console.log(`📜 Time scroll ${scrollDirection}: ${this.lastVisibleMin} - ${this.lastVisibleMax} → ${vMin} - ${vMax}`);
+          this.lastVisibleMin = vMin;
+          this.lastVisibleMax = vMax;
+          
+          // Check and load time-based chunks
+          this.ngZone.run(() => this.checkAndLoadTimeChunks());
+        }
+      } catch (error) { 
+        // Widget may not be ready
+      }
+    }, 500);
+    
+    console.log('✅ Time scroll polling configured');
+  }
+
+  /**
+   * Checks visible time range and loads missing chunks
+   */
+  private checkAndLoadTimeChunks(): void {
+    if (!this.wellLogWidget) return;
+    // Limit concurrent in-flight requests
+    if (this.inFlightTimeRanges.size >= 2) return;
+
+    const visibleLimits: any = this.wellLogWidget.getVisibleDepthLimits();
+    if (!visibleLimits) return;
+
+    const vMin = visibleLimits.getLow ? visibleLimits.getLow() : 0;
+    const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
+
+    // Add a buffer around visible range
+    const buffer = this.TIME_CHUNK_SIZE / 2; // 30 minutes buffer
+    const needMin = vMin - buffer;
+    const needMax = vMax + buffer;
+
+    console.log(`🔍 Checking time chunks for range: ${needMin} - ${needMax}`);
+
+    // Check each wellbore object for missing time ranges
+    this.wellboreObjects.forEach((wellboreObject) => {
+      const loadedRange = this.loadedTimeRanges.get(wellboreObject.uid);
+      
+      if (!loadedRange || loadedRange.min > needMin || loadedRange.max < needMax) {
+        // Need to load more data for this wellbore
+        const startTime = Math.max(needMin, loadedRange?.min || needMin);
+        const endTime = Math.min(needMax, loadedRange?.max || needMax);
+        
+        const rangeKey = `${wellboreObject.uid}-${startTime}-${endTime}`;
+        if (!this.inFlightTimeRanges.has(rangeKey)) {
+          console.log(`📦 Loading time chunk: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
+          this.loadTimeChunk(wellboreObject, startTime, endTime, rangeKey);
+        }
+      }
+    });
+  }
+
+  /**
+   * Loads a specific time chunk for a wellbore object
+   */
+  private loadTimeChunk(wellboreObject: ITimeWellboreObject, startTime: number, endTime: number, rangeKey: string): void {
+    this.inFlightTimeRanges.add(rangeKey);
+    this.isLoadingChunk = true;
+
+    const queryParameter: ILogDataQueryParameter = {
+      wellUid: this.wellId,
+      logUid: wellboreObject.uid,
+      wellboreUid: this.wellboreId,
+      logName: wellboreObject.name,
+      indexType: 'time',
+      indexCurve: 'TIME',
+      startIndex: startTime.toString(),
+      endIndex: endTime.toString(),
+      isGrowing: false,
+      mnemonicList: wellboreObject.mnemonicList
+    };
+
+    this.timeBasedLogService.getLogData(queryParameter).subscribe(
+      (response: any) => {
+        this.processTimeChunkResponse(response, wellboreObject, startTime, endTime);
+        this.inFlightTimeRanges.delete(rangeKey);
+        this.isLoadingChunk = false;
+      },
+      (error) => {
+        console.error('❌ Error loading time chunk:', error);
+        this.inFlightTimeRanges.delete(rangeKey);
+        this.isLoadingChunk = false;
+      }
+    );
+  }
+
+  /**
+   * Processes time chunk response and appends data to existing curves
+   */
+  private processTimeChunkResponse(response: any, wellboreObject: ITimeWellboreObject, startTime: number, endTime: number): void {
+    if (!response || !response.indexData || !response.curveData) {
+      console.error('❌ Invalid time chunk response structure:', response);
+      return;
+    }
+
+    const curveData = response.curveData;
+    const timeData = response.indexData;
+    
+    // Update loaded range
+    const existingRange = this.loadedTimeRanges.get(wellboreObject.uid) || { min: Infinity, max: -Infinity };
+    existingRange.min = Math.min(existingRange.min, startTime);
+    existingRange.max = Math.max(existingRange.max, endTime);
+    this.loadedTimeRanges.set(wellboreObject.uid, existingRange);
+
+    console.log(`📦 Processing time chunk: ${Object.keys(curveData).length} curves, ${timeData.length} time points`);
+
+    // Process each curve and append data to existing curves
+    Object.entries(curveData).forEach(([mnemonic, values]) => {
+      const curveValues = values as number[];
+      if (curveValues.length > 0) {
+        // Find the existing curve in the widget
+        const existingCurve = this.findCurveInWidget(mnemonic);
+        if (existingCurve && timeData.length === curveValues.length) {
+          // Append new data to existing curve
+          this.appendDataToCurve(existingCurve, timeData, curveValues);
+          console.log(`✅ Appended ${curveValues.length} points to curve ${mnemonic}`);
+        }
+      }
+    });
+
+    // Update widget to show new data
+    this.wellLogWidget?.updateLayout();
+  }
+
+  /**
+   * Finds an existing curve in the widget by mnemonic
+   */
+  private findCurveInWidget(mnemonic: string): LogCurve | null {
+    if (!this.wellLogWidget) return null;
+
+    const tracks = this.wellLogWidget.getTracks();
+    const tracksArray = [];
+    while (tracks.hasNext()) {
+      tracksArray.push(tracks.next());
+    }
+    
+    for (const track of tracksArray) {
+      const visuals = track.getChildren();
+      const visualsArray = [];
+      while (visuals.hasNext()) {
+        visualsArray.push(visuals.next());
+      }
+      
+      for (const visual of visualsArray) {
+        if (visual instanceof LogCurve && visual.getName() === mnemonic) {
+          return visual;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Appends new data to an existing LogCurve
+   */
+  private appendDataToCurve(curve: LogCurve, timeIndices: number[], values: number[]): void {
+    try {
+      const dataSource = curve.getDataSource();
+      if (dataSource && dataSource.getValues) {
+        const existingValues = dataSource.getValues();
+        const existingIndices = dataSource.getDepths();
+        
+        // Merge data
+        const newIndices = [...existingIndices, ...timeIndices];
+        const newValues = [...existingValues, ...values];
+        
+        // Update the curve data - check if setValues method exists
+        if ('setValues' in dataSource) {
+          (dataSource as any).setValues(newIndices, newValues);
+        } else {
+          // Fallback: set values individually if setValues is not available
+          for (let i = 0; i < newIndices.length; i++) {
+            dataSource.setValue(i, newValues[i]);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error appending data to curve:', error);
     }
   }
 }
