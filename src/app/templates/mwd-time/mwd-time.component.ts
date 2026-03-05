@@ -1,7 +1,7 @@
 import { Component, Input, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ITracks, ICurve } from '../../models/tracks.model';
-import { TimeBasedTracksComponent, ITimeTrack } from '../../components/time-based-tracks';
+import { TimeBasedTracksComponent, ITimeTrack } from '../../components/time-based-tracks/time-based-tracks.component';
 import { LogHeadersService } from '../../services/log-headers.service';
 import { Subscription } from 'rxjs';
 

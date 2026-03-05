@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, ElementRef, ChangeDetectorRef, AfterViewInit, NgZone } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, ChangeDetectorRef, AfterViewInit, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
@@ -9,10 +9,6 @@ import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
-import { IndexType } from '@int/geotoolkit/welllog/IndexType';
-import { CssStyle } from '@int/geotoolkit/css/CssStyle';
-
-
 
 export interface ITimeCurve {
   mnemonicId: string;
