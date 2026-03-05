@@ -35,6 +35,24 @@ export class TimeBasedLogService {
         viewcache: true,
         trackcontainer: {
           border: { visible: true }
+        },
+        scroll: {
+          fittocontent: false,
+          headerverticalscroll: {
+            size: 11,
+            visible: true,
+            options: { resizable: false }
+          },
+          trackverticalscroll: {
+            size: 11,
+            visible: true,
+            options: { resizable: false }
+          },
+          trackhorizontalscroll: {
+            size: 11,
+            visible: false,
+            options: { resizable: false }
+          }
         }
       });
 
