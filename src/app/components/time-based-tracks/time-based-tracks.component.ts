@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, ChangeDetectorRef, AfterViewInit, NgZone } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
@@ -12,7 +12,7 @@ import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 
 export interface ITimeCurve {
   mnemonicId: string;
-  mnemonic?: string; // For backward compatibility
+  mnemonic?: string;
   data: number[];
   color?: string;
   lineWidth?: number;
@@ -84,141 +84,59 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   @ViewChild('widgetComponent') widgetComponent!: BaseWidgetComponent;
 
-  // Widget and data properties
   wellLogWidget: WellLogWidget | null = null;
   wellboreObjects: ITimeWellboreObject[] = [];
-  showLoading: boolean = false;
-  isLiveTracking: boolean = false;
-  
-  // Time-based data properties
+  showLoading = false;
+  isLiveTracking = false;
   indexCurveTime: number[] = [];
-  indexCurveTimeDepthForShowMarker: number[] = [];
+
   private curveTimeIndices: Map<string, number[]> = new Map();
   private trackMap: Map<number, LogTrack> = new Map();
-  loadedTimeRanges: Map<string, { min: number, max: number }> = new Map();
-  
-  // --- Chunked loading state ---
-  /** Number of time rows per chunk (in milliseconds) */
-  private readonly TIME_CHUNK_SIZE = 3600000; // 1 hour in milliseconds
-  /** Tracks which time ranges have been loaded per curve */
-  private inFlightTimeRanges: Set<string> = new Set();
-  /** Handle for the scroll polling interval */
-  private scrollPollHandle: any = null;
-  /** Last known visible time range for change detection */
-  private lastVisibleMin = -1;
-  private lastVisibleMax = -1;
-  /** Loading state for chunk fetches */
-  isLoadingChunk = false;
-  
-  // Subscriptions
   private subscriptions: any[] = [];
 
   constructor(
     private timeBasedLogService: TimeBasedLogService,
-    private timeBasedThemeService: TimeBasedThemeService,
-    private cdr: ChangeDetectorRef,
-    private ngZone: NgZone
+    private timeBasedThemeService: TimeBasedThemeService
   ) {}
 
   ngOnInit(): void {
-    console.log('🎯 TimeBasedTracksComponent initialized');
-    console.log('🎯 Inputs:', {
-      wellId: this.wellId,
-      wellboreId: this.wellboreId,
-      trackCount: this.listOfTracks.length,
-      selectedScale: this.selectedScale,
-      isDarkTheme: this.isDarkTheme,
-      selectedHour: this.selectedHour
-    });
-    
-    // Fetch log headers first
+    console.log('🎯 TimeBasedTracksComponent initialized', { wellId: this.wellId, wellboreId: this.wellboreId });
     this.fetchLogHeaders();
   }
 
   ngAfterViewInit(): void {
-    console.log('🎯 TimeBasedTracksComponent view initialized');
-    // Try to initialize widget now that view is ready
     this.tryInitializeWidget();
   }
 
   ngOnDestroy(): void {
-    this.cleanup();
-  }
-
-  private cleanup(): void {
-    // Clean up scroll polling
-    if (this.scrollPollHandle) {
-      clearInterval(this.scrollPollHandle);
-      this.scrollPollHandle = null;
-    }
-    
-    // Clean up widget
     if (this.wellLogWidget) {
-      try {
-        this.wellLogWidget.dispose();
-      } catch (error) {
-        console.warn('⚠️ Error disposing widget:', error);
-      }
+      try { this.wellLogWidget.dispose(); } catch (_) {}
       this.wellLogWidget = null;
     }
-
-    // Clean up subscriptions
-    this.subscriptions.forEach(sub => {
-      if (sub && sub.unsubscribe) {
-        sub.unsubscribe();
-      }
-    });
+    this.subscriptions.forEach(sub => sub?.unsubscribe?.());
     this.subscriptions = [];
   }
 
-  /**
-   * Tries to initialize the widget when both headers and widget component are available
-   */
   private tryInitializeWidget(): void {
-    if (!this.widgetComponent) {
-      console.log('⏳ Widget component not ready yet, will try again after headers load...');
-      return;
-    }
-
-    if (!this.wellboreObjects || this.wellboreObjects.length === 0) {
-      console.log('⏳ Headers not loaded yet, will try again after headers load...');
-      return;
-    }
-
-    if (this.wellLogWidget) {
-      console.log('ℹ️ Widget already initialized, skipping...');
-      return;
-    }
-
-    console.log('🎯 Both headers and widget component ready - initializing widget...');
+    if (!this.widgetComponent || !this.wellboreObjects.length || this.wellLogWidget) return;
     this.initializeWidget();
   }
 
-  /**
-   * Fetches time-based log headers
-   */
   private fetchLogHeaders(): void {
-    console.log('🔄 Fetching time-based log headers...');
     this.showLoading = true;
-
     this.timeBasedLogService.getTimeLogHeaders(this.wellId, this.wellboreId).subscribe(
       (headers: ITimeWellboreObject[]) => {
-        console.log('✅ Time-based log headers loaded:', headers);
         this.showLoading = false;
-        
-        if (headers && headers.length > 0) {
+        if (headers?.length) {
           this.wellboreObjects = headers.map(header => ({
             ...header,
-            isDepth: false, // This is time-based data
+            isDepth: false,
             objectInfo: this.generateCurveInfo(header)
           }));
-          
           this.headersLoaded.emit(this.wellboreObjects);
-          
-          // Try to initialize widget if component is available
           this.tryInitializeWidget();
         } else {
-          console.warn('⚠️ No headers found');
+          console.warn('⚠️ No time-based headers found');
         }
       },
       (error) => {
@@ -228,12 +146,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     );
   }
 
-  /**
-   * Generates curve info from header
-   */
   private generateCurveInfo(header: ITimeWellboreObject): ITimeCurve[] {
-    const mnemonics = header.mnemonicList.split(',');
-    return mnemonics.map((mnemonic: string) => ({
+    return header.mnemonicList.split(',').map((mnemonic: string) => ({
       mnemonicId: mnemonic.trim(),
       data: [],
       color: this.timeBasedThemeService.getCurveColor(0),
@@ -242,201 +156,106 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     }));
   }
 
-  /**
-   * Initializes the widget
-   */
   private initializeWidget(): void {
-    if (!this.widgetComponent) {
-      console.warn('⚠️ Widget component not available');
-      return;
-    }
+    if (!this.widgetComponent) return;
 
     try {
-      console.log('🎯 Creating time-based WellLogWidget...');
-      
-      // Create widget using time-based service
       this.wellLogWidget = this.timeBasedLogService.createWellLogWidget(this.widgetComponent.Canvas.nativeElement);
-      
-      // Assign widget to BaseWidgetComponent
       this.widgetComponent.Widget = this.wellLogWidget;
-      
-      console.log('✅ Widget assigned to BaseWidgetComponent');
-      
-      // Apply theme
       this.timeBasedThemeService.applyGeoToolkitTheme(this.wellLogWidget, this.isDarkTheme);
-      
-      // Create tracks
       this.createTracks();
-      
-      // Load data
       this.loadData();
-      
     } catch (error) {
       console.error('❌ Error initializing widget:', error);
     }
   }
 
-  /**
-   * Creates tracks for the widget
-   */
   private createTracks(): void {
-    if (!this.wellLogWidget) {
-      console.warn('⚠️ Widget not available for track creation');
-      return;
-    }
+    if (!this.wellLogWidget) return;
 
-    console.log('🎯 Creating time-based tracks...');
-    
-    // Create index track
     const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
     if (indexTrack) {
       indexTrack.setName('Time Index');
       indexTrack.setWidth(80);
-      console.log('✅ Time-based index track created');
     }
 
-    // Create data tracks
     this.listOfTracks.forEach((trackInfo, trackIndex) => {
       try {
         const logTrack = this.wellLogWidget!.addTrack(TrackType.LinearTrack);
         if (logTrack) {
           logTrack.setName(trackInfo.trackTitle);
           logTrack.setWidth(trackInfo.width || 100);
-          // Store track reference for later curve addition
           this.trackMap.set(trackIndex, logTrack);
-          console.log(`✅ Time-based data track created: ${trackInfo.trackName}`);
         }
       } catch (error) {
         console.error(`❌ Error creating track ${trackInfo.trackName}:`, error);
       }
     });
-    
-    console.log('✅ Time-based tracks created successfully');
   }
 
-  /**
-   * Loads data for all tracks
-   */
   private loadData(): void {
-    if (!this.wellLogWidget || this.wellboreObjects.length === 0) {
-      console.warn('⚠️ Cannot load data - widget or headers not available');
-      return;
-    }
-
-    console.log('🔄 Loading time-based data...');
-    
-    // Load data for each wellbore object
-    this.wellboreObjects.forEach((wellboreObject, index) => {
-      this.loadLogData(wellboreObject, index);
-    });
+    if (!this.wellLogWidget || !this.wellboreObjects.length) return;
+    this.wellboreObjects.forEach((wo) => this.loadLogData(wo));
   }
 
-  /**
-   * Loads log data for a specific wellbore object
-   */
-  private loadLogData(selectedlogObject: ITimeWellboreObject, logIndex: number): void {
-    console.log(`🔄 Loading data for ${selectedlogObject.name}...`);
-    
+  private loadLogData(wo: ITimeWellboreObject): void {
     const queryParameter: ILogDataQueryParameter = {
       wellUid: this.wellId,
-      logUid: selectedlogObject.uid,
+      logUid: wo.uid,
       wellboreUid: this.wellboreId,
-      logName: selectedlogObject.name,
-      indexType: selectedlogObject.indexType,
-      indexCurve: selectedlogObject.indexCurve,
-      startIndex: selectedlogObject.startIndex,
-      endIndex: selectedlogObject.endIndex,
-      isGrowing: selectedlogObject.isGrowing,
-      mnemonicList: selectedlogObject.mnemonicList
+      logName: wo.name,
+      indexType: wo.indexType,
+      indexCurve: wo.indexCurve,
+      startIndex: wo.startIndex,
+      endIndex: wo.endIndex,
+      isGrowing: wo.isGrowing,
+      mnemonicList: wo.mnemonicList
     };
 
     this.timeBasedLogService.getLogData(queryParameter).subscribe(
-      (response: any) => {
-        this.processLogDataResponse(response, selectedlogObject, logIndex, false);
-      },
-      (error) => {
-        console.error('❌ Error retrieving time-based log data:', error);
-      }
+      (response: any) => this.processLogDataResponse(response),
+      (error) => console.error('❌ Error retrieving time-based log data:', error)
     );
   }
 
-  /**
-   * Processes log data response following generate-canvas-tracks pattern
-   */
-  private processLogDataResponse(response: any, selectedlogObject: ITimeWellboreObject, logIndex: number, isLiveData: boolean): void {
-    console.log('🔄 Processing log data response using time-based service pattern');
-    console.log('📊 Response structure:', response);
-    
-    // Handle time-based service response structure: {indexData: [...], curveData: {...}}
-    if (!response || !response.indexData || !response.curveData) {
+  private processLogDataResponse(response: any): void {
+    if (!response?.indexData || !response?.curveData) {
       console.error('❌ Invalid time-based response structure:', response);
       return;
     }
-    
-    // Convert time-based service response to LogData format
-    // The curveData is an object with curve names as keys and arrays as values
+
     const curveData = response.curveData;
     const timeData = response.indexData;
-    
-    // Dynamically get mnemonics from curveData keys
-    const dataMnemonics = Object.keys(curveData);
-    // Remove TIME from dataMnemonics if it exists to avoid duplication
-    const filteredMnemonics = dataMnemonics.filter(m => m !== 'TIME');
+    const filteredMnemonics = Object.keys(curveData).filter(m => m !== 'TIME');
     const allMnemonics = ['TIME', ...filteredMnemonics];
-    
-    // Create CSV data format from the parsed curve data
+
+    // Build CSV-style rows for parsing
     const csvData: string[] = [];
     for (let i = 0; i < timeData.length; i++) {
-      const row = [
+      csvData.push([
         timeData[i].toString(),
-        ...filteredMnemonics.map(mnemonic => (curveData[mnemonic]?.[i] || 0).toString())
-      ].join(',');
-      csvData.push(row);
+        ...filteredMnemonics.map(m => (curveData[m]?.[i] || 0).toString())
+      ].join(','));
     }
-    
-    const logData: LogData = {
-      mnemonicList: allMnemonics.join(','),
-      data: csvData
-    };
-    
-    console.log('📋 Time-based LogData structure:', {
-      mnemonicList: logData.mnemonicList,
-      dataRows: logData.data?.length || 0,
-      firstDataRow: logData.data?.[0],
-      curveDataKeys: Object.keys(curveData)
-    });
-    
-    // Parse data for each curve in the track
+
+    const logData: LogData = { mnemonicList: allMnemonics.join(','), data: csvData };
+
+    console.log('📋 LogData:', { mnemonics: logData.mnemonicList, rows: logData.data.length });
+
     this.listOfTracks.forEach(track => {
-      track.curves.forEach(curve => {
-        console.log(`🔍 About to parse curve: ${curve.mnemonicId}`);
-        this.parseCurveData(logData, curve, false);
-      });
+      track.curves.forEach(curve => this.parseCurveData(logData, curve));
     });
-    
-    console.log('✅ Time-based data processed successfully');
-    
-    // Now add the parsed curves to the GeoToolkit widget tracks
+
     this.addCurvesToWidget();
   }
 
-  /**
-   * Parses curve data following the same pattern as generate-canvas-tracks
-   */
-  private parseCurveData(logData: LogData, curve: ITimeCurve, decrementPending: boolean = true): void {
+  private parseCurveData(logData: LogData, curve: ITimeCurve): void {
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex(m => m.trim() === curve.mnemonicId);
     const timeIndex = mnemonics.findIndex(m => m.trim() === 'TIME');
-    
-    console.log(`🔍 Parsing ${curve.mnemonicId}:`, {
-      availableMnemonics: mnemonics,
-      curveIndex,
-      timeIndex,
-      dataRows: logData.data?.length || 0
-    });
-    
+
     if (curveIndex === -1) {
-      console.warn('⚠️ Mnemonic not found:', curve.mnemonicId);
+      console.warn(`⚠️ Mnemonic not found: ${curve.mnemonicId}`);
       return;
     }
 
@@ -456,23 +275,85 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     });
 
     curve.data = values;
-    
-    // Store time indices for the curve
     this.curveTimeIndices.set(curve.mnemonicId, times);
 
-    // Track loaded range
-    if (times.length > 0) {
-      this.loadedTimeRanges.set(curve.mnemonicId, {
-        min: times[0],
-        max: times[times.length - 1],
-      });
-    }
-
-    console.log('✅ Parsed data for curve:', curve.mnemonicId, values.length, 'points',
-      times.length > 0 ? `time range: ${times[0]}-${times[times.length - 1]}` : '');
+    console.log(`✅ Parsed ${curve.mnemonicId}: ${values.length} points`);
   }
 
-  // Event handlers
+  private addCurvesToWidget(): void {
+    if (!this.wellLogWidget) return;
+
+    this.listOfTracks.forEach((trackInfo, trackIndex) => {
+      const track = this.trackMap.get(trackIndex);
+      if (!track) return;
+
+      trackInfo.curves.forEach((curveInfo) => {
+        if (!curveInfo.data?.length) return;
+
+        try {
+          const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
+          const geoLogData = new GeoLogData(curveInfo.mnemonicId);
+          geoLogData.setValues(indexData, curveInfo.data);
+
+          const curve = new LogCurve(geoLogData);
+          curve.setLineStyle({ color: curveInfo.color || '#63b3ed', width: curveInfo.lineWidth || 1 });
+          curve.setName(curveInfo.mnemonicId);
+          track.addChild(curve);
+        } catch (error) {
+          console.error(`❌ Error adding curve ${curveInfo.mnemonicId}:`, error);
+        }
+      });
+    });
+
+    this.configureWidgetLimits();
+  }
+
+  private configureWidgetLimits(): void {
+    if (!this.wellLogWidget) return;
+
+    const { minTime, maxTime } = this.getTimeRange();
+    if (minTime === 0 || maxTime === 0) {
+      console.warn('⚠️ No time data available to set visible range');
+      return;
+    }
+
+    // Store index curve times for template statistics
+    const firstCurveTimes = this.curveTimeIndices.values().next().value;
+    if (firstCurveTimes) {
+      this.indexCurveTime = firstCurveTimes;
+    }
+
+    // Set full scrollable range
+    this.wellLogWidget.setDepthLimits(minTime, maxTime);
+
+    // Set depth scale (~1 hour per 100px)
+    this.wellLogWidget.setDepthScale(3600000 / 100);
+
+    // Show a 4-hour visible window starting from the beginning
+    const visibleMax = Math.min(minTime + 4 * 3600000, maxTime);
+    this.wellLogWidget.setVisibleDepthLimits(minTime, visibleMax);
+
+    this.wellLogWidget.updateLayout();
+
+    console.log(`🎯 Widget configured: depth=[${minTime}, ${maxTime}], visible=[${minTime}, ${visibleMax}]`);
+  }
+
+  private getTimeRange(): { minTime: number; maxTime: number } {
+    let minTime = 0;
+    let maxTime = 0;
+    for (const times of this.curveTimeIndices.values()) {
+      if (times.length > 0) {
+        const curveMin = times[0];
+        const curveMax = times[times.length - 1];
+        if (minTime === 0 || curveMin < minTime) minTime = curveMin;
+        if (maxTime === 0 || curveMax > maxTime) maxTime = curveMax;
+      }
+    }
+    return { minTime, maxTime };
+  }
+
+  // --- Template event handlers ---
+
   onScaleChange(newScale: string): void {
     this.selectedScale = newScale;
     this.scaleChange.emit(newScale);
@@ -481,42 +362,31 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   onThemeChange(isDark: boolean): void {
     this.isDarkTheme = isDark;
     this.themeChange.emit(isDark);
-    
     if (this.wellLogWidget) {
       this.timeBasedThemeService.applyGeoToolkitTheme(this.wellLogWidget, isDark);
     }
   }
 
-  onHeadersLoaded(headers: any[]): void {
-    console.log('🕐 Headers loaded:', headers);
-  }
-
-  // Additional methods needed by HTML template
   toggleTheme(): void {
     this.onThemeChange(!this.isDarkTheme);
   }
 
   startLivePolling(): void {
-    console.log('🔄 Starting live polling...');
     this.isLiveTracking = true;
     // TODO: Implement live polling logic
   }
 
   stopLivePolling(): void {
-    console.log('⏹️ Stopping live polling...');
     this.isLiveTracking = false;
     // TODO: Implement stop polling logic
   }
 
-  // Utility methods
+  // --- Template utility methods ---
+
   formatDateTimeForInput(date: Date | number): string {
     if (!date) return '';
-    
-    // Convert number timestamp to Date if needed
     const dateObj = typeof date === 'number' ? new Date(date) : date;
-    
     if (isNaN(dateObj.getTime())) return '';
-    
     const year = dateObj.getFullYear();
     const month = String(dateObj.getMonth() + 1).padStart(2, '0');
     const day = String(dateObj.getDate()).padStart(2, '0');
@@ -526,10 +396,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   calculateDuration(): string {
-    if (!this.indexCurveTime || this.indexCurveTime.length < 2) return '0:00:00';
-    const startTime = this.indexCurveTime[0];
-    const endTime = this.indexCurveTime[this.indexCurveTime.length - 1];
-    const duration = endTime - startTime;
+    if (this.indexCurveTime.length < 2) return '0:00:00';
+    const duration = this.indexCurveTime[this.indexCurveTime.length - 1] - this.indexCurveTime[0];
     const hours = Math.floor(duration / 3600000);
     const minutes = Math.floor((duration % 3600000) / 60000);
     const seconds = Math.floor((duration % 60000) / 1000);
@@ -537,363 +405,20 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   calculateDataPointsPerHour(): number {
-    if (!this.indexCurveTime || this.indexCurveTime.length < 2) return 0;
-    const startTime = this.indexCurveTime[0];
-    const endTime = this.indexCurveTime[this.indexCurveTime.length - 1];
-    const durationHours = (endTime - startTime) / 3600000;
+    if (this.indexCurveTime.length < 2) return 0;
+    const durationHours = (this.indexCurveTime[this.indexCurveTime.length - 1] - this.indexCurveTime[0]) / 3600000;
     return Math.round(this.indexCurveTime.length / durationHours);
   }
 
   applyCustomTimeRange(startTime: string, endTime: string): void {
     if (!startTime || !endTime) return;
-    
     const start = new Date(startTime).getTime();
     const end = new Date(endTime).getTime();
-    
-    if (isNaN(start) || isNaN(end) || start >= end) {
-      console.warn('⚠️ Invalid time range:', startTime, endTime);
-      return;
-    }
-    
-    // Apply the custom time range to the widget
-    if (this.wellLogWidget) {
-      this.wellLogWidget.setVisibleDepthLimits(start, end);
-      console.log(`🎯 Applied custom time range: ${startTime} to ${endTime}`);
-    }
+    if (isNaN(start) || isNaN(end) || start >= end) return;
+    this.wellLogWidget?.setVisibleDepthLimits(start, end);
   }
 
   getCurveColor(trackIndex: number): string {
     return this.timeBasedThemeService.getCurveColor(trackIndex);
-  }
-
-  /**
-   * Adds parsed curves to the GeoToolkit widget tracks
-   */
-  private addCurvesToWidget(): void {
-    if (!this.wellLogWidget) {
-      console.error('❌ WellLogWidget not available for adding curves');
-      return;
-    }
-
-    console.log('🎯 Adding curves to GeoToolkit widget tracks...');
-    console.log(`📊 Found ${this.trackMap.size} tracks in map`);
-
-    this.listOfTracks.forEach((trackInfo, trackIndex) => {
-      const track = this.trackMap.get(trackIndex);
-      
-      if (track) {
-        console.log(`🎯 Processing track ${trackInfo.trackName} (index: ${trackIndex})`);
-        
-        trackInfo.curves.forEach((curveInfo, curveIndex) => {
-          if (curveInfo.data && curveInfo.data.length > 0) {
-            try {
-              // Get time indices for this curve
-              const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
-
-              // Create GeoLogData
-              const geoLogData = new GeoLogData(curveInfo.mnemonicId);
-              geoLogData.setValues(indexData, curveInfo.data);
-
-              // Create LogCurve
-              const curve = new LogCurve(geoLogData);
-              curve.setLineStyle({
-                color: curveInfo.color || '#63b3ed',
-                width: curveInfo.lineWidth || 1,
-              });
-              curve.setName(curveInfo.mnemonicId);
-
-              // Add curve to track
-              track.addChild(curve);
-              console.log(`✅ Added curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName} with ${curveInfo.data.length} points`);
-            } catch (error) {
-              console.error(`❌ Error adding curve ${curveInfo.mnemonicId}:`, error);
-            }
-          } else {
-            console.warn(`⚠️ No data available for curve ${curveInfo.mnemonicId}`);
-          }
-        });
-      } else {
-        console.error(`❌ Track not found for index ${trackIndex}`);
-      }
-    });
-
-    console.log('✅ All curves added to widget tracks');
-    
-    // Set visible range to show the data using time data from curves
-    let minTime = 0;
-    let maxTime = 0;
-    
-    // Get time range from any of the parsed curves
-    for (const [mnemonic, times] of this.curveTimeIndices.entries()) {
-      if (times.length > 0) {
-        const curveMin = times[0];
-        const curveMax = times[times.length - 1];
-        
-        if (minTime === 0 || curveMin < minTime) {
-          minTime = curveMin;
-        }
-        if (maxTime === 0 || curveMax > maxTime) {
-          maxTime = curveMax;
-        }
-        break; // Use first curve with data
-      }
-    }
-    
-    if (minTime > 0 && maxTime > 0) {
-      const range = maxTime - minTime;
-      
-      // First set the overall depth limits of the widget
-      this.wellLogWidget.setDepthLimits(minTime, maxTime);
-      console.log(`🎯 Set depth limits: ${minTime} to ${maxTime}`);
-      
-      // Set depth scale for proper time display (show reasonable time range)
-      // For time data, we want to show maybe 1 hour per 100 pixels or similar
-      const msPerPixel = 3600000 / 100; // 1 hour = 3,600,000 ms, so 36,000 ms per pixel
-      this.wellLogWidget.setDepthScale(msPerPixel);
-      console.log(`🎯 Set depth scale: ${msPerPixel} ms per pixel (~1 hour per 100px)`);
-      
-      // Then set the visible window (show only a portion to enable scrolling)
-      const visibleWindow = 4 * 3600000; // 4 hours in milliseconds
-      const visibleMin = minTime;
-      const visibleMax = minTime + visibleWindow;
-      
-      this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
-      console.log(`🎯 Set visible range: ${visibleMin} to ${visibleMax} (data range: ${minTime} to ${maxTime})`);
-      
-      // Force widget update to render curves
-      this.wellLogWidget.updateLayout();
-      console.log('🔄 Widget updated to render curves');
-      
-      // Configure scroll-based lazy loading for time data
-      this.configureTimeScrollLazyLoading();
-    } else {
-      console.warn('⚠️ No time data available to set visible range');
-    }
-  }
-
-  /**
-   * Configures scroll-based lazy loading for time-based data
-   */
-  private configureTimeScrollLazyLoading(): void {
-    if (!this.wellLogWidget) return;
-
-    try {
-      const initialLimits: any = this.wellLogWidget.getVisibleDepthLimits();
-      if (initialLimits) {
-        this.lastVisibleMin = initialLimits.getLow ? initialLimits.getLow() : 0;
-        this.lastVisibleMax = initialLimits.getHigh ? initialLimits.getHigh() : 0;
-        console.log(`📊 Initial visible time range: ${this.lastVisibleMin} - ${this.lastVisibleMax}`);
-      }
-    } catch (error) {
-      console.warn('⚠️ Error getting initial visible limits:', error);
-      this.lastVisibleMin = 0;
-      this.lastVisibleMax = 0;
-    }
-    
-    // Poll every 500ms for visible time changes
-    this.scrollPollHandle = setInterval(() => {
-      if (!this.wellLogWidget) return;
-      try {
-        const visibleLimits: any = this.wellLogWidget.getVisibleDepthLimits();
-        if (!visibleLimits) return;
-        const vMin = visibleLimits.getLow ? visibleLimits.getLow() : 0;
-        const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
-
-        // Skip invalid ranges (0-0 indicates widget not ready)
-        if (vMin === 0 && vMax === 0) {
-          return;
-        }
-
-        // Only trigger if visible range actually changed beyond tolerance
-        const tolerance = 60000; // 1 minute tolerance for time data
-        const minDiff = Math.abs(vMin - this.lastVisibleMin);
-        const maxDiff = Math.abs(vMax - this.lastVisibleMax);
-        
-        // Detect scroll direction
-        const scrollDirection = vMin < this.lastVisibleMin ? 'past' : 
-                               vMax > this.lastVisibleMax ? 'future' : 'none';
-        
-        if (minDiff > tolerance || maxDiff > tolerance) {
-          console.log(`📜 Time scroll ${scrollDirection}: ${this.lastVisibleMin} - ${this.lastVisibleMax} → ${vMin} - ${vMax}`);
-          this.lastVisibleMin = vMin;
-          this.lastVisibleMax = vMax;
-          
-          // Check and load time-based chunks
-          this.ngZone.run(() => this.checkAndLoadTimeChunks());
-        }
-      } catch (error) { 
-        // Widget may not be ready
-      }
-    }, 500);
-    
-    console.log('✅ Time scroll polling configured');
-  }
-
-  /**
-   * Checks visible time range and loads missing chunks
-   */
-  private checkAndLoadTimeChunks(): void {
-    if (!this.wellLogWidget) return;
-    // Limit concurrent in-flight requests
-    if (this.inFlightTimeRanges.size >= 2) return;
-
-    const visibleLimits: any = this.wellLogWidget.getVisibleDepthLimits();
-    if (!visibleLimits) return;
-
-    const vMin = visibleLimits.getLow ? visibleLimits.getLow() : 0;
-    const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
-
-    // Add a buffer around visible range
-    const buffer = this.TIME_CHUNK_SIZE / 2; // 30 minutes buffer
-    const needMin = vMin - buffer;
-    const needMax = vMax + buffer;
-
-    console.log(`🔍 Checking time chunks for range: ${needMin} - ${needMax}`);
-
-    // Check each wellbore object for missing time ranges
-    this.wellboreObjects.forEach((wellboreObject) => {
-      const loadedRange = this.loadedTimeRanges.get(wellboreObject.uid);
-      
-      if (!loadedRange || loadedRange.min > needMin || loadedRange.max < needMax) {
-        // Need to load more data for this wellbore
-        const startTime = Math.max(needMin, loadedRange?.min || needMin);
-        const endTime = Math.min(needMax, loadedRange?.max || needMax);
-        
-        const rangeKey = `${wellboreObject.uid}-${startTime}-${endTime}`;
-        if (!this.inFlightTimeRanges.has(rangeKey)) {
-          console.log(`📦 Loading time chunk: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
-          this.loadTimeChunk(wellboreObject, startTime, endTime, rangeKey);
-        }
-      }
-    });
-  }
-
-  /**
-   * Loads a specific time chunk for a wellbore object
-   */
-  private loadTimeChunk(wellboreObject: ITimeWellboreObject, startTime: number, endTime: number, rangeKey: string): void {
-    this.inFlightTimeRanges.add(rangeKey);
-    this.isLoadingChunk = true;
-
-    const queryParameter: ILogDataQueryParameter = {
-      wellUid: this.wellId,
-      logUid: wellboreObject.uid,
-      wellboreUid: this.wellboreId,
-      logName: wellboreObject.name,
-      indexType: 'time',
-      indexCurve: 'TIME',
-      startIndex: startTime.toString(),
-      endIndex: endTime.toString(),
-      isGrowing: false,
-      mnemonicList: wellboreObject.mnemonicList
-    };
-
-    this.timeBasedLogService.getLogData(queryParameter).subscribe(
-      (response: any) => {
-        this.processTimeChunkResponse(response, wellboreObject, startTime, endTime);
-        this.inFlightTimeRanges.delete(rangeKey);
-        this.isLoadingChunk = false;
-      },
-      (error) => {
-        console.error('❌ Error loading time chunk:', error);
-        this.inFlightTimeRanges.delete(rangeKey);
-        this.isLoadingChunk = false;
-      }
-    );
-  }
-
-  /**
-   * Processes time chunk response and appends data to existing curves
-   */
-  private processTimeChunkResponse(response: any, wellboreObject: ITimeWellboreObject, startTime: number, endTime: number): void {
-    if (!response || !response.indexData || !response.curveData) {
-      console.error('❌ Invalid time chunk response structure:', response);
-      return;
-    }
-
-    const curveData = response.curveData;
-    const timeData = response.indexData;
-    
-    // Update loaded range
-    const existingRange = this.loadedTimeRanges.get(wellboreObject.uid) || { min: Infinity, max: -Infinity };
-    existingRange.min = Math.min(existingRange.min, startTime);
-    existingRange.max = Math.max(existingRange.max, endTime);
-    this.loadedTimeRanges.set(wellboreObject.uid, existingRange);
-
-    console.log(`📦 Processing time chunk: ${Object.keys(curveData).length} curves, ${timeData.length} time points`);
-
-    // Process each curve and append data to existing curves
-    Object.entries(curveData).forEach(([mnemonic, values]) => {
-      const curveValues = values as number[];
-      if (curveValues.length > 0) {
-        // Find the existing curve in the widget
-        const existingCurve = this.findCurveInWidget(mnemonic);
-        if (existingCurve && timeData.length === curveValues.length) {
-          // Append new data to existing curve
-          this.appendDataToCurve(existingCurve, timeData, curveValues);
-          console.log(`✅ Appended ${curveValues.length} points to curve ${mnemonic}`);
-        }
-      }
-    });
-
-    // Update widget to show new data
-    this.wellLogWidget?.updateLayout();
-  }
-
-  /**
-   * Finds an existing curve in the widget by mnemonic
-   */
-  private findCurveInWidget(mnemonic: string): LogCurve | null {
-    if (!this.wellLogWidget) return null;
-
-    const tracks = this.wellLogWidget.getTracks();
-    const tracksArray = [];
-    while (tracks.hasNext()) {
-      tracksArray.push(tracks.next());
-    }
-    
-    for (const track of tracksArray) {
-      const visuals = track.getChildren();
-      const visualsArray = [];
-      while (visuals.hasNext()) {
-        visualsArray.push(visuals.next());
-      }
-      
-      for (const visual of visualsArray) {
-        if (visual instanceof LogCurve && visual.getName() === mnemonic) {
-          return visual;
-        }
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Appends new data to an existing LogCurve
-   */
-  private appendDataToCurve(curve: LogCurve, timeIndices: number[], values: number[]): void {
-    try {
-      const dataSource = curve.getDataSource();
-      if (dataSource && dataSource.getValues) {
-        const existingValues = dataSource.getValues();
-        const existingIndices = dataSource.getDepths();
-        
-        // Merge data
-        const newIndices = [...existingIndices, ...timeIndices];
-        const newValues = [...existingValues, ...values];
-        
-        // Update the curve data - check if setValues method exists
-        if ('setValues' in dataSource) {
-          (dataSource as any).setValues(newIndices, newValues);
-        } else {
-          // Fallback: set values individually if setValues is not available
-          for (let i = 0; i < newIndices.length; i++) {
-            dataSource.setValue(i, newValues[i]);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error appending data to curve:', error);
-    }
   }
 }
