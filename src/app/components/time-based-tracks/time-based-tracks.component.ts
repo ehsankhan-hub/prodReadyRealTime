@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, AfterViewInit } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, AfterViewInit, OnChanges, SimpleChanges, ChangeDetectionStrategy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
@@ -7,6 +7,9 @@ import { TimeBasedThemeService } from './time-based-theme.service';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
+import { TimeBasedToolbarComponent } from './time-based-toolbar/time-based-toolbar.component';
+import { AdaptiveTickGenerator } from '@int/geotoolkit/axis/AdaptiveTickGenerator';
+import { LogAxis } from '@int/geotoolkit/welllog/LogAxis';
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 
@@ -57,7 +60,7 @@ export interface ILogDataQueryParameter {
   mnemonicList: string;
 }
 
-export interface LogData {
+export interface ILogDataResponse {
   mnemonicList: string;
   data: string[];
 }
@@ -65,12 +68,12 @@ export interface LogData {
 @Component({
   selector: 'app-time-based-tracks',
   standalone: true,
-  imports: [CommonModule, FormsModule, BaseWidgetComponent],
+  imports: [CommonModule, FormsModule, BaseWidgetComponent, TimeBasedToolbarComponent],
   providers: [TimeBasedLogService, TimeBasedThemeService],
   templateUrl: './time-based-tracks.component.html',
   styleUrls: ['./time-based-tracks.component.css']
 })
-export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewInit {
+export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewInit, OnChanges {
   @Input() wellId: string = '';
   @Input() wellboreId: string = '';
   @Input() listOfTracks: ITimeTrack[] = [];
@@ -89,14 +92,19 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   showLoading = false;
   isLiveTracking = false;
   indexCurveTime: number[] = [];
+  latestTimestamp: number = 0;
 
   private curveTimeIndices: Map<string, number[]> = new Map();
   private trackMap: Map<number, LogTrack> = new Map();
+  private scrollPollHandle: any = null;
+  private lastVisibleMin = -1;
+  private lastVisibleMax = -1;
   private subscriptions: any[] = [];
 
   constructor(
     private timeBasedLogService: TimeBasedLogService,
-    private timeBasedThemeService: TimeBasedThemeService
+    private timeBasedThemeService: TimeBasedThemeService,
+    private ngZone: NgZone
   ) {}
 
   ngOnInit(): void {
@@ -108,7 +116,14 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     this.tryInitializeWidget();
   }
 
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['selectedScale'] && !changes['selectedScale'].firstChange) {
+      this.onScaleChange(changes['selectedScale'].currentValue);
+    }
+  }
+
   ngOnDestroy(): void {
+    this.stopScrollPolling();
     if (this.wellLogWidget) {
       try { this.wellLogWidget.dispose(); } catch (_) {}
       this.wellLogWidget = null;
@@ -176,7 +191,34 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
     if (indexTrack) {
       indexTrack.setName('Time Index');
-      indexTrack.setWidth(80);
+      indexTrack.setWidth(150);
+
+      // Find the existing axis on the index track and replace its tick generator
+      const childCount = indexTrack.getChildrenCount();
+      for (let i = 0; i < childCount; i++) {
+        const child = indexTrack.getChild(i);
+        if (child instanceof LogAxis) {
+          const tickGen = new AdaptiveTickGenerator({
+            'spacing': 3 * 3600000 // 2 hours in milliseconds
+          });
+          tickGen.setFormatLabelHandler((tickGenerator: any, parent: any, orientation: any, tickInfo: any, tickIndex: number, value: number) => {
+            const date = new Date(value);
+            if (isNaN(date.getTime())) return '';
+            let hours = date.getHours();
+            const minutes = date.getMinutes();
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12;
+            const min = minutes.toString().padStart(2, '0');
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const month = monthNames[date.getMonth()];
+            const day = date.getDate();
+            return `${month} ${day} ${hours}:${min} ${ampm}`;
+          });
+          child.setTickGenerator(tickGen);
+          break;
+        }
+      }
     }
 
     this.listOfTracks.forEach((trackInfo, trackIndex) => {
@@ -238,7 +280,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       ].join(','));
     }
 
-    const logData: LogData = { mnemonicList: allMnemonics.join(','), data: csvData };
+    const logData: ILogDataResponse = { mnemonicList: allMnemonics.join(','), data: csvData };
 
     console.log('📋 LogData:', { mnemonics: logData.mnemonicList, rows: logData.data.length });
 
@@ -249,10 +291,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     this.addCurvesToWidget();
   }
 
-  private parseCurveData(logData: LogData, curve: ITimeCurve): void {
+  private parseCurveData(logData: ILogDataResponse, curve: ITimeCurve): void {
     const mnemonics = logData.mnemonicList.split(',');
-    const curveIndex = mnemonics.findIndex(m => m.trim() === curve.mnemonicId);
-    const timeIndex = mnemonics.findIndex(m => m.trim() === 'TIME');
+    const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
+    const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME');
 
     if (curveIndex === -1) {
       console.warn(`⚠️ Mnemonic not found: ${curve.mnemonicId}`);
@@ -262,7 +304,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     const times: number[] = [];
     const values: number[] = [];
 
-    logData.data.forEach((dataRow) => {
+    logData.data.forEach((dataRow: string) => {
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
         const value = parseFloat(cols[curveIndex]);
@@ -357,6 +399,26 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   onScaleChange(newScale: string): void {
     this.selectedScale = newScale;
     this.scaleChange.emit(newScale);
+
+    if (!this.wellLogWidget) return;
+
+    const { minTime, maxTime } = this.getTimeRange();
+    if (minTime === 0 || maxTime === 0) return;
+
+    const scaleHours = parseFloat(newScale);
+
+    if (scaleHours === 0) {
+      // Fit to full data range
+      this.wellLogWidget.setVisibleDepthLimits(minTime, maxTime);
+    } else {
+      // Show selected hours ending at the most recent data
+      const windowMs = scaleHours * 3600000; // Convert hours to milliseconds
+      const visibleMin = Math.max(maxTime - windowMs, minTime);
+      this.wellLogWidget.setVisibleDepthLimits(visibleMin, maxTime);
+    }
+
+    this.wellLogWidget.updateLayout();
+    console.log(`🕐 Scale changed to ${scaleHours} hours, visible range: ${new Date(maxTime - (scaleHours * 3600000)).toISOString()} to ${new Date(maxTime).toISOString()}`);
   }
 
   onThemeChange(isDark: boolean): void {
@@ -379,6 +441,94 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   stopLivePolling(): void {
     this.isLiveTracking = false;
     // TODO: Implement stop polling logic
+  }
+
+  // --- Toolbar methods ---
+
+  onResetView(): void {
+    if (!this.wellLogWidget) return;
+    const { minTime, maxTime } = this.getTimeRange();
+    if (minTime === 0 || maxTime === 0) return;
+    
+    // Show most recent data like on initial load (1 day window)
+    const scaleDays = parseFloat(this.selectedScale) || 1;
+    const windowMs = scaleDays * 24 * 3600000; // Convert days to milliseconds
+    const visibleMin = Math.max(maxTime - windowMs, minTime);
+    this.wellLogWidget.setVisibleDepthLimits(visibleMin, maxTime);
+    this.wellLogWidget.updateLayout();
+  }
+
+  onScrollToLatest(): void {
+    if (!this.wellLogWidget) return;
+    const { minTime, maxTime } = this.getTimeRange();
+    if (minTime === 0 || maxTime === 0) return;
+    const scaleDays = parseFloat(this.selectedScale) || 1;
+    const windowMs = scaleDays * 24 * 3600000; // Convert days to milliseconds
+    const visibleMin = Math.max(maxTime - windowMs, minTime);
+    this.wellLogWidget.setVisibleDepthLimits(visibleMin, maxTime);
+    this.wellLogWidget.updateLayout();
+  }
+
+  onZoomIn(): void {
+    if (!this.wellLogWidget) return;
+    
+    // Get current scale and make it larger (more detail)
+    const currentScale = this.wellLogWidget.getDepthScale();
+    const newScale = currentScale * 1.5; // 50% zoom in
+    
+    // Set maximum scale limit to prevent over-zooming
+    const maxScale = 100000; // Maximum time units per pixel (adjust as needed)
+    const finalScale = Math.min(newScale, maxScale);
+    
+    this.wellLogWidget.setDepthScale(finalScale);
+    this.wellLogWidget.updateLayout();
+    console.log('🔍 Zoomed in:', { oldScale: currentScale, newScale: finalScale, maxScale });
+  }
+
+  onZoomOut(): void {
+    if (!this.wellLogWidget) return;
+    
+    // Get current scale and make it smaller (less detail)
+    const currentScale = this.wellLogWidget.getDepthScale();
+    const newScale = currentScale * 0.67; // 33% zoom out
+    
+    // Set minimum scale limit to prevent over-shrinking
+    const minScale = 1000; // Minimum time units per pixel (adjust as needed)
+    const finalScale = Math.max(newScale, minScale);
+    
+    this.wellLogWidget.setDepthScale(finalScale);
+    this.wellLogWidget.updateLayout();
+    console.log('🔍 Zoomed out:', { oldScale: currentScale, newScale: finalScale, minScale });
+  }
+
+  
+  onEditToggle(enabled: boolean): void {
+    console.log('✏️ Edit mode:', enabled);
+    // TODO: Enable/disable annotation tool on the widget
+  }
+
+  onToolbarColorChange(color: string): void {
+    console.log('🎨 Color changed:', color);
+    // TODO: Apply color to selected track/curve
+  }
+
+  onRigTimeToggle(enabled: boolean): void {
+    console.log('🕐 Rig Time:', enabled);
+    // TODO: Toggle rig time display
+  }
+
+  onTimeRangeChange(range: {start: string, end: string}): void {
+    // Handle custom time range from toolbar
+    console.log('📅 Custom time range:', range);
+    this.applyCustomTimeRange(range.start, range.end);
+  }
+
+  private stopScrollPolling(): void {
+    if (this.scrollPollHandle) {
+      clearInterval(this.scrollPollHandle);
+      this.scrollPollHandle = null;
+      console.log('⏹️ Stopped scroll polling');
+    }
   }
 
   // --- Template utility methods ---
