@@ -7,83 +7,25 @@
     </div>
   </div>
 
-  <!-- Header Controls -->
-  <div class="time-controls-header">
-    <div class="controls-left">
-      <h3>Time-Based Well Log Visualization</h3>
-      <div class="time-info">
-        <span *ngIf="indexCurveTime.length > 0">
-          Time Range: {{ indexCurveTime[0] | date:'short' }} - {{ indexCurveTime[indexCurveTime.length - 1] | date:'short' }}
-        </span>
-        <span *ngIf="isLiveTracking" class="live-indicator">
-          <span class="live-dot"></span>
-          LIVE
-        </span>
-      </div>
-    </div>
-    
-    <div class="controls-right">
-      <!-- Time Scale Selector -->
-      <div class="scale-selector">
-        <label for="timeScale">Time Scale:</label>
-        <select id="timeScale" [value]="selectedScale" #scaleSelect (change)="onScaleChange(scaleSelect.value)">
-          <option value="0">Fit to Height</option>
-          <option value="0.5">30 min</option>
-          <option value="1">1 hour</option>
-          <option value="2">2 hours</option>
-          <option value="4">4 hours</option>
-          <option value="6">6 hours</option>
-          <option value="12">12 hours</option>
-          <option value="24">24 hours</option>
-        </select>
-      </div>
-
-      <!-- Theme Toggle -->
-      <div class="theme-toggle">
-        <button 
-          class="theme-btn" 
-          (click)="toggleTheme()"
-          [attr.aria-label]="isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'"
-        >
-          <span class="theme-icon">{{ isDarkTheme ? '🌙' : '☀️' }}</span>
-          {{ isDarkTheme ? 'Dark' : 'Light' }}
-        </button>
-      </div>
-
-      <!-- Live Data Controls -->
-      <div class="live-controls">
-        <button 
-          class="live-btn"
-          [class.active]="isLiveTracking"
-          (click)="isLiveTracking ? stopLivePolling() : startLivePolling()"
-        >
-          <span class="live-icon">{{ isLiveTracking ? '⏸️' : '▶️' }}</span>
-          {{ isLiveTracking ? 'Stop Live' : 'Start Live' }}
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Time Range Selector -->
-  <div class="time-range-selector" *ngIf="indexCurveTime.length > 0">
-    <div class="range-info">
-      <label>Custom Time Range:</label>
-      <input 
-        type="datetime-local" 
-        [value]="formatDateTimeForInput(indexCurveTime[0])"
-        #startTimeInput
-      >
-      <span>to</span>
-      <input 
-        type="datetime-local" 
-        [value]="formatDateTimeForInput(indexCurveTime[indexCurveTime.length - 1])"
-        #endTimeInput
-      >
-      <button (click)="applyCustomTimeRange(startTimeInput.value, endTimeInput.value)">
-        Apply Range
-      </button>
-    </div>
-  </div>
+  <!-- Time-Based Toolbar -->
+  <app-time-based-toolbar
+    [selectedScale]="selectedScale"
+    [isDarkTheme]="isDarkTheme"
+    [isLiveTracking]="isLiveTracking"
+    [latestTimestamp]="latestTimestamp"
+    [showLoading]="showLoading"
+    (scaleChange)="onScaleChange($event)"
+    (themeChange)="onThemeChange($event)"
+    (liveTrackingToggle)="isLiveTracking ? stopLivePolling() : startLivePolling()"
+    (resetView)="onResetView()"
+    (scrollToLatest)="onScrollToLatest()"
+    (zoomIn)="onZoomIn()"
+    (zoomOut)="onZoomOut()"
+    (editToggle)="onEditToggle($event)"
+    (colorChange)="onToolbarColorChange($event)"
+    (rigTimeToggle)="onRigTimeToggle($event)"
+    (timeRangeChange)="onTimeRangeChange($event)">
+  </app-time-based-toolbar>
 
   <!-- Widget Container -->
   <div class="widget-container">

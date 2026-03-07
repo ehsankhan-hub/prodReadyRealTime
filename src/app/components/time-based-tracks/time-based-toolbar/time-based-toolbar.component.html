@@ -1,0 +1,99 @@
+<div class="time-based-toolbar" [class.dark-theme]="isDarkTheme">
+  <div class="toolbar-section">
+    <div class="toolbar-group">
+      <label class="toolbar-label">Time Scale:</label>
+      <select 
+        [value]="selectedScale" 
+        (change)="onScaleChange($any($event.target).value)"
+        class="scale-select">
+        <option *ngFor="let option of scaleOptions" [value]="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+    </div>
+
+    <div class="toolbar-group">
+      <button 
+        (click)="onThemeChange()"
+        class="toolbar-btn theme-btn"
+        [title]="isDarkTheme ? 'Switch to Light Theme' : 'Switch to Dark Theme'">
+        {{ isDarkTheme ? '🌙' : '☀️' }}
+      </button>
+    </div>
+
+    <div class="toolbar-group">
+      <button 
+        (click)="onLiveTrackingToggle()"
+        class="toolbar-btn"
+        [class.active]="isLiveTracking"
+        title="Toggle Live Tracking">
+        {{ isLiveTracking ? '⏸️' : '▶️' }}
+      </button>
+    </div>
+  </div>
+
+  <div class="toolbar-section">
+    <div class="toolbar-group">
+      <button (click)="onZoomIn()" class="toolbar-btn" title="Zoom In">🔍+</button>
+      <button (click)="onZoomOut()" class="toolbar-btn" title="Zoom Out">🔍-</button>
+      <button (click)="onResetView()" class="toolbar-btn" title="Reset View">🔄</button>
+      <button (click)="onScrollToLatest()" class="toolbar-btn" title="Scroll to Latest">⏩</button>
+    </div>
+
+    <div class="toolbar-group">
+      <button 
+        (click)="toggleCustomRange()"
+        class="toolbar-btn"
+        [class.active]="showCustomRange"
+        title="Custom Time Range">
+        📅
+      </button>
+    </div>
+
+    <div class="toolbar-group">
+      <button (click)="onEditToggle(true)" class="toolbar-btn" title="Enable Edit Mode">✏️</button>
+      <input 
+        type="color" 
+        (change)="onColorChange($any($event.target).value)"
+        class="color-picker"
+        title="Track Color">
+      <button (click)="onRigTimeToggle()" class="toolbar-btn" title="Toggle Rig Time">🕐</button>
+    </div>
+  </div>
+
+  <div class="toolbar-section status-section" *ngIf="latestTimestamp || showLoading">
+    <div class="status-info">
+      <span *ngIf="latestTimestamp" class="latest-time">
+        Latest: {{ formatLatestTimestamp() }}
+      </span>
+      <span *ngIf="showLoading" class="loading-indicator">
+        Loading...
+      </span>
+    </div>
+  </div>
+
+  <div class="custom-range-panel" *ngIf="showCustomRange">
+    <div class="range-inputs">
+      <div class="range-input-group">
+        <label>Start:</label>
+        <input 
+          type="datetime-local" 
+          [(ngModel)]="customStartTime"
+          class="range-input">
+      </div>
+      <div class="range-input-group">
+        <label>End:</label>
+        <input 
+          type="datetime-local" 
+          [(ngModel)]="customEndTime"
+          class="range-input">
+      </div>
+      <button 
+        (click)="applyCustomRange()"
+        class="apply-btn"
+        [disabled]="!customStartTime || !customEndTime">
+        Apply
+      </button>
+    </div>
+  </div>
+</div>
