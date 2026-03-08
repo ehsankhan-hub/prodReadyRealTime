@@ -44,13 +44,7 @@ import { Subscription } from 'rxjs';
         *ngIf="useNewComponent"
         [wellId]="well"
         [wellboreId]="wellbore"
-        [listOfTracks]="timeBasedTracks"
-        [selectedScale]="selectedScale"
-        [isDarkTheme]="isDarkTheme"
-        [selectedHour]="selectedHour"
-        (scaleChange)="onScaleChange($event)"
-        (themeChange)="onThemeChange($event)"
-        (headersLoaded)="onHeadersLoaded($event)">
+        [listOfTracks]="timeBasedTracks">
       </app-time-based-tracks>
       
       <!-- Original Generate Canvas Tracks Component -->
@@ -103,13 +97,8 @@ export class MwdTimeComponent implements OnInit, OnDestroy {
   /** Time-based track configurations for new component */
   timeBasedTracks: ITimeTrack[] = [];
   
-  /** Toggle between old and new components */
+  /** Toggle between old and new/** Component state */
   useNewComponent: boolean = true;
-  
-  /** Settings for time-based component */
-  selectedScale: string = '1000'; // 1000ms default
-  isDarkTheme: boolean = false;
-  selectedHour: number = 24;
   
   /** Subscription for cleanup */
   private subscription: Subscription | null = null;
@@ -280,29 +269,6 @@ export class MwdTimeComponent implements OnInit, OnDestroy {
     });
   }
   
-  /**
-   * Event handler for scale changes from TimeBasedTracksComponent
-   */
-  onScaleChange(scale: string): void {
-    this.selectedScale = scale;
-    console.log('🕐 Scale changed to:', scale);
-  }
-  
-  /**
-   * Event handler for theme changes from TimeBasedTracksComponent
-   */
-  onThemeChange(isDark: boolean): void {
-    this.isDarkTheme = isDark;
-    console.log('🕐 Theme changed to:', isDark ? 'dark' : 'light');
-  }
-  
-  /**
-   * Event handler for headers loaded from TimeBasedTracksComponent
-   */
-  onHeadersLoaded(headers: any[]): void {
-    console.log('🕐 Headers loaded:', headers);
-  }
-
   /**
    * Validates the time-based configuration
    * @returns boolean indicating if configuration is valid

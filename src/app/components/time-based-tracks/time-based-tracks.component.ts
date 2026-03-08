@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter, ViewChild, AfterViewInit, OnChanges, SimpleChanges, ChangeDetectionStrategy, NgZone } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, ViewChild, AfterViewInit, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
@@ -75,17 +75,15 @@ export interface ILogDataResponse {
   templateUrl: './time-based-tracks.component.html',
   styleUrls: ['./time-based-tracks.component.css']
 })
-export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewInit, OnChanges {
+export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewInit {
   @Input() wellId: string = '';
   @Input() wellboreId: string = '';
   @Input() listOfTracks: ITimeTrack[] = [];
-  @Input() selectedScale: string = '1000';
-  @Input() isDarkTheme: boolean = false;
-  @Input() selectedHour: number = 24;
 
-  @Output() scaleChange = new EventEmitter<string>();
-  @Output() themeChange = new EventEmitter<boolean>();
-  @Output() headersLoaded = new EventEmitter<any[]>();
+  /** Internal component state - accessible by template */
+  protected selectedScale: string = '1000';
+  protected isDarkTheme: boolean = false;
+  protected selectedHour: number = 24;
 
   @ViewChild('widgetComponent') widgetComponent!: BaseWidgetComponent;
 
@@ -116,12 +114,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   ngAfterViewInit(): void {
     this.tryInitializeWidget();
-  }
-
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['selectedScale'] && !changes['selectedScale'].firstChange) {
-      this.onScaleChange(changes['selectedScale'].currentValue);
-    }
   }
 
   ngOnDestroy(): void {
@@ -163,7 +155,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
             
             return wellboreObject;
           });
-          this.headersLoaded.emit(this.wellboreObjects);
+          console.log('🕐 Headers loaded internally:', this.wellboreObjects);
           this.tryInitializeWidget();
         } else {
           console.warn('⚠️ No time-based headers found');
@@ -462,7 +454,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   onScaleChange(newScale: string): void {
     this.selectedScale = newScale;
-    this.scaleChange.emit(newScale);
+    console.log('🕐 Scale changed internally to:', newScale);
 
     if (!this.wellLogWidget) return;
 
@@ -487,7 +479,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   onThemeChange(isDark: boolean): void {
     this.isDarkTheme = isDark;
-    this.themeChange.emit(isDark);
+    console.log('🕐 Theme changed internally to:', isDark ? 'dark' : 'light');
     if (this.wellLogWidget) {
       this.timeBasedThemeService.applyGeoToolkitTheme(this.wellLogWidget, isDark);
     }
