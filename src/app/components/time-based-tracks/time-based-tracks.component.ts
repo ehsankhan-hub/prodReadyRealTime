@@ -411,9 +411,18 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
     const { minTime, maxTime } = this.getTimeRange();
     if (minTime === 0 || maxTime === 0) {
-      console.warn('⚠️ No time data available to set visible range');
+      console.error('❌ No valid time range found');
       return;
     }
+
+    // Debug: Show what's in curveTimeIndices
+    console.log('🔍 curveTimeIndices debug:');
+    for (const [mnemonic, times] of this.curveTimeIndices.entries()) {
+      if (times.length > 0) {
+        console.log(`  ${mnemonic}: ${times.length} points, first=${new Date(times[0]).toISOString()}, last=${new Date(times[times.length-1]).toISOString()}`);
+      }
+    }
+    console.log(`🎯 getTimeRange result: min=${new Date(minTime).toISOString()}, max=${new Date(maxTime).toISOString()}`);
 
     // Store index curve times for template statistics
     const firstCurveTimes = this.curveTimeIndices.values().next().value;
@@ -427,13 +436,20 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     // Set depth scale (~1 hour per 100px)
     this.wellLogWidget.setDepthScale(3600000 / 100);
 
-    // Show a 4-hour visible window starting from the beginning
-    const visibleMax = Math.min(minTime + 4 * 3600000, maxTime);
-    this.wellLogWidget.setVisibleDepthLimits(minTime, visibleMax);
+    // Show most recent 4-hour data while keeping scrollbar visible
+    const visibleRangeMs = 4 * 3600000; // 4 hours in milliseconds
+    const totalRange = maxTime - minTime;
+    
+    // Position the visible window extremely near the end (98% from start) to show most recent data
+    const visibleMin = Math.min(minTime + (totalRange - visibleRangeMs) * 0.98, maxTime - visibleRangeMs);
+    const visibleMax = visibleMin + visibleRangeMs;
+    
+    this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
 
     this.wellLogWidget.updateLayout();
 
-    console.log(`🎯 Widget configured: depth=[${minTime}, ${maxTime}], visible=[${minTime}, ${visibleMax}]`);
+    console.log(`🎯 Widget configured: depth=[${minTime}, ${maxTime}], visible=[${visibleMin}, ${visibleMax}]`);
+    console.log(`🎯 Scroll positioned at 98% to show most recent Feb 11 data`);
   }
 
   private getTimeRange(): { minTime: number; maxTime: number } {
@@ -506,11 +522,16 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     const { minTime, maxTime } = this.getTimeRange();
     if (minTime === 0 || maxTime === 0) return;
     
-    // Show most recent data like on initial load (1 day window)
+    // Show centered window for better scrollbar visibility
     const scaleDays = parseFloat(this.selectedScale) || 1;
     const windowMs = scaleDays * 24 * 3600000; // Convert days to milliseconds
-    const visibleMin = Math.max(maxTime - windowMs, minTime);
-    this.wellLogWidget.setVisibleDepthLimits(visibleMin, maxTime);
+    const totalRange = maxTime - minTime;
+    
+    // Position the visible window in the middle-upper portion (70% from start)
+    const visibleMin = Math.min(minTime + (totalRange - windowMs) * 0.7, maxTime - windowMs);
+    const visibleMax = visibleMin + windowMs;
+    
+    this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
     this.wellLogWidget.updateLayout();
   }
 
