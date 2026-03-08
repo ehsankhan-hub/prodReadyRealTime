@@ -38,7 +38,8 @@ export class TimeBasedLogService {
    */
   getTimeLogHeaders(wellId?: string, wellboreId?: string): Observable<any> {
     return this.http.get<any[]>(this.TIME_HEADERS_URL).pipe(
-      map((headers: any[]) => {
+      map((response: any) => {
+        const headers = response.timeLogHeaders || response;
         const filteredHeaders = wellId && wellboreId
           ? headers.filter((header: any) => 
               header['@uidWell'] === wellId && header['@uidWellbore'] === wellboreId
@@ -46,15 +47,15 @@ export class TimeBasedLogService {
           : headers;
 
         return filteredHeaders.map((header: any) => ({
-          uid: header['@uidWell'] + '_' + header['@uidWellbore'],
-          name: header.nameWell + ' - ' + header.nameWellbore,
+          uid: header['@uidWell'] + '_' + header['@uidWellbore'], // Create unique ID
+          name: header.nameWellbore || 'MWD Time Log',
           wellId: header['@uidWell'],
           wellboreId: header['@uidWellbore'],
           indexType: header.indexType?.toUpperCase() || 'TIME',
           indexCurve: header.indexCurve,
-          startIndex: header.startIndex,
-          endIndex: header.endIndex,
-          indexUnit: header.endIndex?.['@uom'] || 'ms',
+          startIndex: header.startIndex?.['#text'] || header.startIndex,
+          endIndex: header.endIndex?.['#text'] || header.endIndex,
+          indexUnit: header.startIndex?.['@uom'] || 'ms',
           isGrowing: header.direction === 'increasing',
           mnemonicList: header.logCurveInfo?.map((curve: any) => curve.mnemonic).join(',') || ''
         }));
@@ -66,8 +67,11 @@ export class TimeBasedLogService {
    * Fetches time-based log data
    */
   getLogData(queryParameter: ILogDataQueryParameter): Observable<any> {
-    return this.http.get<any[]>(this.TIME_DB_URL).pipe(
-      map((dataList: any[]) => this.findAndTransformData(dataList, queryParameter))
+    return this.http.get<any>(this.TIME_DB_URL).pipe(
+      map((response: any) => {
+        const dataList = response.timeLogData || response;
+        return this.findAndTransformData(dataList, queryParameter);
+      })
     );
   }
 
@@ -82,42 +86,64 @@ export class TimeBasedLogService {
   
 
   private findAndTransformData(dataList: any[], queryParameter: ILogDataQueryParameter): any {
+    // Find data by logUid (which should be the wellbore ID like 'HWYH_1389_HWYH_1389_0')
     const matchingData = dataList.find(data => 
-      data.wellUid === queryParameter.wellUid && 
-      data.logUid === queryParameter.logUid
+      data.logUid === queryParameter.logUid || 
+      data.id === queryParameter.logUid ||
+      data.wellboreUid === queryParameter.wellboreUid
     );
     
     if (!matchingData) {
-      throw new Error(`No data found for wellUid: ${queryParameter.wellUid}, logUid: ${queryParameter.logUid}`);
+      console.warn(`⚠️ No data found for logUid: ${queryParameter.logUid}`);
+      console.log('🔍 Available data entries:', dataList.map(d => ({ id: d.id, logUid: d.logUid, wellboreUid: d.wellboreUid })));
+      throw new Error(`No data found for logUid: ${queryParameter.logUid}`);
     }
+
+    console.log(`✅ Found data for LogId: ${queryParameter.logUid}, processing ${matchingData.data?.length || 0} rows`);
+
+    // Parse mnemonicList from queryParameter to get the correct order
+    const mnemonicOrder = queryParameter.mnemonicList?.split(',').map(m => m.trim()) || [];
+    console.log('🔍 Mnemonic order from header:', mnemonicOrder);
 
     return {
       indexData: matchingData.data.map((row: string) => {
         const values = row.split(',');
-        return parseInt(values[0]);
+        return parseInt(values[0]); // First column is TIME timestamp
       }),
-      curveData: this.parseCurveData(matchingData.data)
+      curveData: this.parseCurveData(matchingData.data, mnemonicOrder)
     };
   }
 
-  private parseCurveData(data: string[]): { [key: string]: number[] } {
-    const curveData: { [key: string]: number[] } = {
-      'TIME': [], 'GR': [], 'RT': [], 'NPHI': [], 'RHOB': [], 'ROP': [], 'WOB': [], 'RPM': []
-    };
+  private parseCurveData(data: string[], mnemonicOrder: string[]): { [key: string]: number[] } {
+    // Initialize curveData object dynamically based on mnemonic order
+    const curveData: { [key: string]: number[] } = {};
+    mnemonicOrder.forEach(mnemonic => {
+      curveData[mnemonic] = [];
+    });
     
     data.forEach((row: string) => {
       const values = row.split(',');
-      if (values.length >= 8) {
-        curveData['TIME'].push(parseInt(values[0]));
-        curveData['GR'].push(parseFloat(values[1]));
-        curveData['RT'].push(parseFloat(values[2]));
-        curveData['NPHI'].push(parseFloat(values[3]));
-        curveData['RHOB'].push(parseFloat(values[4]));
-        curveData['ROP'].push(parseFloat(values[5]));
-        curveData['WOB'].push(parseFloat(values[6]));
-        curveData['RPM'].push(parseFloat(values[7]));
-      }
+      
+      // Parse each column according to the mnemonic order
+      mnemonicOrder.forEach((mnemonic, index) => {
+        if (index < values.length && values[index]) {
+          if (mnemonic === 'TIME') {
+            // TIME should be parsed as integer timestamp
+            const timestamp = parseInt(values[index]);
+            curveData[mnemonic].push(isNaN(timestamp) ? 0 : timestamp);
+          } else {
+            // Other curves should be parsed as float values
+            const value = parseFloat(values[index]);
+            curveData[mnemonic].push(isNaN(value) ? 0 : value);
+          }
+        } else {
+          // Handle missing columns - push 0 or default value
+          curveData[mnemonic].push(0);
+        }
+      });
     });
+    
+    console.log('📊 Parsed curve data:', Object.entries(curveData).map(([key, values]) => `${key}: ${values.length} points`));
     
     return curveData;
   }

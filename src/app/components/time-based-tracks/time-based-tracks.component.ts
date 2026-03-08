@@ -20,9 +20,11 @@ export interface ITimeCurve {
   color?: string;
   lineWidth?: number;
   visible?: boolean;
+  LogId?: string;
 }
 
 export interface ITimeTrack {
+  trackNo: number;
   trackName: string;
   trackTitle: string;
   trackType: string;
@@ -143,11 +145,24 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       (headers: ITimeWellboreObject[]) => {
         this.showLoading = false;
         if (headers?.length) {
-          this.wellboreObjects = headers.map(header => ({
-            ...header,
-            isDepth: false,
-            objectInfo: this.generateCurveInfo(header)
-          }));
+          this.wellboreObjects = headers.map(header => {
+            const wellboreObject: ITimeWellboreObject = {
+              ...header,
+              isDepth: false,
+              objectInfo: this.generateCurveInfo(header)
+            };
+            
+            // Set the LogId from the first curve that has one (or use header uid as fallback)
+            const firstCurveWithLogId = this.listOfTracks
+              .flatMap(track => track.curves)
+              .find(curve => curve.LogId);
+            
+            if (firstCurveWithLogId) {
+              wellboreObject.uid = firstCurveWithLogId.LogId!;
+            }
+            
+            return wellboreObject;
+          });
           this.headersLoaded.emit(this.wellboreObjects);
           this.tryInitializeWidget();
         } else {
@@ -162,13 +177,26 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   private generateCurveInfo(header: ITimeWellboreObject): ITimeCurve[] {
-    return header.mnemonicList.split(',').map((mnemonic: string) => ({
-      mnemonicId: mnemonic.trim(),
-      data: [],
-      color: this.timeBasedThemeService.getCurveColor(0),
-      lineWidth: 1,
-      visible: true
-    }));
+    return header.mnemonicList.split(',').map((mnemonic: string) => {
+      // Find the curve in listOfTracks to get its LogId
+      let curveLogId = header.uid; // Default to header uid
+      for (const track of this.listOfTracks) {
+        const curve = track.curves.find(c => c.mnemonicId === mnemonic.trim());
+        if (curve && curve.LogId) {
+          curveLogId = curve.LogId;
+          break;
+        }
+      }
+      
+      return {
+        mnemonicId: mnemonic.trim(),
+        data: [],
+        color: this.timeBasedThemeService.getCurveColor(0),
+        lineWidth: 1,
+        visible: true,
+        LogId: curveLogId
+      };
+    });
   }
 
   private initializeWidget(): void {
@@ -221,16 +249,25 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       }
     }
 
-    this.listOfTracks.forEach((trackInfo, trackIndex) => {
+    // Sort tracks by trackNo to ensure proper ordering
+    const sortedTracks = [...this.listOfTracks].sort((a, b) => a.trackNo - b.trackNo);
+    
+    console.log('🎵 Creating tracks in order:');
+    sortedTracks.forEach((trackInfo) => {
+      console.log(`  - Creating track ${trackInfo.trackNo}: ${trackInfo.trackTitle}`);
+    });
+    
+    sortedTracks.forEach((trackInfo) => {
       try {
         const logTrack = this.wellLogWidget!.addTrack(TrackType.LinearTrack);
         if (logTrack) {
           logTrack.setName(trackInfo.trackTitle);
           logTrack.setWidth(trackInfo.width || 100);
-          this.trackMap.set(trackIndex, logTrack);
+          this.trackMap.set(trackInfo.trackNo, logTrack);
+          console.log(`✅ Created track ${trackInfo.trackNo}: ${trackInfo.trackTitle}`);
         }
       } catch (error) {
-        console.error(`❌ Error creating track ${trackInfo.trackName}:`, error);
+        console.error(`❌ Error creating track ${trackInfo.trackName} (trackNo: ${trackInfo.trackNo}):`, error);
       }
     });
   }
@@ -296,6 +333,9 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
     const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME');
 
+    console.log(`🔍 Processing curve ${curve.mnemonicId}: curveIndex=${curveIndex}, timeIndex=${timeIndex}`);
+    console.log(`🔍 Available mnemonics: ${mnemonics.join(', ')}`);
+
     if (curveIndex === -1) {
       console.warn(`⚠️ Mnemonic not found: ${curve.mnemonicId}`);
       return;
@@ -319,18 +359,40 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     curve.data = values;
     this.curveTimeIndices.set(curve.mnemonicId, times);
 
-    console.log(`✅ Parsed ${curve.mnemonicId}: ${values.length} points`);
+    // Add value range debugging for NPHI
+    if (curve.mnemonicId === 'NPHI') {
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
+      console.log(`📈 NPHI Statistics: min=${minValue.toFixed(3)}, max=${maxValue.toFixed(3)}, avg=${avgValue.toFixed(3)}`);
+    }
+
+    console.log(`✅ Parsed ${curve.mnemonicId}: ${values.length} points (first value: ${values[0] || 'N/A'})`);
   }
 
   private addCurvesToWidget(): void {
     if (!this.wellLogWidget) return;
 
-    this.listOfTracks.forEach((trackInfo, trackIndex) => {
-      const track = this.trackMap.get(trackIndex);
-      if (!track) return;
+    // Sort tracks by trackNo to ensure proper ordering
+    const sortedTracks = [...this.listOfTracks].sort((a, b) => a.trackNo - b.trackNo);
+    
+    sortedTracks.forEach((trackInfo) => {
+      const track = this.trackMap.get(trackInfo.trackNo);
+      if (!track) {
+        console.warn(`⚠️ Track not found for trackNo: ${trackInfo.trackNo}, trackName: ${trackInfo.trackName}`);
+        return;
+      }
+
+      console.log(`🎯 Adding curves to track ${trackInfo.trackNo}: ${trackInfo.trackTitle}`);
+      console.log(`🎯 Available curves: ${trackInfo.curves.map(c => c.mnemonicId).join(', ')}`);
 
       trackInfo.curves.forEach((curveInfo) => {
-        if (!curveInfo.data?.length) return;
+        console.log(`🔍 Checking curve ${curveInfo.mnemonicId}: data length=${curveInfo.data?.length || 0}, visible=${curveInfo.visible}`);
+        
+        if (!curveInfo.data?.length) {
+          console.warn(`⚠️ No data for curve ${curveInfo.mnemonicId} in track ${trackInfo.trackNo}`);
+          return;
+        }
 
         try {
           const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
@@ -341,8 +403,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
           curve.setLineStyle({ color: curveInfo.color || '#63b3ed', width: curveInfo.lineWidth || 1 });
           curve.setName(curveInfo.mnemonicId);
           track.addChild(curve);
+          
+          console.log(`✅ Added curve ${curveInfo.mnemonicId} to track ${trackInfo.trackNo} with ${curveInfo.data.length} points`);
         } catch (error) {
-          console.error(`❌ Error adding curve ${curveInfo.mnemonicId}:`, error);
+          console.error(`❌ Error adding curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName}:`, error);
         }
       });
     });
