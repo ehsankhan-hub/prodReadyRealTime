@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
@@ -47,7 +47,7 @@ export class TimeBasedLogService {
           : headers;
 
         return filteredHeaders.map((header: any) => ({
-          uid: header['@uidWell'] + '_' + header['@uidWellbore'], // Create unique ID
+          uid: header['uid'] , //  unique ID
           name: header.nameWellbore || 'MWD Time Log',
           wellId: header['@uidWell'],
           wellboreId: header['@uidWellbore'],
@@ -64,12 +64,47 @@ export class TimeBasedLogService {
   }
 
   /**
+   * Fetches time-based log data in chunks
+   */
+  getLogDataChunk(queryParameter: ILogDataQueryParameter, chunkSizeDays: number = 2, chunkNumber: number = 1): Observable<any> {
+    // Build query string from parameters
+    const params = new HttpParams()
+      .set('wellUid', queryParameter.wellUid || '')
+      .set('logUid', queryParameter.logUid || '')
+      .set('wellboreUid', queryParameter.wellboreUid || '')
+      .set('startIndex', queryParameter.startIndex || '')
+      .set('endIndex', queryParameter.endIndex || '');
+    
+    console.log('🔧 Sending chunk request with params:', params.toString());
+    
+    return this.http.get<any>(this.TIME_DB_URL, { params }).pipe(
+      map((response: any) => {
+        console.log('🔧 Raw server response:', JSON.stringify(response, null, 2));
+        const dataList = response.logs || response.timeLogData || response;
+        console.log('🔧 Extracted data list type:', typeof dataList);
+        console.log('🔧 Extracted data list:', JSON.stringify(dataList, null, 2));
+        console.log('🔧 Is data list an array?', Array.isArray(dataList));
+        return this.findAndTransformChunkedData(dataList, queryParameter, chunkSizeDays, chunkNumber);
+      })
+    );
+  }
+
+  /**
    * Fetches time-based log data
    */
   getLogData(queryParameter: ILogDataQueryParameter): Observable<any> {
-    return this.http.get<any>(this.TIME_DB_URL).pipe(
+    // Build query string from parameters
+    const params = new HttpParams()
+      .set('wellUid', queryParameter.wellUid || '')
+      .set('logUid', queryParameter.logUid || '')
+      .set('wellboreUid', queryParameter.wellboreUid || '')
+      .set('startIndex', queryParameter.startIndex || '')
+      .set('endIndex', queryParameter.endIndex || '');
+    
+    return this.http.get<any>(this.TIME_DB_URL, { params }).pipe(
       map((response: any) => {
-        const dataList = response.timeLogData || response;
+        // Handle the actual server response format
+        const dataList = response.logs?.[0]?.logData || response.timeLogData || response;
         return this.findAndTransformData(dataList, queryParameter);
       })
     );
@@ -85,32 +120,112 @@ export class TimeBasedLogService {
 
   
 
-  private findAndTransformData(dataList: any[], queryParameter: ILogDataQueryParameter): any {
-    // Find data by logUid (which should be the wellbore ID like 'HWYH_1389_HWYH_1389_0')
-    const matchingData = dataList.find(data => 
-      data.logUid === queryParameter.logUid || 
-      data.id === queryParameter.logUid ||
-      data.wellboreUid === queryParameter.wellboreUid
-    );
+  private findAndTransformData(dataList: any, queryParameter: ILogDataQueryParameter): any {
+    // Handle the new server response format: { mnemonicList: "...", data: [...] }
+    if (dataList && dataList.mnemonicList && dataList.data) {
+      console.log(`✅ Found data in new format with ${dataList.data.length} rows`);
+      
+      // Parse mnemonicList from the response
+      const mnemonicOrder = dataList.mnemonicList.split(',').map((m: string) => m.trim());
+      console.log('🔍 Mnemonic order from server:', mnemonicOrder);
+
+      return {
+        indexData: dataList.data.map((row: string) => {
+          const values = row.split(',');
+          return parseInt(values[0]); // First column is TIME timestamp
+        }),
+        curveData: this.parseCurveData(dataList.data, mnemonicOrder)
+      };
+    }
     
-    if (!matchingData) {
-      console.warn(`⚠️ No data found for logUid: ${queryParameter.logUid}`);
-      console.log('🔍 Available data entries:', dataList.map(d => ({ id: d.id, logUid: d.logUid, wellboreUid: d.wellboreUid })));
-      throw new Error(`No data found for logUid: ${queryParameter.logUid}`);
+    // Fallback to old format (array of entries)
+    if (Array.isArray(dataList)) {
+      const matchingData = dataList.find(data => 
+        data.logUid === queryParameter.logUid || 
+        data.id === queryParameter.logUid ||
+        data.wellboreUid === queryParameter.wellboreUid
+      );
+      
+      if (!matchingData) {
+        console.warn(`⚠️ No data found for logUid: ${queryParameter.logUid}`);
+        console.log('🔍 Available data entries:', dataList.map(d => ({ id: d.id, logUid: d.logUid, wellboreUid: d.wellboreUid })));
+        throw new Error(`No data found for logUid: ${queryParameter.logUid}`);
+      }
+
+      console.log(`✅ Found data for LogId: ${queryParameter.logUid}, processing ${matchingData.data?.length || 0} rows`);
+
+      // Parse mnemonicList from queryParameter to get the correct order
+      const mnemonicOrder = queryParameter.mnemonicList?.split(',').map((m: string) => m.trim()) || [];
+      console.log('🔍 Mnemonic order from header:', mnemonicOrder);
+
+      return {
+        indexData: matchingData.data.map((row: string) => {
+          const values = row.split(',');
+          return parseInt(values[0]); // First column is TIME timestamp
+        }),
+        curveData: this.parseCurveData(matchingData.data, mnemonicOrder)
+      };
+    }
+    
+    console.error('❌ Invalid data format received:', dataList);
+    throw new Error('Invalid data format received');
+  }
+
+  private findAndTransformChunkedData(dataList: any[], queryParameter: ILogDataQueryParameter, chunkSizeDays: number, chunkNumber: number): any {
+    // Handle the new server response format
+    const logEntry = dataList.find(data => data.logData);
+    
+    if (!logEntry || !logEntry.logData) {
+      console.warn(`⚠️ No logData found in response`);
+      console.log('🔍 Available data entries:', dataList.map(d => ({ hasLogData: !!d.logData })));
+      throw new Error('No logData found in response');
     }
 
+    const matchingData = logEntry.logData;
     console.log(`✅ Found data for LogId: ${queryParameter.logUid}, processing ${matchingData.data?.length || 0} rows`);
+
+    // Get the full time range
+    const allTimestamps = matchingData.data.map((row: string) => parseInt(row.split(',')[0]));
+    const minTime = Math.min(...allTimestamps);
+    const maxTime = Math.max(...allTimestamps);
+    
+    // Calculate chunk size in milliseconds
+    const chunkSizeMs = chunkSizeDays * 24 * 3600000;
+    
+    // Use the provided time range from query parameters
+    const chunkStartTime = parseInt(queryParameter.startIndex);
+    const chunkEndTime = parseInt(queryParameter.endIndex);
+    
+    console.log(`🔧 Service chunk parameters: startIndex=${queryParameter.startIndex} (${new Date(chunkStartTime).toISOString()}), endIndex=${queryParameter.endIndex} (${new Date(chunkEndTime).toISOString()})`);
+    
+    // Filter data for the current chunk
+    const chunkData = matchingData.data.filter((row: string) => {
+      const timestamp = parseInt(row.split(',')[0]);
+      return timestamp >= chunkStartTime && timestamp <= chunkEndTime;
+    });
+
+    console.log(`📦 Loading chunk: ${new Date(chunkStartTime).toISOString()} to ${new Date(chunkEndTime).toISOString()} (${chunkData.length} points)`);
 
     // Parse mnemonicList from queryParameter to get the correct order
     const mnemonicOrder = queryParameter.mnemonicList?.split(',').map(m => m.trim()) || [];
     console.log('🔍 Mnemonic order from header:', mnemonicOrder);
 
     return {
-      indexData: matchingData.data.map((row: string) => {
+      indexData: chunkData.map((row: string) => {
         const values = row.split(',');
         return parseInt(values[0]); // First column is TIME timestamp
       }),
-      curveData: this.parseCurveData(matchingData.data, mnemonicOrder)
+      curveData: this.parseCurveData(chunkData, mnemonicOrder),
+      chunkInfo: {
+        startTime: chunkStartTime,
+        endTime: chunkEndTime,
+        totalStartTime: minTime,
+        totalEndTime: maxTime,
+        chunkSize: chunkData.length,
+        totalSize: matchingData.data.length,
+        chunkNumber: chunkNumber,
+        totalChunks: Math.ceil((maxTime - minTime) / chunkSizeMs)
+      }
     };
   }
 

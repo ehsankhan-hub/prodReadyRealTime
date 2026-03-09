@@ -244,11 +244,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     // Sort tracks by trackNo to ensure proper ordering
     const sortedTracks = [...this.listOfTracks].sort((a, b) => a.trackNo - b.trackNo);
     
-    console.log('🎵 Creating tracks in order:');
-    sortedTracks.forEach((trackInfo) => {
-      console.log(`  - Creating track ${trackInfo.trackNo}: ${trackInfo.trackTitle}`);
-    });
-    
     sortedTracks.forEach((trackInfo) => {
       try {
         const logTrack = this.wellLogWidget!.addTrack(TrackType.LinearTrack);
@@ -256,7 +251,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
           logTrack.setName(trackInfo.trackTitle);
           logTrack.setWidth(trackInfo.width || 100);
           this.trackMap.set(trackInfo.trackNo, logTrack);
-          console.log(`✅ Created track ${trackInfo.trackNo}: ${trackInfo.trackTitle}`);
         }
       } catch (error) {
         console.error(`❌ Error creating track ${trackInfo.trackName} (trackNo: ${trackInfo.trackNo}):`, error);
@@ -266,10 +260,39 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   private loadData(): void {
     if (!this.wellLogWidget || !this.wellboreObjects.length) return;
-    this.wellboreObjects.forEach((wo) => this.loadLogData(wo));
+    
+    // Group curves by LogId from static template (same pattern as dynamic track generator)
+    const logIdCurves = new Map<string, ITimeCurve[]>();
+    this.listOfTracks.forEach((trackInfo) => {
+      trackInfo.curves.forEach((curve) => {
+        if (!logIdCurves.has(curve.LogId!)) {
+          logIdCurves.set(curve.LogId!, []);
+        }
+        logIdCurves.get(curve.LogId!)!.push(curve);
+      });
+    });
+    
+    console.log(`📊 Found ${logIdCurves.size} unique LogIds from template:`, Array.from(logIdCurves.keys()));
+    
+    // For each LogId, find matching backend header and load data
+    logIdCurves.forEach((curves, logId) => {
+      // Match using header.uid.includes(logId) (same as dynamic track generator)
+      const matchingHeader = this.wellboreObjects.find(h => 
+        h.uid.includes(logId) || logId.includes(h.uid)
+      );
+      
+      if (!matchingHeader) {
+        console.warn(`⚠️ No backend header found for LogId: ${logId}`);
+        console.log('🔍 Available backend headers:', this.wellboreObjects.map(h => h.uid));
+        return;
+      }
+      
+      console.log(`✅ Loading data for LogId: ${logId} -> matched to header: ${matchingHeader.uid}`);
+      this.loadLogData(matchingHeader, curves);
+    });
   }
 
-  private loadLogData(wo: ITimeWellboreObject): void {
+  private loadLogData(wo: ITimeWellboreObject, curves: ITimeCurve[]): void {
     const queryParameter: ILogDataQueryParameter = {
       wellUid: this.wellId,
       logUid: wo.uid,
@@ -283,38 +306,48 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       mnemonicList: wo.mnemonicList
     };
 
+    console.log(`🔧 Loading data for LogId: ${wo.uid} with ${curves.length} curves:`, curves.map(c => c.mnemonicId));
+
     this.timeBasedLogService.getLogData(queryParameter).subscribe(
-      (response: any) => this.processLogDataResponse(response),
+      (response: any) => this.processLogDataResponse(response, curves),
       (error) => console.error('❌ Error retrieving time-based log data:', error)
     );
   }
 
-  private processLogDataResponse(response: any): void {
+  private processLogDataResponse(response: any, curves: ITimeCurve[]): void {
+    console.log('🔧 Received parsed data from service:', response);
+    
+    // The service already returns parsed data with indexData and curveData
     if (!response?.indexData || !response?.curveData) {
-      console.error('❌ Invalid time-based response structure:', response);
+      console.error('❌ Invalid parsed response structure - missing indexData or curveData:', response);
       return;
     }
 
-    const curveData = response.curveData;
     const timeData = response.indexData;
-    const filteredMnemonics = Object.keys(curveData).filter(m => m !== 'TIME');
-    const allMnemonics = ['TIME', ...filteredMnemonics];
+    const curveData = response.curveData;
+    
+    console.log(`🔧 Received ${timeData.length} time points and ${Object.keys(curveData).length} curves`);
+    console.log('🔧 Available curve data:', Object.keys(curveData));
 
-    // Build CSV-style rows for parsing
-    const csvData: string[] = [];
-    for (let i = 0; i < timeData.length; i++) {
-      csvData.push([
-        timeData[i].toString(),
-        ...filteredMnemonics.map(m => (curveData[m]?.[i] || 0).toString())
-      ].join(','));
-    }
-
-    const logData: ILogDataResponse = { mnemonicList: allMnemonics.join(','), data: csvData };
-
-    console.log('📋 LogData:', { mnemonics: logData.mnemonicList, rows: logData.data.length });
-
-    this.listOfTracks.forEach(track => {
-      track.curves.forEach(curve => this.parseCurveData(logData, curve));
+    // Create logData object for each curve (same format as expected by parseCurveData)
+    curves.forEach(curve => {
+      const curveMnemonic = curve.mnemonicId;
+      
+      if (curveData[curveMnemonic]) {
+        console.log(`🔧 Processing curve: ${curveMnemonic} with ${curveData[curveMnemonic].length} points`);
+        
+        // Create the logData structure expected by parseCurveData
+        const logData: ILogDataResponse = { 
+          mnemonicList: `TIME,${curveMnemonic}`, 
+          data: timeData.map((time: number, index: number) => 
+            `${time},${curveData[curveMnemonic][index] || 0}`
+          )
+        };
+        
+        this.parseCurveData(logData, curve);
+      } else {
+        console.warn(`⚠️ No data found for curve: ${curveMnemonic}`);
+      }
     });
 
     this.addCurvesToWidget();
@@ -324,9 +357,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
     const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME');
-
-    console.log(`🔍 Processing curve ${curve.mnemonicId}: curveIndex=${curveIndex}, timeIndex=${timeIndex}`);
-    console.log(`🔍 Available mnemonics: ${mnemonics.join(', ')}`);
 
     if (curveIndex === -1) {
       console.warn(`⚠️ Mnemonic not found: ${curve.mnemonicId}`);
@@ -350,16 +380,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
     curve.data = values;
     this.curveTimeIndices.set(curve.mnemonicId, times);
-
-    // Add value range debugging for NPHI
-    if (curve.mnemonicId === 'NPHI') {
-      const minValue = Math.min(...values);
-      const maxValue = Math.max(...values);
-      const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
-      console.log(`📈 NPHI Statistics: min=${minValue.toFixed(3)}, max=${maxValue.toFixed(3)}, avg=${avgValue.toFixed(3)}`);
-    }
-
-    console.log(`✅ Parsed ${curve.mnemonicId}: ${values.length} points (first value: ${values[0] || 'N/A'})`);
   }
 
   private addCurvesToWidget(): void {
@@ -375,12 +395,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
         return;
       }
 
-      console.log(`🎯 Adding curves to track ${trackInfo.trackNo}: ${trackInfo.trackTitle}`);
-      console.log(`🎯 Available curves: ${trackInfo.curves.map(c => c.mnemonicId).join(', ')}`);
-
       trackInfo.curves.forEach((curveInfo) => {
-        console.log(`🔍 Checking curve ${curveInfo.mnemonicId}: data length=${curveInfo.data?.length || 0}, visible=${curveInfo.visible}`);
-        
         if (!curveInfo.data?.length) {
           console.warn(`⚠️ No data for curve ${curveInfo.mnemonicId} in track ${trackInfo.trackNo}`);
           return;
@@ -395,8 +410,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
           curve.setLineStyle({ color: curveInfo.color || '#63b3ed', width: curveInfo.lineWidth || 1 });
           curve.setName(curveInfo.mnemonicId);
           track.addChild(curve);
-          
-          console.log(`✅ Added curve ${curveInfo.mnemonicId} to track ${trackInfo.trackNo} with ${curveInfo.data.length} points`);
         } catch (error) {
           console.error(`❌ Error adding curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName}:`, error);
         }
@@ -414,15 +427,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       console.error('❌ No valid time range found');
       return;
     }
-
-    // Debug: Show what's in curveTimeIndices
-    console.log('🔍 curveTimeIndices debug:');
-    for (const [mnemonic, times] of this.curveTimeIndices.entries()) {
-      if (times.length > 0) {
-        console.log(`  ${mnemonic}: ${times.length} points, first=${new Date(times[0]).toISOString()}, last=${new Date(times[times.length-1]).toISOString()}`);
-      }
-    }
-    console.log(`🎯 getTimeRange result: min=${new Date(minTime).toISOString()}, max=${new Date(maxTime).toISOString()}`);
 
     // Store index curve times for template statistics
     const firstCurveTimes = this.curveTimeIndices.values().next().value;
@@ -445,11 +449,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     const visibleMax = visibleMin + visibleRangeMs;
     
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
-
     this.wellLogWidget.updateLayout();
-
-    console.log(`🎯 Widget configured: depth=[${minTime}, ${maxTime}], visible=[${visibleMin}, ${visibleMax}]`);
-    console.log(`🎯 Scroll positioned at 98% to show most recent Feb 11 data`);
   }
 
   private getTimeRange(): { minTime: number; maxTime: number } {

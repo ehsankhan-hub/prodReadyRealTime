@@ -2095,6 +2095,7 @@
       "direction": "increasing",
       "startDateTimeIndex": "2026-01-28T00:00:00Z",
       "endDateTimeIndex": "2026-02-04T11:53:15Z",
+      "uid":"MWD_Time_SLB",
       "startIndex": {
         "@uom": "ms",
         "#text": "1738692795000"
@@ -2159,9 +2160,9 @@
   ],
   "timeLogData": [
     {
-      "id": "HWYH_1389_HWYH_1389_0",
+      "id": "HWYH_1389",
       "wellUid": "HWYH_1389",
-      "logUid": "HWYH_1389_HWYH_1389_0",
+      "logUid": "MWD_Time_SLB",
       "wellboreUid": "HWYH_1389_0",
       "logName": "MWD Time Log",
       "indexType": "TIME",
@@ -2169,6 +2170,7 @@
       "startIndex": "1738692795000",
       "endIndex": "1739254395000",
       "indexUnit": "ms",
+      "uid":"MWD_Time_SLB",
       "data": [
 "1738692795000,53.1,15.2,0.158,2.39,11.8,14.9,91",
 "1738696395000,47.8,13.6,0.174,2.42,13.5,16.1,83",
