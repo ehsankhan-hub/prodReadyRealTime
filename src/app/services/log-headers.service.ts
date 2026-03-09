@@ -190,16 +190,14 @@ export class LogHeadersService {
 
     // First fetch — download full dataset, cache it, share across concurrent subscribers
     console.log(`🌐 Fetching FULL logData for ${logId} (will cache for future chunk requests)`);
-    const shared$ = this.http.get(`${this.baseUrl}/logData`).pipe(
-      map((allData: any) => {
-        const filtered = allData.filter((d: LogData) =>
-          d.uidWell === well && d.uidWellbore === wellbore && d.uid === logId
-        );
-        // Store full dataset in cache
-        this.logDataCache.set(cacheKey, filtered);
+    const shared$ = this.http.get(`${this.baseUrl}/logData?uidWell=${well}&uidWellbore=${wellbore}&uid=${logId}&startIndex=0&endIndex=10000`).pipe(
+      map((fullData: any) => {
+        // Store full dataset in cache (wrap in array for consistency)
+        const fullDataset = [fullData];
+        this.logDataCache.set(cacheKey, fullDataset);
         this.logDataFetchInProgress.delete(cacheKey);
-        console.log(`✅ Cached ${filtered.length} logData entries for ${logId} (${filtered[0]?.data?.length || 0} rows)`);
-        return filtered;
+        console.log(`✅ Cached ${fullDataset.length} logData entries for ${logId} (${fullData?.data?.length || 0} rows)`);
+        return fullDataset;
       }),
       shareReplay(1)
     );
