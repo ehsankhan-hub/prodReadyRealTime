@@ -12,6 +12,7 @@ import { AdaptiveTickGenerator } from '@int/geotoolkit/axis/AdaptiveTickGenerato
 import { LogAxis } from '@int/geotoolkit/welllog/LogAxis';
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
+import { ITracks } from '../../models/tracks.model';
 
 export interface ITimeCurve {
   mnemonicId: string;
@@ -76,9 +77,9 @@ export interface ILogDataResponse {
   styleUrls: ['./time-based-tracks.component.css']
 })
 export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewInit {
-  @Input() wellId: string = '';
-  @Input() wellboreId: string = '';
-  @Input() listOfTracks: ITimeTrack[] = [];
+  @Input() well: string = '';
+  @Input() wellbore: string = '';
+  @Input() listOfTracks: ITracks[] = [];
 
   /** Internal component state - accessible by template */
   protected selectedScale: string = '1000';
@@ -108,7 +109,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   ) {}
 
   ngOnInit(): void {
-    console.log('🎯 TimeBasedTracksComponent initialized', { wellId: this.wellId, wellboreId: this.wellboreId });
+    console.log('🎯 TimeBasedTracksComponent initialized', { well: this.well, wellbore: this.wellbore });
     this.fetchLogHeaders();
   }
 
@@ -133,7 +134,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   private fetchLogHeaders(): void {
     this.showLoading = true;
-    this.timeBasedLogService.getTimeLogHeaders(this.wellId, this.wellboreId).subscribe(
+    this.timeBasedLogService.getTimeLogHeaders(this.well, this.wellbore).subscribe(
       (headers: ITimeWellboreObject[]) => {
         this.showLoading = false;
         if (headers?.length) {
@@ -248,8 +249,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       try {
         const logTrack = this.wellLogWidget!.addTrack(TrackType.LinearTrack);
         if (logTrack) {
-          logTrack.setName(trackInfo.trackTitle);
-          logTrack.setWidth(trackInfo.width || 100);
+          logTrack.setName(trackInfo.trackName);
+          logTrack.setWidth(trackInfo.trackWidth || 100);
           this.trackMap.set(trackInfo.trackNo, logTrack);
         }
       } catch (error) {
@@ -294,9 +295,9 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   private loadLogData(wo: ITimeWellboreObject, curves: ITimeCurve[]): void {
     const queryParameter: ILogDataQueryParameter = {
-      wellUid: this.wellId,
+      wellUid: this.well,
       logUid: wo.uid,
-      wellboreUid: this.wellboreId,
+      wellboreUid: this.wellbore,
       logName: wo.name,
       indexType: wo.indexType,
       indexCurve: wo.indexCurve,
@@ -315,39 +316,36 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   private processLogDataResponse(response: any, curves: ITimeCurve[]): void {
-    console.log('🔧 Received parsed data from service:', response);
+    console.log('🔧 Received response from service:', response);
     
-    // The service already returns parsed data with indexData and curveData
-    if (!response?.indexData || !response?.curveData) {
-      console.error('❌ Invalid parsed response structure - missing indexData or curveData:', response);
+    // Handle the actual server response structure: { logs: [{ logData: { mnemonicList, data } }] }
+    if (!response || !response.logs || !response.logs[0] || !response.logs[0].logData) {
+      console.error('❌ Invalid response structure - expected logs[0].logData:', response);
       return;
     }
 
-    const timeData = response.indexData;
-    const curveData = response.curveData;
+    const logDataResponse = response.logs[0].logData;
+    const rawData = logDataResponse.data;
+    const mnemonicList = logDataResponse.mnemonicList;
     
-    console.log(`🔧 Received ${timeData.length} time points and ${Object.keys(curveData).length} curves`);
-    console.log('🔧 Available curve data:', Object.keys(curveData));
+    if (!Array.isArray(rawData) || rawData.length === 0) {
+      console.error('❌ Invalid data structure - expected array in logData.data:', rawData);
+      return;
+    }
 
-    // Create logData object for each curve (same format as expected by parseCurveData)
+    console.log(`🔧 Received ${rawData.length} data rows`);
+    console.log('🔧 Server mnemonic list:', mnemonicList);
+    
+    // Create the logData structure expected by parseCurveData
+    const logData: ILogDataResponse = { 
+      mnemonicList: mnemonicList, 
+      data: rawData
+    };
+    
+    // Process each curve
     curves.forEach(curve => {
-      const curveMnemonic = curve.mnemonicId;
-      
-      if (curveData[curveMnemonic]) {
-        console.log(`🔧 Processing curve: ${curveMnemonic} with ${curveData[curveMnemonic].length} points`);
-        
-        // Create the logData structure expected by parseCurveData
-        const logData: ILogDataResponse = { 
-          mnemonicList: `TIME,${curveMnemonic}`, 
-          data: timeData.map((time: number, index: number) => 
-            `${time},${curveData[curveMnemonic][index] || 0}`
-          )
-        };
-        
-        this.parseCurveData(logData, curve);
-      } else {
-        console.warn(`⚠️ No data found for curve: ${curveMnemonic}`);
-      }
+      console.log(`🔧 Processing curve: ${curve.mnemonicId}`);
+      this.parseCurveData(logData, curve);
     });
 
     this.addCurvesToWidget();

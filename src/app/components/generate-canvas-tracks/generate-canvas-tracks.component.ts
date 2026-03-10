@@ -14,7 +14,7 @@ import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
 import { Events as CrossHairEvents } from '@int/geotoolkit/controls/tools/CrossHair';
-import { Subscription } from 'rxjs';
+import { from, Subscription } from 'rxjs';
 import { CrossTooltipComponent, CrossTooltipData, TooltipCurveValue } from '../cross-tooltip/cross-tooltip.component';
 import { CssStyle } from '@int/geotoolkit/css/CssStyle';
 
@@ -256,11 +256,11 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
   @Input() well: string = '';
   /** Unique identifier for the wellbore */
   @Input() wellbore: string = '';
-  /** Index type: 'depth' or 'time' */
-  @Input() indexType: 'depth' | 'time' = 'depth';
 
   /** Whether the current data is time-based (detected from headers/config) */
   private isTimeBasedData = false;
+  /** Current index type for the well log (time or depth) */
+  private indexType: IndexType = IndexType.Depth;
   /** Stores the raw header start/end index strings for time-based API calls */
   private headerStartIndex = '';
   private headerEndIndex = '';
@@ -310,8 +310,10 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
   // --- Chunked loading state ---
   /** Cached log headers for lazy loading */
   private cachedHeaders: LogHeader[] = [];
-  /** Number of depth rows per chunk */
+  /** Number of depth/time rows per chunk */
   private readonly CHUNK_SIZE = 2000;
+  /** Time chunk size in milliseconds (4 hours) */
+  private readonly TIME_CHUNK_SIZE = 4 * 60 * 60 * 1000; // 4 hours in ms
   /** The overall max depth from headers (not from loaded data) */
   private headerMaxDepth = 0;
   /** Tracks which depth ranges have been loaded per curve */
@@ -323,6 +325,9 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
 
   /** Handle for the scroll polling interval */
   private scrollPollHandle: any = null;
+
+  /** Handle for debounced index track updates */
+  private indexTrackUpdateTimeout: any = null;
 
   // --- Dynamic Width Recalculation ---
   /** Handle for window resize timeout (debouncing) */
@@ -378,6 +383,10 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
     if (this.scrollPollHandle) {
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
+    }
+    if (this.indexTrackUpdateTimeout) {
+      clearTimeout(this.indexTrackUpdateTimeout);
+      this.indexTrackUpdateTimeout = null;
     }
     if (this.resizeTimeout) {
       clearTimeout(this.resizeTimeout);
@@ -453,9 +462,24 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
     } else {
       // Use HTTP service for real API calls
       console.log('🌐 Loading log headers via HTTP service');
-      this.logHeadersService.getLogHeaders(this.well, this.wellbore).subscribe({
+      
+      // First, do a quick check if we have time-based tracks
+      const hasTimeBasedTracks = this.listOfTracks.some(track => 
+        track.curves.some(curve => 
+          (curve.LogId && (curve.LogId.toLowerCase().includes('time') || curve.LogId.toLowerCase().includes('mwd_time')))
+        )
+      );
+      
+      console.log(`🔍 Quick check - has time-based tracks: ${hasTimeBasedTracks}`);
+      
+      // Use appropriate endpoint based on track analysis
+      const headersObservable = hasTimeBasedTracks 
+        ? this.logHeadersService.getTimeLogHeaders(this.well, this.wellbore)
+        : this.logHeadersService.getLogHeaders(this.well, this.wellbore);
+      
+      headersObservable.subscribe({
         next: (headers) => {
-          console.log(`📋 Loaded ${headers.length} log headers via HTTP`);
+          console.log(`📋 Loaded ${headers.length} log headers via HTTP (${hasTimeBasedTracks ? 'time-based' : 'depth-based'} endpoint)`);
           this.cachedHeaders = headers;
           
           // Detect time-based data before processing headers
@@ -498,29 +522,61 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
     console.log('📋 Found LogIds in tracks:', Array.from(uniqueLogIds));
     
     // Create mock headers for each unique LogId
-    const mockHeaders: LogHeader[] = Array.from(uniqueLogIds).map((logId, index) => ({
-      '@uidWell': this.well || 'demo-well',
-      '@uidWellbore': this.wellbore || 'demo-wellbore',
-      uid: logId,
-      name: `Demo Log ${index + 1}`,
-      nameWell: this.well || 'Demo Well',
-      nameWellbore: this.wellbore || 'Demo Wellbore',
-      creationDate: new Date().toISOString(),
-      dataDelimiter: ',',
-      direction: 'increasing',
-      objectGrowing: 'false',
-      indexType: 'depth',
-      indexCurve: 'DEPTH',
-      endIndex: {
-        '@uom': 'm',
-        '#text': '10000'
-      },
-      startIndex: {
-        '@uom': 'm',
-        '#text': '0'
-      },
-      logCurveInfo: []
-    }));
+    const mockHeaders: LogHeader[] = Array.from(uniqueLogIds).map((logId, index) => {
+      // Check if this should be time-based by looking at the LogId itself
+      const logIdLower = logId.toLowerCase();
+      const isTimeBased = logIdLower.includes('time') || logIdLower.includes('mwd_time');
+      
+      console.log(`🔍 Creating mock header for ${logId}, isTimeBased: ${isTimeBased}`);
+      
+      const baseHeader = {
+        '@uidWell': this.well || 'demo-well',
+        '@uidWellbore': this.wellbore || 'demo-wellbore',
+        uid: logId,
+        name: logId, // Use the actual LogId as name for detection
+        nameWell: this.well || 'Demo Well',
+        nameWellbore: this.wellbore || 'Demo Wellbore',
+        creationDate: new Date().toISOString(),
+        dataDelimiter: ',',
+        direction: 'increasing',
+        objectGrowing: 'false',
+        logCurveInfo: []
+      };
+
+      if (isTimeBased) {
+        // Time-based mock header with proper February 2025 dates
+        return {
+          ...baseHeader,
+          indexType: 'date time',
+          indexCurve: 'TIME',
+          endDateTimeIndex: '2025-02-11T06:13:15.000Z',
+          startDateTimeIndex: '2025-02-04T18:13:15.000Z',
+          endIndex: {
+            '@uom': 'ms',
+            '#text': '1739254395000'
+          },
+          startIndex: {
+            '@uom': 'ms',
+            '#text': '1738692795000'
+          }
+        };
+      } else {
+        // Depth-based mock header
+        return {
+          ...baseHeader,
+          indexType: 'measured depth',
+          indexCurve: 'DEPTH',
+          endIndex: {
+            '@uom': 'm',
+            '#text': '10000'
+          },
+          startIndex: {
+            '@uom': 'm',
+            '#text': '0'
+          }
+        };
+      }
+    });
 
     console.log('✅ Mock headers created:', mockHeaders.length, 'headers for LogIds:', mockHeaders.map(h => h.uid));
     return mockHeaders;
@@ -536,36 +592,47 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
   private processLogHeaders(headers: LogHeader[]): void {
     // Store raw header start/end index strings for time-based API calls
     if (this.isTimeBasedData && headers.length > 0) {
-      this.headerStartIndex = headers[0].startIndex?.['#text'] || '';
-      this.headerEndIndex = headers[0].endIndex?.['#text'] || '';
+      this.headerStartIndex = headers[0].startDateTimeIndex || '';
+      this.headerEndIndex = headers[0].endDateTimeIndex || '';
       console.log('🕐 Stored time-based header indices:', this.headerStartIndex, 'to', this.headerEndIndex);
     }
 
-    // Determine overall max depth from headers
+    // Determine overall max depth/time from headers
     headers.forEach(h => {
       let end: number;
       if (this.isTimeBasedData) {
         // For time-based data, convert ISO string to timestamp
-        if (h.endIndex?.['#text']) {
+        if (h.endDateTimeIndex) {
           try {
-            end = new Date(h.endIndex['#text']).getTime();
+            end = new Date(h.endDateTimeIndex).getTime();
             if (isNaN(end) || end <= 0) {
-              console.warn(`⚠️ Invalid endIndex in header: ${h.endIndex['#text']}, using 0`);
+              console.warn(`⚠️ Invalid endDateTimeIndex in header: ${h.endDateTimeIndex}, using 0`);
               end = 0;
             }
           } catch (error) {
-            console.error(`❌ Error parsing endIndex: ${h.endIndex['#text']}`, error);
+            console.warn(`⚠️ Error parsing endDateTimeIndex: ${h.endDateTimeIndex}, using 0`);
             end = 0;
           }
         } else {
+          console.warn(`⚠️ Missing endDateTimeIndex in header, using 0`);
           end = 0;
         }
       } else {
-        // For depth-based data, parse as float
-        end = parseFloat(h.endIndex?.['#text'] || '0');
+        // For depth-based data, parse endIndex as number
+        const endIndexValue = typeof h.endIndex === 'object' ? h.endIndex?.['#text'] : h.endIndex;
+        end = parseFloat(endIndexValue || '0');
+        if (isNaN(end) || end <= 0) {
+          console.warn(`⚠️ Invalid endIndex in header: ${h.endIndex}, using 0`);
+          end = 0;
+        }
       }
-      if (end > this.headerMaxDepth) this.headerMaxDepth = end;
+      
+      if (end > this.headerMaxDepth) {
+        this.headerMaxDepth = end;
+      }
     });
+    
+    console.log(`📊 Header max ${this.isTimeBasedData ? 'time' : 'depth'}: ${this.headerMaxDepth}`);
 
     // Group all curves by LogId to avoid duplicate API calls
     const logIdGroups = new Map<string, { header: LogHeader; curves: TrackCurve[] }>();
@@ -587,51 +654,140 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
 
     // Load initial chunk per LogId: most recent data
     logIdGroups.forEach(({ header, curves }, logId) => {
+      // Debug logging for MWD_Time logs
+      const isMwdTime = (header.name || header.uid || '').toLowerCase().includes('mwd_time');
+      if (isMwdTime) {
+        console.log(`🔍 MWD_Time processing:`, {
+          logId,
+          isTimeBasedData: this.isTimeBasedData,
+          indexType: this.indexType,
+          header: {
+            uid: header.uid,
+            name: header.name,
+            indexType: header.indexType,
+            indexCurve: header.indexCurve,
+            endDateTimeIndex: header.endDateTimeIndex,
+            endIndex: header.endIndex
+          }
+        });
+      }
+      
       let endIndex: number;
       let startIndex: number;
       
       if (this.isTimeBasedData) {
-        // For time-based data, work with timestamps
+        // For time-based data, work with timestamps and 4-hour chunks
         let endTime: number;
         let startTime: number;
         
         try {
-          // Parse endTime with fallback
-          const endTimeStr = header.endIndex?.['#text'] || new Date().toISOString();
+          // Parse endTime from endDateTimeIndex with fallback
+          const endTimeStr = header.endDateTimeIndex || new Date().toISOString();
           endTime = new Date(endTimeStr).getTime();
           
           if (isNaN(endTime) || endTime <= 0) {
-            console.warn(`⚠️ Invalid endTime from header: ${endTimeStr}, using current time`);
+            console.warn(`⚠️ Invalid endDateTimeIndex from header: ${endTimeStr}, using current time`);
             endTime = Date.now();
           }
           
-          // Parse startTime with fallback
-          const startTimeStr = header.startIndex?.['#text'] || new Date(endTime - this.CHUNK_SIZE * 1000).toISOString();
-          startTime = new Date(startTimeStr).getTime();
-          
-          if (isNaN(startTime) || startTime <= 0) {
-            console.warn(`⚠️ Invalid startTime from header: ${startTimeStr}, calculating from endTime`);
-            startTime = endTime - this.CHUNK_SIZE * 1000;
+          // Check if the endTime is in the future (indicating cached old data)
+          // If so, use the actual data range from this.headerMaxDepth
+          const currentTime = Date.now();
+          if (endTime > currentTime) {
+            console.warn(`⚠️ Header endDateTimeIndex ${endTimeStr} is in the future, using headerMaxDepth: ${this.headerMaxDepth}`);
+            // Use the actual data range from headerMaxDepth (should be 1739254395000)
+            endTime = this.headerMaxDepth || Date.now();
           }
+          
+          // For time-based, load most recent 4 hours
+          startTime = endTime - this.TIME_CHUNK_SIZE;
           
         } catch (error) {
           console.error(`❌ Error parsing time-based indices:`, error);
-          // Fallback to current time
+          // Fallback to current time minus 4 hours
           endTime = Date.now();
-          startTime = endTime - this.CHUNK_SIZE * 1000;
+          startTime = endTime - this.TIME_CHUNK_SIZE;
         }
         
         endIndex = endTime;
-        startIndex = Math.max(startTime, endTime - this.CHUNK_SIZE * 1000); // CHUNK_SIZE seconds in ms
+        startIndex = startTime;
       } else {
         // For depth-based data, use headerMaxDepth for full range
-        endIndex = this.headerMaxDepth || parseFloat(header.endIndex?.['#text'] || '1000');
+        const headerEndIndexValue = typeof header.endIndex === 'object' ? header.endIndex?.['#text'] : header.endIndex;
+        endIndex = this.headerMaxDepth || parseFloat(headerEndIndexValue || '1000');
         startIndex = Math.max(0, endIndex - this.CHUNK_SIZE);
       }
       
       console.log(`📦 Loading initial chunk for LogId ${logId}: ${startIndex}-${endIndex} (${curves.length} curves)`);
       this.loadLogDataForGroup(header, curves, startIndex, endIndex);
     });
+  }
+
+  /**
+   * Intelligently determines the correct index type for a log header.
+   * Uses multiple heuristics to detect time-based vs depth-based data,
+   * even when header metadata is inconsistent.
+   * 
+   * @param header - Log header to analyze
+   * @returns Correct index type string ('date time' or 'measured depth')
+   * @private
+   */
+  private getIndexTypeForLog(header: LogHeader): string {
+    // Special logging for MWD_Time logs
+    const logNameLower = (header.name || header.uid || '').toLowerCase();
+    const isMwdTime = logNameLower.includes('mwd_time') || logNameLower.includes('mwdtime');
+    
+    if (isMwdTime) {
+      console.log(`🔍 MWD_Time log detected - analyzing header:`, {
+        uid: header.uid,
+        name: header.name,
+        indexType: header.indexType,
+        indexCurve: header.indexCurve,
+        startIndex: header.startIndex,
+        endIndex: header.endIndex
+      });
+      // FORCE TIME-BASED FOR MWD_Time
+      console.log(`🕐 FORCING time-based detection for MWD_Time log: ${header.uid}`);
+      return 'date time';
+    }
+    
+    // METHOD 1: Check if log name/uid contains time indicators
+    if (logNameLower.includes('time') || logNameLower.includes('mwd_time')) {
+      console.log(`🕐 Time-based data detected from log name/uid: ${header.name || header.uid}`);
+      return 'date time';
+    }
+    
+    // METHOD 2: Check index curve name
+    const indexCurveLower = (header.indexCurve || '').toLowerCase();
+    if (indexCurveLower.includes('time')) {
+      console.log(`🕐 Time-based data detected from index curve: ${header.indexCurve}`);
+      return 'date time';
+    }
+    
+    // METHOD 3: Check header indexType for time indicators
+    const indexTypeLower = (header.indexType || '').toLowerCase();
+    if (indexTypeLower.includes('time') || indexTypeLower.includes('date')) {
+      console.log(`🕐 Time-based data detected from indexType: ${header.indexType}`);
+      return 'date time';
+    }
+    
+    // METHOD 4: Check if index curve is TIME and units are time-based
+    if (indexCurveLower === 'time') {
+      console.log(`🕐 Time-based data detected from index curve 'TIME': ${header.indexCurve}`);
+      return 'date time';
+    }
+    
+    // METHOD 5: Check units in startIndex/endIndex for time indicators
+    const startUnit = typeof header.startIndex === 'object' ? header.startIndex?.['@uom']?.toLowerCase() : '';
+    const endUnit = typeof header.endIndex === 'object' ? header.endIndex?.['@uom']?.toLowerCase() : '';
+    if (startUnit?.includes('s') || endUnit?.includes('s') || startUnit?.includes('time') || endUnit?.includes('time')) {
+      console.log(`🕐 Time-based data detected from index units: start=${startUnit}, end=${endUnit}`);
+      return 'date time';
+    }
+    
+    // Default to depth-based
+    console.log(`📏 Depth-based data detected (default) for log: ${header.name || header.uid}`);
+    return 'measured depth';
   }
 
   /**
@@ -645,13 +801,16 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
    * @private
    */
   private loadLogDataForGroup(header: LogHeader, curves: TrackCurve[], startIndex: number, endIndex: number): void {
-    console.log(`🔄 Loading data for LogId: ${header.uid}, range: ${startIndex}-${endIndex}`);
+    const isMwdTime = (header.name || header.uid || '').toLowerCase().includes('mwd_time');
+    console.log(`🔄 Loading data for LogId: ${header.uid}, range: ${startIndex}-${endIndex}, isTimeBased: ${this.isTimeBasedData}, isMwdTime: ${isMwdTime}`);
     
     // Convert timestamps back to ISO strings for time-based API calls
     let apiStartIndex: any = startIndex;
     let apiEndIndex: any = endIndex;
     
     if (this.isTimeBasedData) {
+      console.log(`🕐 Converting to time-based API: startIndex=${startIndex}, endIndex=${endIndex}`);
+      
       // Validate timestamps before creating Date objects
       if (isNaN(startIndex) || startIndex <= 0) {
         console.warn(`⚠️ Invalid startIndex: ${startIndex}, using current time`);
@@ -674,6 +833,8 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
         apiEndIndex = now.toISOString();
         console.log(`🕐 Fallback time-based API call: ${apiStartIndex} to ${apiEndIndex}`);
       }
+    } else {
+      console.log(`📏 Using depth-based API: startIndex=${startIndex}, endIndex=${endIndex}`);
     }
     
     // Prepare queryParameter for real backend API
@@ -682,13 +843,17 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
       logUid: header.uid,
       wellboreUid: this.wellbore,
       logName: header.name,
-      indexType: header.indexType,
+      indexType: this.getIndexTypeForLog(header),
       indexCurve: header.indexCurve,
       startIndex: apiStartIndex,
       endIndex: apiEndIndex,
       isGrowing: true, // Convert string to boolean
       mnemonicList: '',
     };
+    
+    if (isMwdTime) {
+      console.log(`🔍 MWD_Time API parameters:`, queryParameter);
+    }
     
     const onData = (logData: LogData) => {
       curves.forEach(curve => this.parseCurveData(logData, curve, false));
@@ -722,18 +887,32 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
       });
     } else {
       // HTTP service fallback
-      console.log('🌐 Using HTTP service for log data');
-      this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, apiStartIndex, apiEndIndex).subscribe({
-        next: (logDataArray: LogData[]) => {
-          if (logDataArray.length > 0) {
-            onData(logDataArray[0]);
-          } else {
-            console.warn(`⚠️ No log data found for LogId: ${header.uid}`);
-          }
-          onComplete();
-        },
-        error: onError
-      });
+      console.log(`🌐 Using HTTP service for ${this.isTimeBasedData ? 'time' : 'depth'} log data`);
+      if (this.isTimeBasedData) {
+        this.logHeadersService.getTimeLogData(this.well, this.wellbore, header.uid, apiStartIndex, apiEndIndex).subscribe({
+          next: (logDataArray: LogData[]) => {
+            if (logDataArray.length > 0) {
+              onData(logDataArray[0]);
+            } else {
+              console.warn(`⚠️ No time log data found for LogId: ${header.uid}`);
+            }
+            onComplete();
+          },
+          error: onError
+        });
+      } else {
+        this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, apiStartIndex, apiEndIndex).subscribe({
+          next: (logDataArray: LogData[]) => {
+            if (logDataArray.length > 0) {
+              onData(logDataArray[0]);
+            } else {
+              console.warn(`⚠️ No depth log data found for LogId: ${header.uid}`);
+            }
+            onComplete();
+          },
+          error: onError
+        });
+      }
     }
   }
 
@@ -749,12 +928,25 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
   private parseCurveData(logData: LogData, curve: TrackCurve, decrementPending: boolean = true): void {
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex(m => m.trim() === curve.mnemonicId);
+    
+    // Look for both TIME and DEPTH index columns
     const depthIndex = mnemonics.findIndex(m => m.trim() === 'DEPTH');
+    const timeIndex = mnemonics.findIndex(m => m.trim() === 'TIME');
+    const indexIndex = mnemonics.findIndex(m => m.trim() === 'INDEX');
+    
+    // Use appropriate index based on data type
+    let indexColumn = -1;
+    if (this.isTimeBasedData) {
+      indexColumn = timeIndex !== -1 ? timeIndex : indexIndex;
+    } else {
+      indexColumn = depthIndex !== -1 ? depthIndex : indexIndex;
+    }
     
     console.log(`🔍 Parsing ${curve.mnemonicId}:`, {
       availableMnemonics: mnemonics,
       curveIndex,
-      depthIndex,
+      indexColumn,
+      isTimeBased: this.isTimeBasedData,
       dataRows: logData.data?.length || 0
     });
     
@@ -763,34 +955,34 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const depths: number[] = [];
+    const indices: number[] = [];
     const values: number[] = [];
 
     logData.data.forEach((dataRow) => {
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
         const value = parseFloat(cols[curveIndex]);
-        const depth = depthIndex >= 0 ? parseFloat(cols[depthIndex]) : NaN;
-        if (!isNaN(value) && !isNaN(depth)) {
-          depths.push(depth);
+        const index = indexColumn >= 0 ? parseFloat(cols[indexColumn]) : NaN;
+        if (!isNaN(value) && !isNaN(index)) {
+          indices.push(index);
           values.push(value);
         }
       }
     });
 
     curve.data = values;
-    this.curveDepthIndices.set(curve.mnemonicId, depths);
+    this.curveDepthIndices.set(curve.mnemonicId, indices);
 
     // Track loaded range
-    if (depths.length > 0) {
+    if (indices.length > 0) {
       this.loadedRanges.set(curve.mnemonicId, {
-        min: depths[0],
-        max: depths[depths.length - 1],
+        min: indices[0],
+        max: indices[indices.length - 1],
       });
     }
 
     console.log('✅ Parsed data for curve:', curve.mnemonicId, values.length, 'points',
-      depths.length > 0 ? `depth range: ${depths[0]}-${depths[depths.length - 1]}` : '');
+      indices.length > 0 ? `${this.isTimeBasedData ? 'time' : 'depth'} range: ${indices[0]}-${indices[indices.length - 1]}` : '');
 
     // Only decrement pending loads when called directly (not from group loader)
     if (decrementPending) {
@@ -817,7 +1009,7 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
 
       // Create WellLogWidget
       this.wellLogWidget = new WellLogWidget({
-        indextype: this.detectTimeBasedData() ? IndexType.Time : IndexType.Depth,
+        indextype: this.indexType,
         indexunit: this.isTimeBasedData ? 'ms' : 'ft',
         horizontalscrollable: false,
         verticalscrollable: true,
@@ -985,7 +1177,7 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
       this.lastVisibleMax = 0;
     }
     
-    // Poll every 500ms for visible depth changes (reduced frequency)
+    // Poll every 1000ms for visible depth changes (reduced frequency to prevent hangs)
     this.scrollPollHandle = setInterval(() => {
       if (!this.wellLogWidget) return;
       try {
@@ -1015,7 +1207,6 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
           
           // Only use specialized scroll-up loading when scrolling up
           if (scrollDirection === 'up') {
-            console.log('⬆️ Scroll-up detected - prioritizing historical data loading');
             this.ngZone.run(() => this.checkAndLoadScrollUpChunks());
           } else {
             // Use existing chunk loading logic for scroll-down and other cases
@@ -1048,11 +1239,9 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
     const vMax = visibleLimits.getHigh ? visibleLimits.getHigh : 0;
 
     // For scroll-up, focus on loading data above the visible range
-    const scrollUpBuffer = this.CHUNK_SIZE * 1.5; // Larger buffer for scroll-up
+    const scrollUpBuffer = (this.isTimeBasedData ? this.TIME_CHUNK_SIZE : this.CHUNK_SIZE) * 1.5; // Larger buffer for scroll-up
     const needMin = Math.max(0, vMin - scrollUpBuffer);
     const needMax = vMin; // Only care about data above visible range
-
-    console.log(`⬆️ Scroll-up loading: checking range ${needMin.toFixed(1)} - ${needMax.toFixed(1)}`);
 
     const chunkRequests = new Map<string, { header: LogHeader; curves: TrackCurve[]; start: number; end: number }>();
 
@@ -1075,20 +1264,21 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
 
     logIdCurves.forEach(({ header, curves, range }, logId) => {
       // For scroll-up, prioritize loading data above current range
+      const chunkSize = this.isTimeBasedData ? this.TIME_CHUNK_SIZE : this.CHUNK_SIZE;
+      
       if (needMin < range.min && range.min > 0) {
         // Load chunk immediately above the current loaded range
         const chunkEnd = range.min;
-        const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+        const chunkStart = Math.max(0, chunkEnd - chunkSize);
         const key = `${logId}_${chunkStart}_${chunkEnd}`;
         
         if (!this.inFlightRanges.has(key)) {
-          console.log(`⬆️ Adding scroll-up chunk for ${logId}: ${chunkStart.toFixed(1)} - ${chunkEnd.toFixed(1)}`);
           chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
         }
         
         // Also add a gap-fill chunk to ensure smooth scrolling
-        const gapFillStart = Math.max(0, chunkEnd - this.CHUNK_SIZE * 1.5);
-        const gapFillEnd = chunkEnd - this.CHUNK_SIZE * 0.5;
+        const gapFillStart = Math.max(0, chunkEnd - chunkSize * 1.5);
+        const gapFillEnd = chunkEnd - chunkSize * 0.5;
         const gapFillKey = `${logId}_${gapFillStart}_${gapFillEnd}`;
         
         if (!this.inFlightRanges.has(gapFillKey) && gapFillStart < gapFillEnd) {
@@ -1098,10 +1288,10 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
       }
       
       // Also check if we need to fill gaps between needMin and current range
-      if (needMin < range.min && range.min - needMin > this.CHUNK_SIZE / 2) {
+      if (needMin < range.min && range.min - needMin > chunkSize / 2) {
         // Load additional chunk to fill the gap
-        const chunkEnd = Math.max(0, range.min - this.CHUNK_SIZE / 2);
-        const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+        const chunkEnd = Math.max(0, range.min - chunkSize / 2);
+        const chunkStart = Math.max(0, chunkEnd - chunkSize);
         const key = `${logId}_${chunkStart}_${chunkEnd}`;
         
         if (!this.inFlightRanges.has(key) && !chunkRequests.has(key)) {
@@ -1117,11 +1307,9 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
       
       const onDone = (k: string) => {
         this.inFlightRanges.delete(k);
-        console.log(`⬆️ Scroll-up chunk completed: ${k}`);
       };
 
       if (this.wellService) {
-        console.log(`⬆️ Making scroll-up API call for ${header.uid}, range: ${start}-${end}`);
         const queryParameter: ILogDataQueryParameter = {
           wellUid: this.well,
           logUid: header.uid,
@@ -1138,36 +1326,45 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
         this.wellService.getLogData(queryParameter).subscribe({
           next: (logDataArray: any) => {
             if (logDataArray.length > 0) {
-              console.log(`⬆️ Received ${logDataArray.length} data points for scroll-up chunk ${key}`);
               curves.forEach(curve => this.appendChunkData(logDataArray[0], curve));
-            } else {
-              console.warn(`⬆️ No data received for scroll-up chunk ${key}`);
             }
             onDone(key);
           },
           error: (error: any) => {
-            console.error(`⬆️ Error loading scroll-up chunk for ${header.uid}:`, error);
             onDone(key);
           }
         });
       } else {
         // HTTP service path
-        console.log(`⬆️ Making scroll-up HTTP call for ${header.uid}, range: ${start}-${end}`);
-        this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
-          next: (logDataArray: LogData[]) => {
-            if (logDataArray.length > 0) {
-              console.log(`⬆️ Received ${logDataArray.length} data points for scroll-up chunk ${key}`);
-              curves.forEach(curve => this.appendChunkData(logDataArray[0], curve));
-            } else {
-              console.warn(`⬆️ No data received for scroll-up chunk ${key}`);
+        if (this.isTimeBasedData) {
+          this.logHeadersService.getTimeLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
+            next: (logDataArray: LogData[]) => {
+              if (logDataArray.length > 0) {
+                curves.forEach(curve => this.appendChunkData(logDataArray[0], curve));
+              }
+              onDone(key);
+            },
+            error: (error: any) => {
+              onDone(key);
             }
-            onDone(key);
-          },
-          error: (error: any) => {
-            console.error(`⬆️ Error loading scroll-up chunk for ${header.uid}:`, error);
-            onDone(key);
-          }
-        });
+          });
+        } else {
+          this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
+            next: (logDataArray: LogData[]) => {
+              if (logDataArray.length > 0) {
+                console.log(`⬆️ Received ${logDataArray.length} depth data points for scroll-up chunk ${key}`);
+                curves.forEach(curve => this.appendChunkData(logDataArray[0], curve));
+              } else {
+                console.warn(`⬆️ No depth data received for scroll-up chunk ${key}`);
+              }
+              onDone(key);
+            },
+            error: (error: any) => {
+              console.error(`⬆️ Error loading scroll-up depth chunk for ${header.uid}:`, error);
+              onDone(key);
+            }
+          });
+        }
       }
     });
   }
@@ -1190,7 +1387,7 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
     const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
 
     // Add a buffer around visible range
-    const buffer = this.CHUNK_SIZE / 2;
+    const buffer = this.isTimeBasedData ? this.TIME_CHUNK_SIZE / 2 : this.CHUNK_SIZE / 2;
     const needMin = Math.max(0, vMin - buffer);
     const needMax = Math.min(this.headerMaxDepth, vMax + buffer);
 
@@ -1218,8 +1415,19 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
     logIdCurves.forEach(({ header, curves, range }, logId) => {
       // For unloaded curves (range.max === 0), load data around visible area
       if (range.max === 0) {
-        const chunkStart = Math.max(0, needMin - this.CHUNK_SIZE / 2);
-        const chunkEnd = Math.min(this.headerMaxDepth, needMin + this.CHUNK_SIZE / 2);
+        let chunkStart: number;
+        let chunkEnd: number;
+        
+        if (this.isTimeBasedData) {
+          // For time-based data, use time-based chunking
+          chunkStart = Math.max(0, needMin - this.TIME_CHUNK_SIZE / 2);
+          chunkEnd = Math.min(this.headerMaxDepth, needMin + this.TIME_CHUNK_SIZE / 2);
+        } else {
+          // For depth-based data, use depth-based chunking
+          chunkStart = Math.max(0, needMin - this.CHUNK_SIZE / 2);
+          chunkEnd = Math.min(this.headerMaxDepth, needMin + this.CHUNK_SIZE / 2);
+        }
+        
         const key = `${logId}_${chunkStart}_${chunkEnd}`;
         if (!this.inFlightRanges.has(key)) {
           chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
@@ -1228,7 +1436,14 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
         // Check if we need data below loaded range (user scrolled up)
         if (needMin < range.min && range.min > 0) {
           const chunkEnd = range.min;
-          const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+          let chunkStart: number;
+          
+          if (this.isTimeBasedData) {
+            chunkStart = Math.max(0, chunkEnd - this.TIME_CHUNK_SIZE);
+          } else {
+            chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+          }
+          
           const key = `${logId}_${chunkStart}_${chunkEnd}`;
           if (!this.inFlightRanges.has(key)) {
             chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
@@ -1238,7 +1453,14 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
         // Check if we need data above loaded range (user scrolled down)
         if (needMax > range.max && range.max < this.headerMaxDepth) {
           const chunkStart = range.max;
-          const chunkEnd = Math.min(this.headerMaxDepth, chunkStart + this.CHUNK_SIZE);
+          let chunkEnd: number;
+          
+          if (this.isTimeBasedData) {
+            chunkEnd = Math.min(this.headerMaxDepth, chunkStart + this.TIME_CHUNK_SIZE);
+          } else {
+            chunkEnd = Math.min(this.headerMaxDepth, chunkStart + this.CHUNK_SIZE);
+          }
+          
           const key = `${logId}_${chunkStart}_${chunkEnd}`;
           if (!this.inFlightRanges.has(key)) {
             chunkRequests.set(key, { header, curves, start: chunkStart, end: chunkEnd });
@@ -1294,28 +1516,45 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
       } else {
         // Use HTTP service for real API calls
         console.log(`🌐 Making HTTP call for LogId: ${header.uid}, range: ${start}-${end}`);
-        this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
-          next: (logDataArray: LogData[]) => {
-            if (logDataArray.length > 0) {
-              console.log(`� Received ${logDataArray.length} log data records from API`);
-              console.log(`📊 First record has ${logDataArray[0].data?.length || 0} data rows`);
-              curves.forEach((curve, index) => {
-                console.log(`🔄 Processing API data for curve ${curve.mnemonicId} (${index + 1}/${curves.length})`);
-                this.appendChunkData(logDataArray[0], curve);
-              });
-            } else {
-              console.warn(`⚠️ No data returned from API for LogId: ${header.uid}, range: ${start}-${end}`);
-            }
-            onDone(key);
-          },
-          error: (error) => {
-            console.error(`❌ HTTP error for LogId: ${header.uid}, range: ${start}-${end}:`, error);
-            onDone(key);
-          }
-        });
+        if (this.isTimeBasedData) {
+          this.logHeadersService.getTimeLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
+            next: (logDataArray: LogData[]) => {
+              if (logDataArray.length > 0) {
+                console.log(`🕐 Received ${logDataArray.length} time log data records from API`);
+                console.log(`📊 First record has ${logDataArray[0].data?.length || 0} data rows`);
+                curves.forEach((curve, index) => {
+                  console.log(`🔄 Processing time API data for curve ${curve.mnemonicId} (${index + 1}/${curves.length})`);
+                  this.appendChunkData(logDataArray[0], curve);
+                });
+              } else {
+                console.warn(`⚠️ No time data returned from API for LogId: ${header.uid}, range: ${start}-${end}`);
+              }
+              onDone(key);
+            },
+            error: () => onDone(key),
+          });
+        } else {
+          this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
+            next: (logDataArray: LogData[]) => {
+              if (logDataArray.length > 0) {
+                console.log(`📏 Received ${logDataArray.length} depth log data records from API`);
+                console.log(`📊 First record has ${logDataArray[0].data?.length || 0} data rows`);
+                curves.forEach((curve, index) => {
+                  console.log(`🔄 Processing depth API data for curve ${curve.mnemonicId} (${index + 1}/${curves.length})`);
+                  this.appendChunkData(logDataArray[0], curve);
+                });
+              } else {
+                console.warn(`⚠️ No depth data returned from API for LogId: ${header.uid}, range: ${start}-${end}`);
+              }
+              onDone(key);
+            },
+            error: () => onDone(key),
+          });
+        }
       }
     });
   }
+
 
   /**
    * Appends a new chunk of data to an existing curve without recreating the scene.
@@ -1326,86 +1565,110 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
    * @private
    */
   private appendChunkData(logData: LogData, curve: TrackCurve): void {
-    console.log(`🔧 Appending chunk data for curve ${curve.mnemonicId}`);
-    console.log(`📊 Available mnemonics: ${logData.mnemonicList}`);
-    
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex(m => m.trim() === curve.mnemonicId);
+    
+    // Look for both TIME and DEPTH index columns
     const depthIdx = mnemonics.findIndex(m => m.trim() === 'DEPTH');
+    const timeIdx = mnemonics.findIndex(m => m.trim() === 'TIME');
+    const indexIdx = mnemonics.findIndex(m => m.trim() === 'INDEX');
     
-    console.log(`🔍 Curve index for ${curve.mnemonicId}: ${curveIndex}, Depth index: ${depthIdx}`);
+    // Use appropriate index based on data type
+    let indexColumn = -1;
+    if (this.isTimeBasedData) {
+      indexColumn = timeIdx !== -1 ? timeIdx : indexIdx;
+    } else {
+      indexColumn = depthIdx !== -1 ? depthIdx : indexIdx;
+    }
     
-    if (curveIndex === -1 || depthIdx === -1) {
-      console.warn(`⚠️ Mnemonic or DEPTH not found for curve ${curve.mnemonicId}`);
+    if (curveIndex === -1 || indexColumn === -1) {
       return;
     }
 
-    const newDepths: number[] = [];
+    const newIndices: number[] = [];
     const newValues: number[] = [];
 
     logData.data.forEach((row) => {
       const cols = row.split(',');
-      const depth = parseFloat(cols[depthIdx]);
+      const index = parseFloat(cols[indexColumn]);
       const value = parseFloat(cols[curveIndex]);
-      if (!isNaN(depth) && !isNaN(value)) {
-        newDepths.push(depth);
+      if (!isNaN(index) && !isNaN(value)) {
+        newIndices.push(index);
         newValues.push(value);
       }
     });
 
-    if (newDepths.length === 0) return;
+    if (newIndices.length === 0) return;
 
-    // Merge with existing data
-    const existingDepths = this.curveDepthIndices.get(curve.mnemonicId) || [];
+    // Merge with existing data - optimized for performance
+    const existingIndices = this.curveDepthIndices.get(curve.mnemonicId) || [];
     const existingValues = curve.data || [];
 
-    // Create a map for deduplication
-    const depthValueMap = new Map<number, number>();
-    for (let i = 0; i < existingDepths.length; i++) {
-      depthValueMap.set(existingDepths[i], existingValues[i]);
-    }
-    for (let i = 0; i < newDepths.length; i++) {
-      depthValueMap.set(newDepths[i], newValues[i]);
-    }
-
-    // Sort by depth
-    const sortedEntries = Array.from(depthValueMap.entries()).sort((a, b) => a[0] - b[0]);
+    // Simple array concatenation and sort - much faster than Map operations
+    const allIndices = existingIndices.concat(newIndices);
+    const allValues = existingValues.concat(newValues);
     
-    const mergedDepths = sortedEntries.map(e => e[0]);
-    const mergedValues = sortedEntries.map(e => e[1]);
+    // Create index-value pairs for sorting
+    const pairs: [number, number][] = [];
+    for (let i = 0; i < allIndices.length; i++) {
+      pairs.push([allIndices[i], allValues[i]]);
+    }
+    
+    // Sort by index
+    pairs.sort((a, b) => a[0] - b[0]);
+    
+    // Remove duplicates while preserving order
+    const deduplicatedPairs: [number, number][] = [];
+    let lastIndex: number | null = null;
+    
+    for (const [index, value] of pairs) {
+      if (lastIndex === null || index !== lastIndex) {
+        deduplicatedPairs.push([index, value]);
+        lastIndex = index;
+      }
+    }
+    
+    const mergedIndices = deduplicatedPairs.map(pair => pair[0]);
+    const mergedValues = deduplicatedPairs.map(pair => pair[1]);
 
     curve.data = mergedValues;
-    this.curveDepthIndices.set(curve.mnemonicId, mergedDepths);
+    this.curveDepthIndices.set(curve.mnemonicId, mergedIndices);
 
     // Update loaded range
     this.loadedRanges.set(curve.mnemonicId, {
-      min: mergedDepths[0],
-      max: mergedDepths[mergedDepths.length - 1],
+      min: mergedIndices[0],
+      max: mergedIndices[mergedIndices.length - 1],
     });
 
     // Update the GeoToolkit curve data source
-    console.log(`🗺️ Looking up curve ${curve.mnemonicId} in curveMap...`);
     const entry = this.curveMap.get(curve.mnemonicId);
-    console.log(`🗺️ CurveMap entry found: ${entry ? 'YES' : 'NO'} for ${curve.mnemonicId}`);
     
     if (entry) {
       try {
-        console.log(`🔄 Updating GeoToolkit curve data for ${curve.mnemonicId} with ${mergedValues.length} points`);
         const geoLogData = new GeoLogData(curve.displayName);
-        geoLogData.setValues(mergedDepths, mergedValues);
+        geoLogData.setValues(mergedIndices, mergedValues);
         entry.logCurve.setData(geoLogData);
-        console.log(`✅ Successfully updated GeoToolkit curve for ${curve.mnemonicId}`);
       } catch (e) {
-        console.warn('⚠️ Could not update curve data source for', curve.mnemonicId, e);
+        console.warn('Could not update curve data source for', curve.mnemonicId, e);
       }
-    } else {
-      console.warn(`⚠️ No curveMap entry found for ${curve.mnemonicId} - this could be why data isn't showing`);
     }
 
-    console.log(`📈 Appended chunk to ${curve.mnemonicId}: now ${mergedValues.length} points, depth ${mergedDepths[0]}-${mergedDepths[mergedDepths.length - 1]}`);
-    
-    // Update index track scale if we have new depth range
-    this.updateIndexTrackScale();
+    // Debounce index track scale update to avoid excessive calls during scroll
+    this.scheduleIndexTrackUpdate();
+  }
+
+  /**
+   * Schedules an index track update with debouncing to prevent excessive calls during scroll.
+   * @private
+   */
+  private scheduleIndexTrackUpdate(): void {
+    if (this.indexTrackUpdateTimeout) {
+      clearTimeout(this.indexTrackUpdateTimeout);
+    }
+    this.indexTrackUpdateTimeout = setTimeout(() => {
+      this.updateIndexTrackScale();
+      this.indexTrackUpdateTimeout = null;
+    }, 200); // Debounce for 200ms
   }
 
   /**
@@ -1682,17 +1945,31 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
         });
       } else {
         // Mock service fallback (demo mode)
-        this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
-          next: (logData: LogData[]) => {
-            logData.forEach(data => curves.forEach(curve => this.appendChunkData(data, curve)));
-            console.log(`✅ Live data loaded (mock) for ${logId}`);
-            this.inFlightRanges.delete(key);
-          },
-          error: (err: any) => {
-            console.warn(`⚠️ Live poll error for ${logId}:`, err);
-            this.inFlightRanges.delete(key);
-          },
-        });
+        if (this.isTimeBasedData) {
+          this.logHeadersService.getTimeLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
+            next: (logData: LogData[]) => {
+              logData.forEach(data => curves.forEach(curve => this.appendChunkData(data, curve)));
+              console.log(`✅ Live time data loaded (mock) for ${logId}`);
+              this.inFlightRanges.delete(key);
+            },
+            error: (err: any) => {
+              console.warn(`⚠️ Live poll time error for ${logId}:`, err);
+              this.inFlightRanges.delete(key);
+            },
+          });
+        } else {
+          this.logHeadersService.getLogData(this.well, this.wellbore, header.uid, start, end).subscribe({
+            next: (logData: LogData[]) => {
+              logData.forEach(data => curves.forEach(curve => this.appendChunkData(data, curve)));
+              console.log(`✅ Live depth data loaded (mock) for ${logId}`);
+              this.inFlightRanges.delete(key);
+            },
+            error: (err: any) => {
+              console.warn(`⚠️ Live poll depth error for ${logId}:`, err);
+              this.inFlightRanges.delete(key);
+            },
+          });
+        }
       }
     });
   }
@@ -1869,7 +2146,7 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
     const vMax = visibleLimits ? (visibleLimits.getHigh ? visibleLimits.getHigh() : maxDepth) : maxDepth;
 
     const dialogData: PrintPropertiesData = {
-      indexType: this.indexType,
+      indexType: this.isTimeBasedData ? 'time' : 'depth',
       dataMin: 0,
       dataMax: maxDepth,
       visibleMin: vMin,
@@ -1978,25 +2255,16 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * AUTO-DETECTION: Determines if the loaded data is time-based or depth-based.
-   * Checks multiple sources to make the best determination:
-   * 1. @Input() indexType parameter
-   * 2. Track configuration (isIndex track marked as non-depth)
-   * 3. Log header metadata (indexType contains 'time' or indexCurve contains 'time')
-   * 4. Defaults to depth-based if no time indicators found
+   * Detects if the data is time-based or depth-based.
+   * Uses track configuration and log headers to determine data type.
    * 
    * @returns true if data is time-based, false if depth-based
    * @private
    */
   private detectTimeBasedData(): boolean {
-    // METHOD 1: Use @Input() indexType if explicitly set
-    if (this.indexType === 'time') {
-      console.log('🕐 Time-based data detected from @Input() indexType');
-      this.isTimeBasedData = true;
-      return true;
-    }
-
-    // METHOD 2: Check track configuration for time-based index track
+    console.log(`🔍 detectTimeBasedData called with ${this.cachedHeaders.length} headers and ${this.listOfTracks.length} tracks`);
+    
+    // METHOD 1: Check track configuration for time-based index track
     const hasTimeIndexTrack = this.listOfTracks.some(track => 
       track.isIndex && !track.isDepth
     );
@@ -2004,25 +2272,47 @@ export class GenerateCanvasTracksComponent implements OnInit, OnDestroy {
     if (hasTimeIndexTrack) {
       console.log('🕐 Time-based data detected from track configuration (isIndex && !isDepth)');
       this.isTimeBasedData = true;
+      this.indexType = IndexType.Time;
       return true;
     }
     
-    // METHOD 3: Check log header metadata for time indicators
+    // METHOD 2: Use intelligent detection on cached headers
     if (this.cachedHeaders.length > 0) {
-      const firstHeader = this.cachedHeaders[0];
-      const indexTypeHasTime = firstHeader?.indexType?.toLowerCase().includes('time');
-      const indexCurveHasTime = firstHeader?.indexCurve?.toLowerCase().includes('time');
-      
-      if (indexTypeHasTime || indexCurveHasTime) {
-        console.log('🕐 Time-based data detected from log header metadata');
-        this.isTimeBasedData = true;
-        return true;
+      // Check ALL headers for time-based data, not just the first one
+      for (const header of this.cachedHeaders) {
+        console.log(`🔍 Analyzing header:`, {
+          uid: header.uid,
+          name: header.name,
+          indexType: header.indexType,
+          indexCurve: header.indexCurve
+        });
+        
+        // FORCE DETECTION FOR MWD_Time
+        const logNameLower = (header.name || header.uid || '').toLowerCase();
+        const isMwdTime = logNameLower.includes('mwd_time') || logNameLower.includes('mwdtime');
+        
+        if (isMwdTime) {
+          console.log(`🕐 FORCING time-based detection for MWD_Time header: ${header.uid}`);
+          this.isTimeBasedData = true;
+          this.indexType = IndexType.Time;
+          return true;
+        }
+        
+        const detectedIndexType = this.getIndexTypeForLog(header);
+        
+        if (detectedIndexType === 'date time') {
+          console.log(`🕐 Time-based data detected from log header analysis for: ${header.uid}`);
+          this.isTimeBasedData = true;
+          this.indexType = IndexType.Time;
+          return true;
+        }
       }
     }
     
     // Default to depth-based
-    console.log('📏 Defaulting to depth-based data (no time indicators found)');
+    console.log('📏 Depth-based data detected (default)');
     this.isTimeBasedData = false;
+    this.indexType = IndexType.Depth;
     return false;
   }
 

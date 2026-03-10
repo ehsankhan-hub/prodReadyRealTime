@@ -1,8 +1,8 @@
-import { Component, Input, OnInit, OnDestroy } from '@angular/core';
+import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { TimeBasedTracksComponent, ITimeTrack } from '../../components/time-based-tracks/time-based-tracks.component';
-import { LogHeadersService } from '../../services/log-headers.service';
-import { Subscription } from 'rxjs';
+import { GenerateCanvasTracksComponent, TrackInfo } from '../../components/generate-canvas-tracks/generate-canvas-tracks.component';
+import { ITracks } from '../../models/tracks.model';
+import { TimeBasedTracksComponent } from 'src/app/components/time-based-tracks/time-based-tracks.component';
 
 /**
  * Component for displaying MWD Time-based well log data.
@@ -19,37 +19,17 @@ import { Subscription } from 'rxjs';
 @Component({
   selector: 'app-mwd-time',
   standalone: true,
-  imports: [CommonModule,  TimeBasedTracksComponent],
-  providers: [LogHeadersService],
+  imports: [CommonModule,  GenerateCanvasTracksComponent,TimeBasedTracksComponent],
   template: `
     <div class="mwd-time-container">
-      <!-- Toggle between old and new time-based components -->
-      <div class="component-toggle">
-        <button 
-          [class]="'toggle-btn ' + (useNewComponent ? 'active' : 'inactive')"
-          (click)="useNewComponent = true"
-        >
-          New Time-Based Tracks
-        </button>
-        <button 
-          [class]="'toggle-btn ' + (!useNewComponent ? 'active' : 'inactive')"
-          (click)="useNewComponent = false"
-        >
-          Original Dynamic Tracks
-        </button>
-      </div>
       
-      <!-- New Time-Based Tracks Component -->
+      
+      <!-- Time-Based Canvas Tracks Component -->
       <app-time-based-tracks 
-        *ngIf="useNewComponent"
-        [wellId]="well"
-        [wellboreId]="wellbore"
-        [listOfTracks]="timeBasedTracks">
+         [listOfTracks]="combinedTracks"
+         [well]="well"
+         [wellbore]="wellbore">
       </app-time-based-tracks>
-      
-      <!-- Original Generate Canvas Tracks Component -->
-    
-      
     </div>
   `,
   styles: [`
@@ -88,205 +68,228 @@ import { Subscription } from 'rxjs';
     }
   `]
 })
-export class MwdTimeComponent implements OnInit, OnDestroy {
+export class MwdTimeComponent implements OnInit {
   /** Unique identifier for the well */
-  @Input() well: string = 'HWYH_1389';
-  /** Unique identifier for the wellbore */
-  @Input() wellbore: string = 'HWYH_1389_0';
-
-  /** Time-based track configurations for new component */
-  timeBasedTracks: ITimeTrack[] = [];
+    @Input() well: string = '';
+    /** Unique identifier for the wellbore */
+    @Input() wellbore: string = '';
+    /** Array of MWD track configurations */
+    @Input() lstOfTrack: ITracks[] = [];
+    /** Array of Density track configurations */
+    @Input() lstOfTrack1: ITracks[] = [];
   
-  /** Toggle between old and new/** Component state */
-  useNewComponent: boolean = true;
+    /** Combined track configurations in TrackInfo format */
+    combinedTracks: ITracks[] = [];
   
-  /** Subscription for cleanup */
-  private subscription: Subscription | null = null;
-
-  ngOnInit(): void {
-    console.log('🕐 MWD Time Component initialized');
-    console.log('🕐 Time-based configuration detected');
-    console.log('🕐 Well:', this.well, 'Wellbore:', this.wellbore);
-    this.initializeTimeBasedTracks();
-    this.validateTimeConfiguration();
-  }
-  
-  ngOnDestroy(): void {
-    // Clean up subscriptions to prevent memory leaks
-    if (this.subscription) {
-      this.subscription.unsubscribe();
-      this.subscription = null;
+    /**
+     * Angular lifecycle hook called after component initialization.
+     * Initializes track data and combines configurations for rendering.
+     */
+    ngOnInit(): void {
+      console.log('� MWD Time Component initialized');
+      console.log('📊 Input tracks:', this.lstOfTrack);
+      console.log('📊 Input tracks1:', this.lstOfTrack1);
+      
+      this.initializeTracks();
+      this.combineTracks();
     }
-    console.log('🕐 MWD Time Component destroyed');
-  }
   
-  /**
-   * Initializes time-based track configurations for the new TimeBasedTracksComponent
-   * @private
-   */
-  private initializeTimeBasedTracks(): void {
-    this.timeBasedTracks = [
-      {
-        trackNo: 0,
-        trackName: 'TIME_INDEX',
-        trackTitle: 'Time Index',
-        trackType: 'Index',
-        isIndex: true,
-        curves: []
-      },
-      {
-        trackNo: 1,
-        trackName: 'DRILLING_TRACK',
-        trackTitle: 'Drilling Parameters',
-        trackType: 'Linear',
-        isIndex: false,
-        curves: [
-          {
-            mnemonicId: 'ROP',
-            mnemonic: 'ROP',
-            data: [],
-            color: '#63b3ed',
-            lineWidth: 1,
-            visible: true,
-            LogId: 'MWD_Time_SLB'
-          },
-          {
-            mnemonicId: 'WOB',
-            mnemonic: 'WOB',
-            data: [],
-            color: '#f687b3',
-            lineWidth: 1,
-            visible: true,
-            LogId: 'MWD_Time_SLB'
-          },
-          {
-            mnemonicId: 'RPM',
-            mnemonic: 'RPM',
-            data: [],
-            color: '#68d391',
-            lineWidth: 1,
-            visible: true,
-            LogId: 'MWD_Time_SLB'
-          }
-        ]
-      },
-      {
-        trackNo: 2,
-        trackName: 'GR_TRACK',
-        trackTitle: 'Gamma Ray',
-        trackType: 'Linear',
-        isIndex: false,
-        curves: [
-          {
-            mnemonicId: 'GR',
-            mnemonic: 'GR',
-            data: [],
-            color: '#fbb6ce',
-            lineWidth: 2,
-            visible: true,
-            LogId: 'MWD_Time_SLB'
-          }
-        ]
-      },
-      {
-        trackNo: 3,
-        trackName: 'RT_TRACK',
-        trackTitle: 'Resistivity',
-        trackType: 'Linear',
-        isIndex: false,
-        curves: [
-          {
-            mnemonicId: 'RT',
-            mnemonic: 'RT',
-            data: [],
-            color: '#90cdf4',
-            lineWidth: 2,
-            visible: true,
-            LogId: 'MWD_Time_SLB'
-          }
-        ]
-      },
-      {
-        trackNo: 4,
-        trackName: 'NPHI_TRACK',
-        trackTitle: 'Neutron Porosity',
-        trackType: 'Linear',
-        isIndex: false,
-        curves: [
-          {
-            mnemonicId: 'NPHI',
-            mnemonic: 'NPHI',
-            data: [],
-            color: '#FF6347', // Bright red color for better visibility
-            lineWidth: 2, // Thicker line for visibility
-            visible: true,
-            LogId: 'MWD_Time_SLB'
-          }
-        ]
-      },
-      {
-        trackNo: 5,
-        trackName: 'RHOB_TRACK',
-        trackTitle: 'Bulk Density',
-        trackType: 'Linear',
-        isIndex: false,
-        curves: [
-          {
-            mnemonicId: 'RHOB',
-            mnemonic: 'RHOB',
-            data: [],
-            color: '#45B7D1',
-            lineWidth: 2,
-            visible: true,
-            LogId: 'MWD_Time_SLB'
-          }
-        ]
-      },
-      {
-        trackNo: 6,
-        trackName: 'PEF_TRACK',
-        trackTitle: 'Photoelectric Factor',
-        trackType: 'Linear',
-        isIndex: false,
-        curves: [
-          {
-            mnemonicId: 'PEF',
-            mnemonic: 'PEF',
-            data: [],
-            color: '#96CEB4',
-            lineWidth: 2,
-            visible: true,
-            LogId: 'MWD_Time_SLB'
-          }
-        ]
+    /**
+     * Initializes default track configurations if none are provided.
+     * Sets up default MWD and Density tracks with standard configurations.
+     * 
+     * @private
+     */
+    private initializeTracks(): void {
+      // Initialize default MWD Density tracks if none provided
+      if (this.lstOfTrack.length === 0) {
+        this.lstOfTrack = this.getDefaultMWDTracks();
       }
-    ];
-    
-    console.log('🕐 Time-based tracks initialized:', this.timeBasedTracks.length, 'tracks');
-    console.log('🕐 Track order verification:');
-    this.timeBasedTracks.forEach(track => {
-      console.log(`  - Track ${track.trackNo}: ${track.trackTitle} (${track.trackType})`);
-    });
-  }
+      
+      if (this.lstOfTrack1.length === 0) {
+        this.lstOfTrack1 = this.getDefaultDensityTracks();
+      }
+    }
   
-  /**
-   * Validates the time-based configuration
-   * @returns boolean indicating if configuration is valid
-   */
-  public validateTimeConfiguration(): boolean {
-    const indexTrack = this.timeBasedTracks.find(t => t.isIndex);
-    if (!indexTrack) {
-      console.error('❌ No index track found in MWD Time configuration');
-      return false;
+    /**
+     * Creates default MWD track configurations.
+     * Returns standard MWD Gamma Ray and Resistivity tracks with predefined settings.
+     * 
+     * @returns Array of default MWD track configurations
+     * @private
+     */
+    private getDefaultMWDTracks(): ITracks[] {
+      return [
+        {
+          trackNo: 1,
+          trackName: 'MWD Gamma Ray',
+          trackType: 'Linear',
+          trackWidth: 100,
+          isIndex: false,
+          isDepth: false,
+          curves: [
+            {
+              mnemonicId: 'GR',
+              displayName: 'Gamma Ray',
+              color: '#FF6B6B',
+              lineStyle: 'solid',
+              lineWidth: 2,
+              min: 0,
+              max: 150,
+              autoScale: false,
+              show: true,
+              LogId: 'MWD_Time_SLB',
+              data: [],
+              mnemonicLst: []
+            }
+          ]
+        },
+        {
+          trackNo: 2,
+          trackName: 'MWD Resistivity',
+          trackType: 'Linear',
+          trackWidth: 100,
+          isIndex: false,
+          isDepth: false,
+          curves: [
+            {
+              mnemonicId: 'RT',
+              displayName: 'Resistivity',
+              color: '#4ECDC4',
+              lineStyle: 'solid',
+              lineWidth: 2,
+              min: 0.1,
+              max: 100,
+              autoScale: false,
+              show: true,
+              LogId: 'MWD_Time_SLB',
+              data: [],
+              mnemonicLst: []
+            }
+          ]
+        }
+      ];
     }
-
-    const drillingTrack = this.timeBasedTracks.find(t => t.trackName === 'DRILLING_TRACK');
-    if (!drillingTrack || drillingTrack.curves.length !== 3) {
-      console.error('❌ Drilling track not found or has incorrect number of curves');
-      return false;
+  
+    /**
+     * Creates default Density track configurations.
+     * Returns standard Bulk Density and Photoelectric Factor tracks with predefined settings.
+     * 
+     * @returns Array of default Density track configurations
+     * @private
+     */
+    private getDefaultDensityTracks(): ITracks[] {
+      return [
+        {
+          trackNo: 3,
+          trackName: 'Bulk Density',
+          trackType: 'Linear',
+          trackWidth: 100,
+          isIndex: false,
+          isDepth: false,
+          curves: [
+            {
+              mnemonicId: 'RHOB',
+              displayName: 'Bulk Density',
+              color: '#45B7D1',
+              lineStyle: 'solid',
+              lineWidth: 2,
+              min: 2.0,
+              max: 3.0,
+              autoScale: false,
+              show: true,
+              LogId: 'MWD_Time_SLB',
+              data: [],
+              mnemonicLst: []
+            }
+          ]
+        },
+        {
+          trackNo: 4,
+          trackName: 'Neutron Porosity',
+          trackType: 'Linear',
+          trackWidth: 100,
+          isIndex: false,
+          isDepth: false,
+          curves: [
+            {
+              mnemonicId: 'NPHI',
+              displayName: 'Neutron Porosity',
+              color: '#96CEB4',
+              lineStyle: 'solid',
+              lineWidth: 2,
+              min: 0.0,
+              max: 0.6,
+              autoScale: false,
+              show: true,
+              LogId: 'MWD_Time_SLB',
+              data: [],
+              mnemonicLst: []
+            }
+          ]
+        }
+      ];
     }
-    
-    console.log('✅ MWD Time configuration validation passed');
-    return true;
-  }
+  
+    /**
+     * Combines MWD and Density track configurations into a unified format.
+     * Converts ITracks to TrackInfo format and merges them for rendering.
+     * 
+     * @private
+     */
+    private combineTracks(): void {
+      // Convert ITracks to TrackInfo format
+      const convertToTrackInfo = (tracks: ITracks[]): TrackInfo[] => {
+        return tracks.map(track => ({
+          trackNo: track.trackNo,
+          trackName: track.trackName,
+          trackType: track.trackType,
+          trackWidth: track.trackWidth,
+          isIndex: track.isIndex,
+          isDepth: track.isDepth,
+          curves: track.curves.map(curve => ({
+            mnemonicId: curve.mnemonicId,
+            displayName: curve.displayName,
+            color: curve.color,
+            lineStyle: curve.lineStyle,
+            lineWidth: curve.lineWidth,
+            min: curve.min,
+            max: curve.max,
+            autoScale: curve.autoScale,
+            show: curve.show,
+            LogId: curve.LogId,
+            data: curve.data,
+            mnemonicLst: curve.mnemonicLst
+          }))
+        }));
+      };
+  
+      this.combinedTracks = [
+        ...convertToTrackInfo(this.lstOfTrack),
+        ...convertToTrackInfo(this.lstOfTrack1)
+      ];
+  
+      console.log('🔗 Combined tracks for display:', this.combinedTracks);
+    }
+  
+    /**
+     * Public method to update tracks dynamically.
+     * Allows external components to update track configurations and recombine them.
+     * 
+     * @param newTracks - New MWD track configurations
+     * @param newTracks1 - New Density track configurations (optional)
+     */
+    public updateTracks(newTracks: ITracks[], newTracks1: ITracks[] = []): void {
+      this.lstOfTrack = newTracks;
+      this.lstOfTrack1 = newTracks1;
+      this.combineTracks();
+    }
+  
+    // Public method to get current track configuration
+    public getTrackConfiguration(): { lstOfTrack: ITracks[], lstOfTrack1: ITracks[] } {
+      return {
+        lstOfTrack: this.lstOfTrack,
+        lstOfTrack1: this.lstOfTrack1
+      };
+    }
 }

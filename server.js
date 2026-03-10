@@ -62,6 +62,11 @@ const handleTimeLogData = (req, res) => {
   const { wellUid, logUid, wellboreUid, startIndex, endIndex } = query;
   
   // Find matching time log data - try multiple field combinations
+  console.log(`🔍 Looking for time log data with:`);
+  console.log(`   wellUid: ${wellUid}`);
+  console.log(`   logUid: ${logUid}`);
+  console.log(`   wellboreUid: ${wellboreUid}`);
+  
   let timeLogEntry = db.timeLogData.find(log => 
     log.wellUid === wellUid && 
     log.logUid === logUid && 
@@ -71,6 +76,7 @@ const handleTimeLogData = (req, res) => {
   // If not found, try matching by id field (some data uses id instead of logUid)
   if (!timeLogEntry) {
     console.log(`🔍 Trying alternative match with id field...`);
+    console.log(`   Looking for id: ${wellUid}_${wellboreUid}`);
     timeLogEntry = db.timeLogData.find(log => 
       log.wellUid === wellUid && 
       log.id === `${wellUid}_${wellboreUid}` && 
@@ -81,9 +87,32 @@ const handleTimeLogData = (req, res) => {
   // If still not found, try matching by name field
   if (!timeLogEntry) {
     console.log(`🔍 Trying alternative match with name field...`);
+    console.log(`   Available logNames in db: ${db.timeLogData.map(log => log.logName).join(', ')}`);
     timeLogEntry = db.timeLogData.find(log => 
       log.wellUid === wellUid && 
       log.logName === logUid && 
+      log.wellboreUid === wellboreUid
+    );
+  }
+  
+  // If still not found, try partial matching (in case logUid has extra characters)
+  if (!timeLogEntry) {
+    console.log(`🔍 Trying partial match on logUid...`);
+    timeLogEntry = db.timeLogData.find(log => 
+      log.wellUid === wellUid && 
+      (log.logUid.includes(logUid) || logUid.includes(log.logUid)) && 
+      log.wellboreUid === wellboreUid
+    );
+  }
+  
+  // If still not found, try matching by removing any suffix numbers
+  if (!timeLogEntry) {
+    console.log(`🔍 Trying match by removing suffix numbers...`);
+    const cleanLogUid = logUid.replace(/\d+$/, ''); // Remove trailing numbers
+    console.log(`   Cleaned logUid: ${cleanLogUid}`);
+    timeLogEntry = db.timeLogData.find(log => 
+      log.wellUid === wellUid && 
+      log.logUid === cleanLogUid && 
       log.wellboreUid === wellboreUid
     );
   }
@@ -100,10 +129,22 @@ const handleTimeLogData = (req, res) => {
   // Filter data by time range if startIndex and endIndex are provided
   let filteredData = timeLogEntry.data;
   if (startIndex && endIndex) {
-    const startTime = parseInt(startIndex);
-    const endTime = parseInt(endIndex);
+    let startTime, endTime;
+    
+    // Handle both ISO strings and Unix timestamp strings
+    if (startIndex.includes('T') || startIndex.includes('-')) {
+      // ISO timestamp string
+      startTime = new Date(startIndex).getTime();
+      endTime = new Date(endIndex).getTime();
+    } else {
+      // Unix timestamp string (in milliseconds)
+      startTime = parseInt(startIndex);
+      endTime = parseInt(endIndex);
+    }
     
     console.log(`🔍 Filtering data from ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
+    console.log(`🔍 Requested range: ${startIndex} to ${endIndex}`);
+    console.log(`🔍 Converted to timestamps: ${startTime} to ${endTime}`);
     
     filteredData = timeLogEntry.data.filter(row => {
       const timestamp = parseInt(row.split(',')[0]); // First column is TIME
@@ -120,18 +161,26 @@ const handleTimeLogData = (req, res) => {
     header['@uidWellbore'] === wellboreUid
   );
   
-  // Generate mnemonic list from header or use fallback
-  let mnemonicList = 'TIME,GR,RT,NPHI,RHOB,ROP,WOB,RPM'; // fallback
+  // Generate mnemonic list from header or use fallback matching the image
+  let mnemonicList = 'RIGTIME,BITDEPTH,CHKP,DEPTH,DIFF_PRESS,FLWOUT,FLWPMP5,HKHT,HKLI,HOOK_SPEED,PVT1,PVT10,PVT11,PVT2,PVT3,PVT4,PVT5,PVT6,PVT7,PVT8,PVT9,ROP,RPM,ROT,SLIPS_INDICATOR,SPM1,SPM2,SPM3,SPP,STKC,TORQUE,TORQUE_RO';
   if (timeLogHeader && timeLogHeader.logCurveInfo) {
     mnemonicList = timeLogHeader.logCurveInfo.map(curve => curve.mnemonic).join(',');
   }
   
-  // Return the time log data in expected format
+  // Return the time log data in expected format matching the image
   const responseData = {
     logs: [{
+      uidWell: wellUid,
+      uidWellbore: wellboreUid,
+      startDateTimeIndex: "2026-02-07T11:43:31+03:00",
+      endDateTimeIndex: "2026-02-07T15:43:31+03:00",
+      uid: logUid,
       logData: {
+        data: filteredData,
         mnemonicList: mnemonicList,
-        data: filteredData
+        unitList: "s,ft,psi,ft,psi,%,galUS/min,ft,klbf,ft/min,bbl,bbl,bbl,bbl,bbl,bbl,bbl,bbl,bbl,ft/h,rpm,rpm,Status,spm,spm,spm,psi,unitless,kft.lbf,kft.lbf",
+        startDateTimeIndex: "2026-02-07T11:43:31+03:00",
+        uid: logUid
       }
     }]
   };

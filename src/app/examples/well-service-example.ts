@@ -27,7 +27,7 @@ import { GenerateCanvasTracksComponent, WELL_SERVICE_TOKEN } from '../components
         [listOfTracks]="tracks"
         [well]="'HWYH_1389'"
         [wellbore]="'HWYH_1389_0'"
-        [indexType]="'depth'">
+        >
       </app-generate-canvas-tracks>
     </div>
   `
