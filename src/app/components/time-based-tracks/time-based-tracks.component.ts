@@ -379,6 +379,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
         // Debug: Log the first few time values to identify format issues
         if (times.length < 3) {
           console.log(`🕐 Raw time data: "${rawTime}"`);
+          console.log(`📊 Raw value data: "${cols[curveIndex]}" -> Parsed: ${value}`);
         }
         
         let time: number;
@@ -403,6 +404,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
         }
       }
     });
+
+    console.log(`✅ Parsed ${times.length} time points and ${values.length} values for curve ${curve.mnemonicId}`);
+    console.log(`📈 Time range: ${times[0]} to ${times[times.length - 1]}`);
+    console.log(`📊 Value range: ${Math.min(...values)} to ${Math.max(...values)}`);
 
     curve.data = values;
     this.curveTimeIndices.set(curve.mnemonicId, times);
@@ -429,6 +434,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
         try {
           const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
+          console.log(`🔧 Adding curve ${curveInfo.mnemonicId}: ${indexData.length} time points, ${curveInfo.data.length} values`);
+          
           const geoLogData = new GeoLogData(curveInfo.mnemonicId);
           geoLogData.setValues(indexData, curveInfo.data);
 
@@ -436,6 +443,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
           curve.setLineStyle({ color: curveInfo.color || '#63b3ed', width: curveInfo.lineWidth || 1 });
           curve.setName(curveInfo.mnemonicId);
           track.addChild(curve);
+          
+          console.log(`✅ Successfully added curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName}`);
         } catch (error) {
           console.error(`❌ Error adding curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName}:`, error);
         }
