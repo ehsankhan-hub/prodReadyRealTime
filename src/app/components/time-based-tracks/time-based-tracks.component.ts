@@ -277,13 +277,19 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     // For each LogId, find matching backend header and load data
     logIdCurves.forEach((curves, logId) => {
-      // Match using header.uid.includes(logId) (same as dynamic track generator)
-      const matchingHeader = this.wellboreObjects.find(h => 
-        h.uid.includes(logId) || logId.includes(h.uid)
-      );
+      // Extract base names by removing suffixes (e.g., Surface_Time_SB -> Surface_Time)
+      const logIdBase = logId.replace(/_[A-Z]+$/, '');
+      
+      // Match using base name comparison (ignoring suffixes like _SB, _SLB, etc.)
+      const matchingHeader = this.wellboreObjects.find(h => {
+        const headerBase = h.uid.replace(/_[A-Z]+$/, '');
+        return headerBase === logIdBase || 
+               h.uid.includes(logIdBase) || 
+               logIdBase.includes(h.uid);
+      });
       
       if (!matchingHeader) {
-        console.warn(`⚠️ No backend header found for LogId: ${logId}`);
+        console.warn(`⚠️ No backend header found for LogId: ${logId} (base: ${logIdBase})`);
         console.log('🔍 Available backend headers:', this.wellboreObjects.map(h => h.uid));
         return;
       }
