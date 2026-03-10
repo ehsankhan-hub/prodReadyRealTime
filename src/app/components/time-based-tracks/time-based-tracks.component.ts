@@ -374,25 +374,22 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
         const value = parseFloat(cols[curveIndex]);
-        const rawTime = timeIndex >= 0 ? cols[timeIndex] : '';
-        
-        // Debug: Log the first few time values to identify format issues
-        if (times.length < 3) {
-          console.log(`🕐 Raw time data: "${rawTime}"`);
-          console.log(`📊 Raw value data: "${cols[curveIndex]}" -> Parsed: ${value}`);
-        }
         
         let time: number;
         if (timeIndex >= 0) {
-          const parsedTime = parseFloat(cols[timeIndex]);
-          // Check if it's in years (like 2026) vs milliseconds (like 1738692795000)
-          if (parsedTime < 10000) {
-            // It's likely a year, convert to Unix timestamp for that year's start
-            time = new Date(parsedTime, 0, 1).getTime();
-            console.log(`🔄 Converting year ${parsedTime} to timestamp: ${time}`);
+          const timeStr = cols[timeIndex];
+          
+          // Check if it's an ISO timestamp string
+          if (timeStr.includes('T') && timeStr.includes('-')) {
+            time = new Date(timeStr).getTime();
           } else {
-            // It's already in milliseconds
-            time = parsedTime;
+            const parsedTime = parseFloat(timeStr);
+            // Check if it's in years (like 2026) vs milliseconds (like 1738692795000)
+            if (parsedTime < 10000) {
+              time = new Date(parsedTime, 0, 1).getTime();
+            } else {
+              time = parsedTime;
+            }
           }
         } else {
           time = NaN;
@@ -405,10 +402,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       }
     });
 
-    console.log(`✅ Parsed ${times.length} time points and ${values.length} values for curve ${curve.mnemonicId}`);
-    console.log(`📈 Time range: ${times[0]} to ${times[times.length - 1]}`);
-    console.log(`📊 Value range: ${Math.min(...values)} to ${Math.max(...values)}`);
-
+    console.log(`✅ Parsed ${times.length} points for curve ${curve.mnemonicId}`);
     curve.data = values;
     this.curveTimeIndices.set(curve.mnemonicId, times);
   }
@@ -434,7 +428,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
         try {
           const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
-          console.log(`🔧 Adding curve ${curveInfo.mnemonicId}: ${indexData.length} time points, ${curveInfo.data.length} values`);
           
           const geoLogData = new GeoLogData(curveInfo.mnemonicId);
           geoLogData.setValues(indexData, curveInfo.data);
@@ -444,9 +437,9 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
           curve.setName(curveInfo.mnemonicId);
           track.addChild(curve);
           
-          console.log(`✅ Successfully added curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName}`);
+          console.log(`✅ Added curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName} (${indexData.length} points)`);
         } catch (error) {
-          console.error(`❌ Error adding curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName}:`, error);
+          console.error(`❌ Error adding curve ${curveInfo.mnemonicId}:`, error);
         }
       });
     });
@@ -457,12 +450,17 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private configureWidgetLimits(): void {
     if (!this.wellLogWidget) return;
 
-    const { minTime, maxTime } = this.getTimeRange();
-    console.log('minTime ',minTime)
-     console.log('maxTime ',maxTime)
-    if (minTime === 0 || maxTime === 0) {
+    let { minTime, maxTime } = this.getTimeRange();
+    
+    // Check if time range is valid
+    if (minTime === 0 && maxTime === 0) {
       console.error('❌ No valid time range found');
       return;
+    }
+    
+    // If all time points are identical, create a small range
+    if (minTime === maxTime) {
+      maxTime = minTime + (24 * 60 * 60 * 1000); // Add 24 hours
     }
 
     // Store index curve times for template statistics
@@ -471,35 +469,42 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       this.indexCurveTime = firstCurveTimes;
     }
 
-    // Set full scrollable range for time-based data
+    // Configure widget for time-based data
+    this.wellLogWidget.setIndexType('time', 'ms');
     this.wellLogWidget.setDepthLimits(minTime, maxTime);
+    this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
 
-    // Set time scale (~1 hour per 100px) - using setDepthScale for time-based data
-    this.wellLogWidget.setDepthScale(3600000 / 100);
-
-    // Show most recent 4-hour data while keeping scrollbar visible
-    const visibleRangeMs = 4 * 3600000; // 4 hours in milliseconds
+    // Configure visible range to show most recent data
     const totalRange = maxTime - minTime;
-    
-    // Position the visible window extremely near the end (98% from start) to show most recent data
-    const visibleMin = Math.min(minTime + (totalRange - visibleRangeMs) * 0.98, maxTime - visibleRangeMs);
-    const visibleMax = visibleMin + visibleRangeMs;
+    const visibleRangeMs = Math.min(4 * 3600000, totalRange); // 4 hours or total range
+    const visibleMin = maxTime - visibleRangeMs;
+    const visibleMax = maxTime;
     
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
     this.wellLogWidget.updateLayout();
+    
+    console.log(`📊 Configured widget: ${new Date(minTime).toISOString()} to ${new Date(maxTime).toISOString()}, showing ${visibleRangeMs/3600000}h window`);
   }
 
   private getTimeRange(): { minTime: number; maxTime: number } {
     let minTime = 0;
     let maxTime = 0;
+    
+    // Find the global min and max times across all curves
     for (const times of this.curveTimeIndices.values()) {
       if (times.length > 0) {
-        const curveMin = times[0];
-        const curveMax = times[times.length - 1];
-        if (minTime === 0 || curveMin < minTime) minTime = curveMin;
-        if (maxTime === 0 || curveMax > maxTime) maxTime = curveMax;
+        const curveMin = Math.min(...times);
+        const curveMax = Math.max(...times);
+        
+        if (minTime === 0 || curveMin < minTime) {
+          minTime = curveMin;
+        }
+        if (maxTime === 0 || curveMax > maxTime) {
+          maxTime = curveMax;
+        }
       }
     }
+    
     return { minTime, maxTime };
   }
 

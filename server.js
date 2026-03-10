@@ -147,7 +147,18 @@ const handleTimeLogData = (req, res) => {
     console.log(`🔍 Converted to timestamps: ${startTime} to ${endTime}`);
     
     filteredData = timeLogEntry.data.filter(row => {
-      const timestamp = parseInt(row.split(',')[0]); // First column is TIME
+      const timeStr = row.split(',')[0]; // First column is TIME
+      let timestamp;
+      
+      // Handle both ISO strings and numeric timestamps in data
+      if (timeStr.includes('T') || timeStr.includes('-')) {
+        // ISO timestamp string
+        timestamp = new Date(timeStr).getTime();
+      } else {
+        // Numeric timestamp
+        timestamp = parseInt(timeStr);
+      }
+      
       return timestamp >= startTime && timestamp <= endTime;
     });
     
