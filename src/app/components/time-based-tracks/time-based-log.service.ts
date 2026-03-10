@@ -103,9 +103,9 @@ export class TimeBasedLogService {
     
     return this.http.get<any>(this.TIME_DB_URL, { params }).pipe(
       map((response: any) => {
-        // Handle the actual server response format
-        const dataList = response.logs?.[0]?.logData || response.timeLogData || response;
-        return this.findAndTransformData(dataList, queryParameter);
+        // Return the raw server response without transformation
+        console.log('🔧 Raw server response:', response);
+        return response;
       })
     );
   }
