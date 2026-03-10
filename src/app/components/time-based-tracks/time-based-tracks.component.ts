@@ -360,7 +360,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private parseCurveData(logData: ILogDataResponse, curve: ITimeCurve): void {
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
-    const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME');
+    const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME' || "RIGTIME");
 
     if (curveIndex === -1) {
       console.warn(`⚠️ Mnemonic not found: ${curve.mnemonicId}`);
@@ -374,7 +374,29 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
         const value = parseFloat(cols[curveIndex]);
-        const time = timeIndex >= 0 ? parseFloat(cols[timeIndex]) : NaN;
+        const rawTime = timeIndex >= 0 ? cols[timeIndex] : '';
+        
+        // Debug: Log the first few time values to identify format issues
+        if (times.length < 3) {
+          console.log(`🕐 Raw time data: "${rawTime}"`);
+        }
+        
+        let time: number;
+        if (timeIndex >= 0) {
+          const parsedTime = parseFloat(cols[timeIndex]);
+          // Check if it's in years (like 2026) vs milliseconds (like 1738692795000)
+          if (parsedTime < 10000) {
+            // It's likely a year, convert to Unix timestamp for that year's start
+            time = new Date(parsedTime, 0, 1).getTime();
+            console.log(`🔄 Converting year ${parsedTime} to timestamp: ${time}`);
+          } else {
+            // It's already in milliseconds
+            time = parsedTime;
+          }
+        } else {
+          time = NaN;
+        }
+        
         if (!isNaN(value) && !isNaN(time)) {
           times.push(time);
           values.push(value);
@@ -427,6 +449,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     if (!this.wellLogWidget) return;
 
     const { minTime, maxTime } = this.getTimeRange();
+    console.log('minTime ',minTime)
+     console.log('maxTime ',maxTime)
     if (minTime === 0 || maxTime === 0) {
       console.error('❌ No valid time range found');
       return;
@@ -438,10 +462,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       this.indexCurveTime = firstCurveTimes;
     }
 
-    // Set full scrollable range
+    // Set full scrollable range for time-based data
     this.wellLogWidget.setDepthLimits(minTime, maxTime);
 
-    // Set depth scale (~1 hour per 100px)
+    // Set time scale (~1 hour per 100px) - using setDepthScale for time-based data
     this.wellLogWidget.setDepthScale(3600000 / 100);
 
     // Show most recent 4-hour data while keeping scrollbar visible
