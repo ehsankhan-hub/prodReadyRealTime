@@ -152,10 +152,13 @@ export class LogHeadersService {
    * ```
    */
   getLogHeaders(well: string, wellbore: string): Observable<LogHeader[]> {
-    return this.http.get<LogHeader[]>(`${this.baseUrl}/logHeaders`).pipe(
-      map((headers: LogHeader[]) => headers.filter(header => 
-        header['@uidWell'] === well && header['@uidWellbore'] === wellbore
-      ))
+    return this.http.get<{logHeaders: LogHeader[]}>(`${this.baseUrl}/logHeaders`).pipe(
+      map((response: {logHeaders: LogHeader[]}) => {
+        const headers = response.logHeaders || [];
+        return headers.filter(header => 
+          header['@uidWell'] === well && header['@uidWellbore'] === wellbore
+        );
+      })
     );
   }
 

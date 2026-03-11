@@ -1,6 +1,8 @@
 import { Component, OnInit, OnDestroy, Input, ViewChild, AfterViewInit, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { MatSnackBarModule } from '@angular/material/snack-bar';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
 import { TimeBasedLogService } from './time-based-log.service';
 import { TimeBasedThemeService } from './time-based-theme.service';
@@ -68,10 +70,19 @@ export interface ILogDataResponse {
   data: string[];
 }
 
+export interface PrintOptions {
+  range: 'visible' | 'all' | 'range';
+  scale: string;
+  twoInchLog: boolean;
+  useSinglePageScale: boolean;
+  print: boolean;
+  header: 'none' | 'top' | 'bottom' | 'top-and-bottom';
+}
+
 @Component({
   selector: 'app-time-based-tracks',
   standalone: true,
-  imports: [CommonModule, FormsModule, BaseWidgetComponent, TimeBasedToolbarComponent],
+  imports: [CommonModule, FormsModule, MatSnackBarModule, BaseWidgetComponent, TimeBasedToolbarComponent],
   providers: [TimeBasedLogService, TimeBasedThemeService],
   templateUrl: './time-based-tracks.component.html',
   styleUrls: ['./time-based-tracks.component.css']
@@ -88,12 +99,30 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   @ViewChild('widgetComponent') widgetComponent!: BaseWidgetComponent;
 
+  constructor(
+    private timeBasedLogService: TimeBasedLogService,
+    private timeBasedThemeService: TimeBasedThemeService,
+    private ngZone: NgZone,
+    private snackBar: MatSnackBar
+  ) {}
+
   wellLogWidget: WellLogWidget | null = null;
   wellboreObjects: ITimeWellboreObject[] = [];
   showLoading = false;
   isLiveTracking = false;
   indexCurveTime: number[] = [];
   latestTimestamp: number = 0;
+
+  // Print modal properties
+  showPrintModal = false;
+  printOptions: PrintOptions = {
+    range: 'visible',
+    scale: '0',
+    twoInchLog: false,
+    useSinglePageScale: false,
+    print: true,
+    header: 'top-and-bottom'
+  };
 
   private curveTimeIndices: Map<string, number[]> = new Map();
   private trackMap: Map<number, LogTrack> = new Map();
@@ -102,11 +131,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private lastVisibleMax = -1;
   private subscriptions: any[] = [];
 
-  constructor(
-    private timeBasedLogService: TimeBasedLogService,
-    private timeBasedThemeService: TimeBasedThemeService,
-    private ngZone: NgZone
-  ) {}
+
 
   ngOnInit(): void {
     console.log('🎯 TimeBasedTracksComponent initialized', { well: this.well, wellbore: this.wellbore });
@@ -300,6 +325,27 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   private loadLogData(wo: ITimeWellboreObject, curves: ITimeCurve[]): void {
+    // Extract date values from wellbore object
+    const { startDateValue, endDateValue } = this.extractDateValues(wo);
+    
+    if (!startDateValue || !endDateValue) {
+      console.error('❌ Missing date values:', { startDateValue, endDateValue });
+      return;
+    }
+    
+    // Parse timestamps
+    const endTime = this.parseTimestamp(endDateValue, 'end');
+    const originalStartTime = this.parseTimestamp(startDateValue, 'start');
+    
+    if (!endTime || !originalStartTime) return;
+    
+    // Calculate 4-hour load window from endDateTimeIndex
+    const loadEndTime = endTime;
+    const loadStartTime = loadEndTime - (4 * 3600000); // 4 hours
+    
+    console.log(`🔧 Loading 4-hour window: ${new Date(loadStartTime).toISOString()} to ${new Date(loadEndTime).toISOString()}`);
+    
+    // Create query parameters
     const queryParameter: ILogDataQueryParameter = {
       wellUid: this.well,
       logUid: wo.uid,
@@ -307,13 +353,13 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       logName: wo.name,
       indexType: wo.indexType,
       indexCurve: wo.indexCurve,
-      startIndex: wo.startIndex,
-      endIndex: wo.endIndex,
+      startIndex: new Date(loadStartTime).toISOString(),
+      endIndex: new Date(loadEndTime).toISOString(),
       isGrowing: wo.isGrowing,
       mnemonicList: wo.mnemonicList
     };
 
-    console.log(`🔧 Loading data for LogId: ${wo.uid} with ${curves.length} curves:`, curves.map(c => c.mnemonicId));
+    console.log(`🔧 Loading data for LogId: ${wo.uid}`);
 
     this.timeBasedLogService.getLogData(queryParameter).subscribe(
       (response: any) => this.processLogDataResponse(response, curves),
@@ -321,7 +367,173 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     );
   }
 
-  private processLogDataResponse(response: any, curves: ITimeCurve[]): void {
+  // --- Memory Management Properties ---
+  private maxMemoryHours = 12; // Keep maximum 12 hours of data in memory
+  private cleanupThreshold = 8; // Start cleanup after 8 hours of data
+
+  // --- Memory Management Methods ---
+
+  /**
+   * Check if memory cleanup is needed and perform cleanup
+   */
+  private checkAndCleanupMemory(visibleRange?: { min: number; max: number }): void {
+    const totalDataHours = this.getTotalDataHours();
+    
+    if (totalDataHours > this.cleanupThreshold) {
+      console.log(`🧹 Memory cleanup triggered: ${totalDataHours.toFixed(1)}h > ${this.cleanupThreshold}h threshold`);
+      this.cleanupOldData(visibleRange);
+    }
+  }
+
+  /**
+   * Calculate total hours of data currently in memory
+   */
+  private getTotalDataHours(): number {
+    for (const times of this.curveTimeIndices.values()) {
+      if (times.length >= 2) {
+        const timeSpan = times[times.length - 1] - times[0];
+        return timeSpan / (3600000); // Convert to hours
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * Clean up old data outside visible range to free memory
+   */
+  private cleanupOldData(visibleRange?: { min: number; max: number }): void {
+    const keepBufferHours = 2; // Keep 2 hours buffer around visible data
+    const cleanupCount = { before: 0, after: 0 };
+
+    for (const [mnemonic, times] of this.curveTimeIndices.entries()) {
+      if (times.length === 0) continue;
+
+      let keepStartIndex = 0;
+      let keepEndIndex = times.length - 1;
+
+      if (visibleRange) {
+        const keepStartTime = visibleRange.min - (keepBufferHours * 3600000);
+        const keepEndTime = visibleRange.max + (keepBufferHours * 3600000);
+
+        // Find indices to keep using binary search (fast)
+        keepStartIndex = this.binarySearchForTime(times, keepStartTime);
+        keepEndIndex = this.binarySearchForTime(times, keepEndTime);
+
+        // Clamp to array bounds
+        keepStartIndex = Math.max(0, keepStartIndex);
+        keepEndIndex = Math.min(times.length - 1, keepEndIndex);
+      } else {
+        // If no visible range, keep only the most recent maxMemoryHours
+        const cutoffTime = times[times.length - 1] - (this.maxMemoryHours * 3600000);
+        keepStartIndex = this.binarySearchForTime(times, cutoffTime);
+        keepStartIndex = Math.max(0, keepStartIndex);
+      }
+
+      // Count how much we're removing
+      cleanupCount.before += keepStartIndex;
+      cleanupCount.after += (times.length - 1 - keepEndIndex);
+
+      // Keep only the relevant portion
+      if (keepEndIndex > keepStartIndex) {
+        const filteredTimes = times.slice(keepStartIndex, keepEndIndex + 1);
+        this.curveTimeIndices.set(mnemonic, filteredTimes);
+
+        // Also clean up curve data
+        const curve = this.findCurveByMnemonic(mnemonic);
+        if (curve && curve.data) {
+          curve.data = curve.data.slice(keepStartIndex, keepEndIndex + 1);
+        }
+      }
+    }
+
+    console.log(`🧹 Memory cleanup completed: removed ${cleanupCount.before} points from start, ${cleanupCount.after} from end`);
+    
+    // Force garbage collection hint (only available in Chrome DevTools)
+    if ((window as any).gc) {
+      (window as any).gc();
+    }
+  }
+
+  /**
+   * Binary search for time index (O(log n) performance)
+   */
+  private binarySearchForTime(sortedTimes: number[], targetTime: number): number {
+    let left = 0;
+    let right = sortedTimes.length - 1;
+    
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      if (sortedTimes[mid] === targetTime) {
+        return mid;
+      } else if (sortedTimes[mid] < targetTime) {
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+    
+    return left; // Returns insertion point
+  }
+
+  /**
+   * Find curve by mnemonic ID
+   */
+  private findCurveByMnemonic(mnemonicId: string): ITimeCurve | undefined {
+    for (const track of this.listOfTracks) {
+      const curve = track.curves.find(c => c.mnemonicId === mnemonicId);
+      if (curve) return curve;
+    }
+    return undefined;
+  }
+
+  // --- Helper Methods ---
+  private extractDateValues(wo: ITimeWellboreObject): { startDateValue?: string; endDateValue?: string } {
+    let endDateValue: string | undefined;
+    let startDateValue: string | undefined;
+    
+    // Extract end date
+    if (typeof wo.endIndex === 'string') {
+      endDateValue = wo.endIndex;
+    } else if (wo.endIndex && typeof wo.endIndex === 'object') {
+      endDateValue = wo.endIndex['endDateTimeIndex'] || wo.endIndex['#text'];
+    }
+    
+    // Extract start date
+    if (typeof wo.startIndex === 'string') {
+      startDateValue = wo.startIndex;
+    } else if (wo.startIndex && typeof wo.startIndex === 'object') {
+      startDateValue = wo.startIndex['startDateTimeIndex'] || wo.startIndex['#text'];
+    }
+    
+    return { startDateValue, endDateValue };
+  }
+
+  /**
+   * Parses timestamp string to number, handling both Unix timestamps and ISO dates
+   */
+  private parseTimestamp(dateValue: string, type: 'start' | 'end'): number | null {
+    if (!dateValue) {
+      console.error(`❌ ${type}DateValue is undefined`);
+      return null;
+    }
+    
+    let timestamp: number;
+    
+    if (!isNaN(Number(dateValue))) {
+      timestamp = Number(dateValue);
+    } else {
+      const date = new Date(dateValue);
+      if (isNaN(date.getTime())) {
+        console.error(`❌ Invalid ${type} date format:`, dateValue);
+        return null;
+      }
+      timestamp = date.getTime();
+    }
+    
+    return timestamp;
+  }
+
+  private async processLogDataResponse(response: any, curves: ITimeCurve[]): Promise<void> {
     console.log('🔧 Received response from service:', response);
     
     // Handle the actual server response structure: { logs: [{ logData: { mnemonicList, data } }] }
@@ -348,16 +560,18 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       data: rawData
     };
     
-    // Process each curve
-    curves.forEach(curve => {
+    // Process each curve with batch processing
+    console.log(`🔄 Starting batch processing for ${curves.length} curves`);
+    for (const curve of curves) {
       console.log(`🔧 Processing curve: ${curve.mnemonicId}`);
-      this.parseCurveData(logData, curve);
-    });
+      await this.parseCurveData(logData, curve);
+    }
 
     this.addCurvesToWidget();
+    console.log(`✅ All curves processed and added to widget`);
   }
 
-  private parseCurveData(logData: ILogDataResponse, curve: ITimeCurve): void {
+  private async parseCurveData(logData: ILogDataResponse, curve: ITimeCurve): Promise<void> {
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
     const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME' || "RIGTIME");
@@ -369,38 +583,54 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
     const times: number[] = [];
     const values: number[] = [];
+    const batchSize = 1000; // Process 1000 rows at a time
+    const totalRows = logData.data.length;
+    
+    console.log(`🔄 Starting batch processing for ${curve.mnemonicId}: ${totalRows} rows`);
 
-    logData.data.forEach((dataRow: string) => {
-      const cols = dataRow.split(',');
-      if (cols.length > curveIndex && cols[curveIndex]) {
-        const value = parseFloat(cols[curveIndex]);
-        
-        let time: number;
-        if (timeIndex >= 0) {
-          const timeStr = cols[timeIndex];
+    // Process data in batches to prevent UI freezing
+    for (let i = 0; i < totalRows; i += batchSize) {
+      const batch = logData.data.slice(i, i + batchSize);
+      
+      // Process this batch
+      batch.forEach((dataRow: string) => {
+        const cols = dataRow.split(',');
+        if (cols.length > curveIndex && cols[curveIndex]) {
+          const value = parseFloat(cols[curveIndex]);
           
-          // Check if it's an ISO timestamp string
-          if (timeStr.includes('T') && timeStr.includes('-')) {
-            time = new Date(timeStr).getTime();
-          } else {
-            const parsedTime = parseFloat(timeStr);
-            // Check if it's in years (like 2026) vs milliseconds (like 1738692795000)
-            if (parsedTime < 10000) {
-              time = new Date(parsedTime, 0, 1).getTime();
+          let time: number;
+          if (timeIndex >= 0) {
+            const timeStr = cols[timeIndex];
+            
+            // Check if it's an ISO timestamp string
+            if (timeStr.includes('T') && timeStr.includes('-')) {
+              time = new Date(timeStr).getTime();
             } else {
-              time = parsedTime;
+              const parsedTime = parseFloat(timeStr);
+              // Check if it's in years (like 2026) vs milliseconds (like 1738692795000)
+              if (parsedTime < 10000) {
+                time = new Date(parsedTime, 0, 1).getTime();
+              } else {
+                time = parsedTime;
+              }
             }
+          } else {
+            time = NaN;
           }
-        } else {
-          time = NaN;
+          
+          if (!isNaN(value) && !isNaN(time)) {
+            times.push(time);
+            values.push(value);
+          }
         }
-        
-        if (!isNaN(value) && !isNaN(time)) {
-          times.push(time);
-          values.push(value);
-        }
+      });
+      
+      // Allow UI to breathe between batches
+      if (i + batchSize < totalRows) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        console.log(`🔄 Processed ${Math.min(i + batchSize, totalRows)}/${totalRows} rows for ${curve.mnemonicId}`);
       }
-    });
+    }
 
     console.log(`✅ Parsed ${times.length} points for curve ${curve.mnemonicId}`);
     curve.data = values;
@@ -450,18 +680,35 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private configureWidgetLimits(): void {
     if (!this.wellLogWidget) return;
 
-    let { minTime, maxTime } = this.getTimeRange();
+    // Get the full range from wellbore objects (getLogHeaders response)
+    let minTime = 0;
+    let maxTime = 0;
     
-    // Check if time range is valid
+    for (const wo of this.wellboreObjects) {
+      const { startDateValue, endDateValue } = this.extractDateValues(wo);
+      
+      if (startDateValue && endDateValue) {
+        const startTime = this.parseTimestamp(startDateValue, 'start');
+        const endTime = this.parseTimestamp(endDateValue, 'end');
+        
+        if (startTime && endTime) {
+          if (minTime === 0 || startTime < minTime) minTime = startTime;
+          if (maxTime === 0 || endTime > maxTime) maxTime = endTime;
+        }
+      }
+    }
+    
     if (minTime === 0 && maxTime === 0) {
-      console.error('❌ No valid time range found');
+      console.error('❌ No valid time range found from headers');
       return;
     }
     
-    // If all time points are identical, create a small range
-    if (minTime === maxTime) {
-      maxTime = minTime + (24 * 60 * 60 * 1000); // Add 24 hours
-    }
+    console.log(`📊 Using full header range: ${new Date(minTime).toISOString()} to ${new Date(maxTime).toISOString()}`);
+    
+    // Configure widget for time-based data with FULL header range
+    this.wellLogWidget.setIndexType('time', 'ms');
+    this.wellLogWidget.setDepthLimits(minTime, maxTime);
+    this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
 
     // Store index curve times for template statistics
     const firstCurveTimes = this.curveTimeIndices.values().next().value;
@@ -469,12 +716,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       this.indexCurveTime = firstCurveTimes;
     }
 
-    // Configure widget for time-based data
-    this.wellLogWidget.setIndexType('time', 'ms');
-    this.wellLogWidget.setDepthLimits(minTime, maxTime);
-    this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
-
-    // Configure visible range to show most recent data
+    // Configure visible range to show most recent data (but index track shows full range)
     const totalRange = maxTime - minTime;
     const visibleRangeMs = Math.min(4 * 3600000, totalRange); // 4 hours or total range
     const visibleMin = maxTime - visibleRangeMs;
@@ -483,7 +725,12 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
     this.wellLogWidget.updateLayout();
     
-    console.log(`📊 Configured widget: ${new Date(minTime).toISOString()} to ${new Date(maxTime).toISOString()}, showing ${visibleRangeMs/3600000}h window`);
+    // Initialize scroll tracking and start polling
+    this.lastVisibleMin = visibleMin;
+    this.lastVisibleMax = visibleMax;
+    this.startScrollPolling();
+    
+    console.log(`📊 Configured widget: ${new Date(minTime).toISOString()} to ${new Date(maxTime).toISOString()}, showing most recent ${visibleRangeMs/3600000}h window`);
   }
 
   private getTimeRange(): { minTime: number; maxTime: number } {
@@ -650,6 +897,248 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     }
   }
 
+  private startScrollPolling(): void {
+    this.stopScrollPolling();
+    console.log('▶️ Started scroll polling for dynamic loading');
+    
+    this.scrollPollHandle = setInterval(() => {
+      this.checkScrollAndLoadData();
+    }, 500); // Check scroll every 500ms
+  }
+
+  private checkScrollAndLoadData(): void {
+    if (!this.wellLogWidget) return;
+    
+    try {
+      const visibleLimits = this.wellLogWidget.getVisibleDepthLimits();
+      if (!visibleLimits) return;
+      
+      const currentVisibleMin = visibleLimits.getLow();
+      const currentVisibleMax = visibleLimits.getHigh();
+      
+      // Check if user scrolled to load more data (with 30min buffer)
+      const bufferMs = 30 * 60 * 1000; // 30 minutes buffer
+      const needsLoadEarlier = currentVisibleMin < (this.lastVisibleMin - bufferMs);
+      const needsLoadLater = currentVisibleMax > (this.lastVisibleMax + bufferMs);
+      
+      if (needsLoadEarlier || needsLoadLater) {
+        console.log(`🔄 Scroll detected: ${new Date(currentVisibleMin).toISOString()} to ${new Date(currentVisibleMax).toISOString()}`);
+        this.loadAdditionalData(currentVisibleMin, currentVisibleMax, needsLoadEarlier);
+        this.lastVisibleMin = currentVisibleMin;
+        this.lastVisibleMax = currentVisibleMax;
+      }
+    } catch (error) {
+      console.error('❌ Error checking scroll:', error);
+    }
+  }
+
+  private loadAdditionalData(visibleMin: number, visibleMax: number, isScrollingUp: boolean = false): void {
+    const logId = 'MWD_Time_SLB'; // This should be dynamic based on your current log
+    const wo = this.wellboreObjects.find(h => h.uid === logId);
+    if (!wo) return;
+    
+    // Check memory before loading new data
+    this.checkAndCleanupMemory({ min: visibleMin, max: visibleMax });
+    
+    // Extract and parse date values
+    const { startDateValue, endDateValue } = this.extractDateValues(wo);
+    
+    if (!startDateValue || !endDateValue) {
+      console.error('❌ Missing date values in loadAdditionalData');
+      return;
+    }
+    
+    const totalStartTime = this.parseTimestamp(startDateValue, 'start');
+    const totalEndTime = this.parseTimestamp(endDateValue, 'end');
+    
+    if (!totalStartTime || !totalEndTime) return;
+    
+    // Calculate load range based on scroll direction
+    let loadMin: number;
+    let loadMax: number;
+    
+    if (isScrollingUp) {
+      // When scrolling up: subtract 4 hours from current visibleMin
+      const fourHoursMs = 4 * 3600000;
+      loadMin = Math.max(totalStartTime, visibleMin - fourHoursMs);
+      loadMax = visibleMax;
+    } else {
+      // Load 2 hours buffer beyond visible range for normal scrolling
+      const bufferMs = 2 * 3600000;
+      loadMin = Math.max(totalStartTime, visibleMin - bufferMs);
+      loadMax = Math.min(totalEndTime, visibleMax + bufferMs);
+    }
+    
+    console.log(`🔧 ${isScrollingUp ? 'Scroll up' : 'Normal'}: Loading ${new Date(loadMin).toISOString()} to ${new Date(loadMax).toISOString()}`);
+    console.log(`📊 Current memory usage: ${this.getTotalDataHours().toFixed(1)} hours of data`);
+    
+    // Check if we already have this data loaded
+    const currentDataMin = this.getCurrentDataMinTime();
+    const currentDataMax = this.getCurrentDataMaxTime();
+    
+    if (loadMin >= currentDataMin && loadMax <= currentDataMax) {
+      console.log('📊 Data already loaded for this range');
+      return;
+    }
+    
+    console.log(`📥 Loading additional data: ${new Date(loadMin).toISOString()} to ${new Date(loadMax).toISOString()}`);
+    
+    const queryParameter: ILogDataQueryParameter = {
+      wellUid: this.well,
+      logUid: wo.uid,
+      wellboreUid: this.wellbore,
+      logName: wo.name,
+      indexType: wo.indexType,
+      indexCurve: wo.indexCurve,
+      startIndex: new Date(loadMin).toISOString(),
+      endIndex: new Date(loadMax).toISOString(),
+      isGrowing: wo.isGrowing,
+      mnemonicList: wo.mnemonicList
+    };
+    
+    this.timeBasedLogService.getLogData(queryParameter).subscribe(
+      (response: any) => this.processAdditionalDataResponse(response),
+      (error) => console.error('❌ Error loading additional data:', error)
+    );
+  }
+
+  private getCurrentDataMinTime(): number {
+    let minTime = Infinity;
+    for (const times of this.curveTimeIndices.values()) {
+      if (times.length > 0) {
+        minTime = Math.min(minTime, times[0]);
+      }
+    }
+    return minTime === Infinity ? 0 : minTime;
+  }
+
+  private getCurrentDataMaxTime(): number {
+    let maxTime = 0;
+    for (const times of this.curveTimeIndices.values()) {
+      if (times.length > 0) {
+        maxTime = Math.max(maxTime, times[times.length - 1]);
+      }
+    }
+    return maxTime;
+  }
+
+  private processAdditionalDataResponse(response: any): void {
+    console.log('📥 Processing additional data response');
+    
+    if (!response || !response.logs || !response.logs[0] || !response.logs[0].logData) {
+      console.error('❌ Invalid additional data response:', response);
+      return;
+    }
+    
+    const logData = response.logs[0].logData;
+    const mnemonics = logData.mnemonicList.split(',');
+    
+    // Find curves that need additional data
+    this.listOfTracks.forEach(trackInfo => {
+      trackInfo.curves.forEach(curveInfo => {
+        const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curveInfo.mnemonicId);
+        const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME' || "RIGTIME");
+        
+        if (curveIndex !== -1 && timeIndex !== -1) {
+          this.parseAdditionalCurveData(logData, curveInfo, curveIndex, timeIndex);
+        }
+      });
+    });
+    
+    // Update curves with new data
+    this.updateCurvesWithAdditionalData();
+    console.log('✅ Additional data loaded and curves updated');
+  }
+
+  private parseAdditionalCurveData(logData: any, curve: ITimeCurve, curveIndex: number, timeIndex: number): void {
+    const existingTimes = this.curveTimeIndices.get(curve.mnemonicId) || [];
+    const existingValues = curve.data || [];
+    
+    const newTimes: number[] = [];
+    const newValues: number[] = [];
+    
+    logData.data.forEach((dataRow: string) => {
+      const cols = dataRow.split(',');
+      if (cols.length > curveIndex && cols[curveIndex]) {
+        const value = parseFloat(cols[curveIndex]);
+        const timeStr = cols[timeIndex];
+        
+        let time: number;
+        if (timeStr.includes('T') && timeStr.includes('-')) {
+          time = new Date(timeStr).getTime();
+        } else {
+          const parsedTime = parseFloat(timeStr);
+          if (parsedTime < 10000) {
+            time = new Date(parsedTime, 0, 1).getTime();
+          } else {
+            time = parsedTime;
+          }
+        }
+        
+        if (!isNaN(value) && !isNaN(time)) {
+          // Only add if not already present
+          if (!existingTimes.includes(time)) {
+            newTimes.push(time);
+            newValues.push(value);
+          }
+        }
+      }
+    });
+    
+    // Merge with existing data
+    const allTimes = [...existingTimes, ...newTimes].sort((a, b) => a - b);
+    const allValues = this.mergeValuesByTime(existingTimes, existingValues, newTimes, newValues);
+    
+    this.curveTimeIndices.set(curve.mnemonicId, allTimes);
+    curve.data = allValues;
+  }
+
+  private mergeValuesByTime(existingTimes: number[], existingValues: number[], newTimes: number[], newValues: number[]): number[] {
+    const timeToValue = new Map<number, number>();
+    
+    // Add existing data
+    existingTimes.forEach((time, index) => {
+      timeToValue.set(time, existingValues[index]);
+    });
+    
+    // Add new data
+    newTimes.forEach((time, index) => {
+      timeToValue.set(time, newValues[index]);
+    });
+    
+    // Return values sorted by time
+    return Array.from(timeToValue.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(entry => entry[1]);
+  }
+
+  private updateCurvesWithAdditionalData(): void {
+    if (!this.wellLogWidget) return;
+    
+    this.listOfTracks.forEach(trackInfo => {
+      const track = this.trackMap.get(trackInfo.trackNo);
+      if (!track) return;
+      
+      trackInfo.curves.forEach(curveInfo => {
+        const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
+        
+        // Remove existing curve and add new one with updated data
+        const existingCurves = track.getChildren().filter((child: any) => child.getName && child.getName() === curveInfo.mnemonicId);
+        existingCurves.forEach((curve: any) => track.removeChild(curve));
+        
+        const geoLogData = new GeoLogData(curveInfo.mnemonicId);
+        geoLogData.setValues(indexData, curveInfo.data);
+        
+        const newCurve = new LogCurve(geoLogData);
+        newCurve.setLineStyle({ color: curveInfo.color || '#63b3ed', width: curveInfo.lineWidth || 1 });
+        newCurve.setName(curveInfo.mnemonicId);
+        track.addChild(newCurve);
+      });
+    });
+    
+    this.wellLogWidget.updateLayout();
+  }
+
   // --- Template utility methods ---
 
   formatDateTimeForInput(date: Date | number): string {
@@ -681,13 +1170,170 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   applyCustomTimeRange(startTime: string, endTime: string): void {
     if (!startTime || !endTime) return;
-    const start = new Date(startTime).getTime();
-    const end = new Date(endTime).getTime();
-    if (isNaN(start) || isNaN(end) || start >= end) return;
+    
+    const start = this.parseTimestamp(startTime, 'start');
+    const end = this.parseTimestamp(endTime, 'end');
+    
+    if (!start || !end || start >= end) return;
+    
     this.wellLogWidget?.setVisibleDepthLimits(start, end);
   }
 
   getCurveColor(trackIndex: number): string {
     return this.timeBasedThemeService.getCurveColor(trackIndex);
+  }
+
+  // --- Print Modal Methods ---
+
+  /**
+   * Open print properties modal
+   */
+  openPrintModal(): void {
+    this.showPrintModal = true;
+    console.log('🖨️ Print modal opened');
+  }
+
+  /**
+   * Close print properties modal
+   */
+  closePrintModal(): void {
+    this.showPrintModal = false;
+    console.log('🖨️ Print modal closed');
+  }
+
+  /**
+   * Apply print options and execute print
+   */
+  applyPrintOptions(): void {
+    console.log('🖨️ Applying print options:', this.printOptions);
+    
+    // Validate print options
+    if (!this.validatePrintOptions()) {
+      return;
+    }
+
+    // Execute print based on options
+    this.executePrint();
+    
+    // Close modal
+    this.closePrintModal();
+  }
+
+  /**
+   * Show error message using snackbar
+   */
+  private showErrorMessage(message: string): void {
+    this.snackBar.open(message, 'Close', {
+      duration: 5000,
+      panelClass: ['error-snackbar'],
+      horizontalPosition: 'center',
+      verticalPosition: 'bottom'
+    });
+  }
+
+  /**
+   * Validate print options
+   */
+  private validatePrintOptions(): boolean {
+    // Check if widget is available
+    if (!this.wellLogWidget) {
+      this.showErrorMessage('No widget available for printing');
+      return false;
+    }
+
+    // Check if there's data to print
+    if (this.curveTimeIndices.size === 0) {
+      this.showErrorMessage('No data available to print');
+      return false;
+    }
+
+    // Validate range selection
+    if (this.printOptions.range === 'range') {
+      // Additional range validation could be added here
+      console.log('🖨️ Range printing selected - would show range inputs');
+    }
+
+    return true;
+  }
+
+  /**
+   * Execute the print operation
+   */
+  private executePrint(): void {
+    try {
+      console.log('🖨️ Executing print with options:', this.printOptions);
+      
+      // Prepare print settings based on options
+      const printSettings = this.preparePrintSettings();
+      
+      // Execute the print
+      this.performPrint(printSettings);
+      
+      console.log('✅ Print operation completed');
+    } catch (error) {
+      console.error('❌ Error during print operation:', error);
+      this.showErrorMessage('Print operation failed. Please try again.');
+    }
+  }
+
+  /**
+   * Prepare print settings based on user options
+   */
+  private preparePrintSettings(): any {
+    const settings: any = {
+      scale: this.printOptions.scale,
+      twoInchLog: this.printOptions.twoInchLog,
+      useSinglePageScale: this.printOptions.useSinglePageScale,
+      header: this.printOptions.header
+    };
+
+    // Set print range based on selection
+    switch (this.printOptions.range) {
+      case 'visible':
+        if (this.wellLogWidget) {
+          const visibleRange = this.wellLogWidget.getVisibleDepthLimits();
+          if (visibleRange) {
+            settings.startDepth = visibleRange.getLow();
+            settings.endDepth = visibleRange.getHigh();
+          }
+        }
+        break;
+      case 'all':
+        const actualRange = this.wellLogWidget?.getDepthLimits();
+        if (actualRange && actualRange.getLow && actualRange.getHigh) {
+          settings.startDepth = actualRange.getLow();
+          settings.endDepth = actualRange.getHigh();
+        } else if (actualRange && actualRange.getLow() !== undefined && actualRange.getHigh() !== undefined) {
+          settings.startDepth = actualRange.getLow();
+          settings.endDepth = actualRange.getHigh();
+        }
+        break;
+      case 'range':
+        // Would need to get range from additional input fields
+        console.log('🖨️ Custom range printing - implement range inputs');
+        break;
+    }
+
+    return settings;
+  }
+
+  /**
+   * Perform the actual print operation
+   */
+  private performPrint(settings: any): void {
+    if (!this.wellLogWidget) return;
+
+    try {
+      // This would integrate with GeoToolkit's print functionality
+      // For now, we'll use browser print as a fallback
+      console.log('🖨️ Print settings:', settings);
+      
+      // Trigger browser print
+      window.print();
+      
+    } catch (error) {
+      console.error('❌ Print execution error:', error);
+      throw error;
+    }
   }
 }
