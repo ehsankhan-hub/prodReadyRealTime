@@ -24,7 +24,8 @@
     (editToggle)="onEditToggle($event)"
     (colorChange)="onToolbarColorChange($event)"
     (rigTimeToggle)="onRigTimeToggle($event)"
-    (timeRangeChange)="onTimeRangeChange($event)">
+    (timeRangeChange)="onTimeRangeChange($event)"
+    (printClick)="openPrintModal()">
   </app-time-based-toolbar>
 
   <!-- Widget Container -->
@@ -70,6 +71,94 @@
             {{ curve.mnemonic }}
           </span>
         </div> -->
+    </div>
+  </div>
+
+  <!-- Print Properties Modal -->
+  <div class="print-modal-overlay" *ngIf="showPrintModal" (click)="closePrintModal()">
+    <div class="print-modal" (click)="$event.stopPropagation()">
+      <div class="print-modal-header">
+        <h3>Print Properties</h3>
+        <button class="close-btn" (click)="closePrintModal()">×</button>
+      </div>
+      
+      <div class="print-modal-body">
+        <p class="print-note">
+          <strong>Note:</strong> If printing more than few hours of data, it is recommended to use 64 bit application process.
+        </p>
+        
+        <!-- Print Range Section -->
+        <div class="print-section">
+          <h4>Print Range</h4>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="printRange" value="visible" [(ngModel)]="printOptions.range" checked>
+              <span>Visible range</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="printRange" value="all" [(ngModel)]="printOptions.range">
+              <span>All</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="printRange" value="range" [(ngModel)]="printOptions.range">
+              <span>Range</span>
+            </label>
+          </div>
+        </div>
+        
+        <!-- Scale Section -->
+        <div class="print-section">
+          <h4>Scale</h4>
+          <div class="scale-controls">
+            <div class="scale-dropdown">
+              <label>Scale:</label>
+              <select [(ngModel)]="printOptions.scale">
+                <option value="0" selected>Fit to Data</option>
+                <option value="0.5">30 min</option>
+                <option value="1">1 hour</option>
+                <option value="2">2 hours</option>
+                <option value="4">4 hours</option>
+                <option value="6">6 hours</option>
+                <option value="12">12 hours</option>
+                <option value="24">24 hours</option>
+              </select>
+            </div>
+            <label class="checkbox-option">
+              <input type="checkbox" [(ngModel)]="printOptions.twoInchLog">
+              <span>2" Log</span>
+            </label>
+          </div>
+        </div>
+        
+        <!-- Other Options Section -->
+        <div class="print-section">
+          <h4>Other options</h4>
+          <div class="checkbox-group">
+            <label class="checkbox-option">
+              <input type="checkbox" [(ngModel)]="printOptions.useSinglePageScale">
+              <span>Use single page scale</span>
+            </label>
+            <label class="checkbox-option">
+              <input type="checkbox" [(ngModel)]="printOptions.print">
+              <span>Print</span>
+            </label>
+            <div class="header-dropdown">
+              <label>Header:</label>
+              <select [(ngModel)]="printOptions.header">
+                <option value="none">None</option>
+                <option value="top">Top</option>
+                <option value="bottom">Bottom</option>
+                <option value="top-and-bottom" selected>Top and Bottom</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="print-modal-footer">
+        <button class="btn btn-cancel" (click)="closePrintModal()">Cancel</button>
+        <button class="btn btn-primary" (click)="applyPrintOptions()">OK</button>
+      </div>
     </div>
   </div>
 </div>

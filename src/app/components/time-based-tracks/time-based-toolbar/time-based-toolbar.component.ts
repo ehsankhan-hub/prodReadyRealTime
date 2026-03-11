@@ -27,6 +27,7 @@ export class TimeBasedToolbarComponent {
   @Output() colorChange = new EventEmitter<string>();
   @Output() rigTimeToggle = new EventEmitter<boolean>();
   @Output() timeRangeChange = new EventEmitter<{start: string, end: string}>();
+  @Output() printClick = new EventEmitter<void>();
 
   scaleOptions = [
     { value: '0', label: 'Fit to Data' },
@@ -99,5 +100,9 @@ export class TimeBasedToolbarComponent {
   formatLatestTimestamp(): string {
     if (!this.latestTimestamp) return '';
     return new Date(this.latestTimestamp).toLocaleString();
+  }
+
+  onPrintClick(): void {
+    this.printClick.emit();
   }
 }
