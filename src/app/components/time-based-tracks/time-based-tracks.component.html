@@ -1,78 +1,151 @@
 <div class="time-based-tracks-container">
+
   <!-- Loading Indicator -->
+
   <div *ngIf="showLoading" class="loading-overlay">
+
     <div class="loading-spinner">
+
       <div class="spinner"></div>
+
       <p>Loading time-based data...</p>
+
     </div>
+
   </div>
+
+
 
   <!-- Time-Based Toolbar -->
+
   <app-time-based-toolbar
+
     [selectedScale]="selectedScale"
+
     [isDarkTheme]="isDarkTheme"
+
     [isLiveTracking]="isLiveTracking"
+
     [latestTimestamp]="latestTimestamp"
+
     [showLoading]="showLoading"
+
     (scaleChange)="onScaleChange($event)"
+
     (themeChange)="onThemeChange($event)"
+
     (liveTrackingToggle)="isLiveTracking ? stopLivePolling() : startLivePolling()"
+
     (resetView)="onResetView()"
+
     (scrollToLatest)="onScrollToLatest()"
+
     (zoomIn)="onZoomIn()"
+
     (zoomOut)="onZoomOut()"
+
     (editToggle)="onEditToggle($event)"
+
     (colorChange)="onToolbarColorChange($event)"
+
     (rigTimeToggle)="onRigTimeToggle($event)"
-    (timeRangeChange)="onTimeRangeChange($event)"
-    (printClick)="openPrintModal()">
+
+    (timeRangeChange)="onTimeRangeChange($event)">
+
   </app-time-based-toolbar>
 
+
+
   <!-- Widget Container -->
+
   <div class="widget-container">
+
     <app-basewidget #widgetComponent></app-basewidget>
+
   </div>
+
+
 
   <!-- Time Statistics -->
+
   <div class="time-statistics" *ngIf="indexCurveTime.length > 0">
+
     <div class="stat-item">
+
       <span class="stat-label">Total Points:</span>
+
       <span class="stat-value">{{ indexCurveTime.length }}</span>
+
     </div>
+
     <div class="stat-item">
+
       <span class="stat-label">Duration:</span>
+
       <span class="stat-value">{{ calculateDuration() }}</span>
+
     </div>
+
     <div class="stat-item">
+
       <span class="stat-label">Data Points/Hour:</span>
+
       <span class="stat-value">{{ calculateDataPointsPerHour() }}</span>
+
     </div>
+
   </div>
 
+
+
   <!-- Track Information -->
+
   <div class="track-information" *ngIf="listOfTracks.length > 0">
+
     <h4>Active Tracks</h4>
+
     <div class="track-list">
+
       <!-- <div 
+
         *ngFor="let track of listOfTracks; let i = index" 
+
         class="track-item"
+
         [class.index-track]="track.isIndex"
+
       > -->
+
         <!-- <div class="track-header">
+
           <span class="track-name">{{ track.trackName }}</span>
+
           <span class="track-type">{{ track.isIndex ? 'Index' : 'Data' }}</span>
+
         </div> -->
+
         <!-- <div class="track-curves">
+
           <span 
+
             *ngFor="let curve of track.curves" 
+
             class="curve-badge"
+
             [style.background-color]="getCurveColor(i)"
+
           >
+
             {{ curve.mnemonic }}
+
           </span>
+
         </div> -->
+
     </div>
+
   </div>
+
 
   <!-- Print Properties Modal -->
   <div class="print-modal-overlay" *ngIf="showPrintModal" (click)="closePrintModal()">
@@ -162,3 +235,4 @@
     </div>
   </div>
 </div>
+
