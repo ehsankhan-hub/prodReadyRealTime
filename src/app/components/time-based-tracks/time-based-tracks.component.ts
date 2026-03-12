@@ -107,6 +107,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   ) {}
 
   wellLogWidget: WellLogWidget | null = null;
+  matchedHeaders: Set<string> = new Set();
   wellboreObjects: ITimeWellboreObject[] = [];
   showLoading = false;
   isLiveTracking = false;
@@ -300,6 +301,9 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     console.log(`📊 Found ${logIdCurves.size} unique LogIds from template:`, Array.from(logIdCurves.keys()));
     
+    // Track matched headers for configureWidgetLimits
+    this.matchedHeaders = new Set<string>();
+    
     // For each LogId, find matching backend header and load data
     logIdCurves.forEach((curves, logId) => {
       // Extract base names by removing suffixes (e.g., Surface_Time_SB -> Surface_Time)
@@ -316,6 +320,9 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
         console.log('🔍 Available backend headers:', this.wellboreObjects.map(h => h.uid));
         return;
       }
+      
+      // Track this header for configureWidgetLimits
+      this.matchedHeaders.add(matchingHeader.uid);
       
       console.log(`✅ Loading data for LogId: ${logId} -> matched to header: ${matchingHeader.uid}`);
       this.loadLogData(matchingHeader, curves);
@@ -712,11 +719,23 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private configureWidgetLimits(): void {
     if (!this.wellLogWidget) return;
 
-    // Get the full range from wellbore objects (getLogHeaders response)
+    // Get the full range from MATCHED wellbore objects only (time-based headers)
     let minTime = 0;
     let maxTime = 0;
     
+    console.log('🔍 Using only matched headers:', Array.from(this.matchedHeaders));
+    console.log('🔍 Total wellboreObjects:', this.wellboreObjects.length);
+    console.log('🔍 MatchedHeaders count:', this.matchedHeaders.size);
+    
     for (const wo of this.wellboreObjects) {
+      // Only process headers that were actually matched to time-based curves
+      if (!this.matchedHeaders.has(wo.uid)) {
+        console.log(`⏭️ Skipping unmatched header: ${wo.uid}`);
+        continue; // Skip depth-based and other unrelated headers
+      }
+      
+      console.log(`✅ Processing matched header: ${wo.uid}`);
+      
       const { startDateValue, endDateValue } = this.extractDateValues(wo);
       
       if (startDateValue && endDateValue) {
@@ -736,17 +755,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     }
     
     console.log(`📊 Using full header range: ${new Date(minTime).toISOString()} to ${new Date(maxTime).toISOString()}`);
-    
-    // Get actual data range from curves
-    const actualDataRange = this.getTimeRange();
-    console.log(`📊 Actual data range: ${new Date(actualDataRange.minTime).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`);
-    
-    // Use actual data range if header range is invalid
-    if (actualDataRange.minTime > 0 && actualDataRange.maxTime > 0) {
-      minTime = actualDataRange.minTime;
-      maxTime = actualDataRange.maxTime;
-      console.log(`📊 Using actual data range instead`);
-    }
     
     // Configure widget for time-based data with FULL header range
     this.wellLogWidget.setIndexType('time', 'ms');
@@ -976,9 +984,26 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   private loadAdditionalData(visibleMin: number, visibleMax: number, isScrollingUp: boolean = false): void {
-    const logId = 'MWD_Time_SLB'; // This should be dynamic based on your current log
-    const wo = this.wellboreObjects.find(h => h.uid === logId);
-    if (!wo) return;
+    // Use the matched headers (actual LogIds) instead of curve mnemonics
+    const logIdsToLoad = Array.from(this.matchedHeaders);
+    console.log(`🔄 Loading additional data for LogIds:`, logIdsToLoad);
+    
+    // Load data for each LogId
+    logIdsToLoad.forEach(logId => {
+      // Find matching header for this LogId
+      const matchingHeader = this.wellboreObjects.find(h => h.uid === logId);
+      
+      if (!matchingHeader) {
+        console.warn(`⚠️ No header found for LogId: ${logId}`);
+        return;
+      }
+      
+      console.log(`🔄 Loading additional data for LogId: ${logId} -> header: ${matchingHeader.uid}`);
+      this.loadAdditionalDataForLogId(matchingHeader, visibleMin, visibleMax, isScrollingUp);
+    });
+  }
+
+  private loadAdditionalDataForLogId(wo: ITimeWellboreObject, visibleMin: number, visibleMax: number, isScrollingUp: boolean = false): void {
     
     // Check memory before loading new data
     this.checkAndCleanupMemory({ min: visibleMin, max: visibleMax });
@@ -1015,12 +1040,25 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     console.log(`🔧 ${isScrollingUp ? 'Scroll up' : 'Normal'}: Loading ${new Date(loadMin).toISOString()} to ${new Date(loadMax).toISOString()}`);
     console.log(`📊 Current memory usage: ${this.getTotalDataHours().toFixed(1)} hours of data`);
     
-    // Check if we already have this data loaded
+    // Check if we need to load additional data (new range extends beyond current data)
     const currentDataMin = this.getCurrentDataMinTime();
     const currentDataMax = this.getCurrentDataMaxTime();
     
+    // Only skip if the entire requested range is already loaded
     if (loadMin >= currentDataMin && loadMax <= currentDataMax) {
       console.log('📊 Data already loaded for this range');
+      return;
+    }
+    
+    // Adjust load range to only load the missing portions
+    if (loadMin < currentDataMin) {
+      console.log(`📥 Loading earlier data: ${new Date(loadMin).toISOString()} to ${new Date(currentDataMin).toISOString()}`);
+      loadMax = currentDataMin; // Only load the missing earlier portion
+    } else if (loadMax > currentDataMax) {
+      console.log(`📥 Loading later data: ${new Date(currentDataMax).toISOString()} to ${new Date(loadMax).toISOString()}`);
+      loadMin = currentDataMax; // Only load the missing later portion
+    } else {
+      console.log('📊 No additional data needed');
       return;
     }
     
