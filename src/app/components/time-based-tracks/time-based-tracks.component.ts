@@ -575,6 +575,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
     let timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME');
+    console.log('Found at index --',curveIndex)
+    console.log('Found at timeIndex --',timeIndex)
     if (timeIndex === -1) {
       timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'RIGTIME');
     }
@@ -618,12 +620,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
               time = new Date(timeStr).getTime();
             } else {
               const parsedTime = parseFloat(timeStr);
-              // Check if it's in years (like 2026) vs milliseconds (like 1738692795000)
-              if (parsedTime < 10000) {
-                time = new Date(parsedTime, 0, 1).getTime();
-              } else {
-                time = parsedTime;
-              }
+              time = parsedTime; // Use as-is, no year checking
             }
           } else {
             time = NaN;
