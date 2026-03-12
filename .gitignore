@@ -41,3 +41,6 @@ dist/
 # System Files
 .DS_Store
 Thumbs.db
+
+# Database files
+db.json
