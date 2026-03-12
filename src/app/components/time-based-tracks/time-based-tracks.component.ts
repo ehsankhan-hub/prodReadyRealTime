@@ -305,12 +305,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       // Extract base names by removing suffixes (e.g., Surface_Time_SB -> Surface_Time)
       const logIdBase = logId.replace(/_[A-Z]+$/, '');
       
-      // Match using base name comparison (ignoring suffixes like _SB, _SLB, etc.)
+      // Match using base name comparison only (ignoring suffixes like _SB, _SLB, etc.)
       const matchingHeader = this.wellboreObjects.find(h => {
         const headerBase = h.uid.replace(/_[A-Z]+$/, '');
-        return headerBase === logIdBase || 
-               h.uid.includes(logIdBase) || 
-               logIdBase.includes(h.uid);
+        return headerBase === logIdBase; // Base name match only
       });
       
       if (!matchingHeader) {
@@ -495,14 +493,14 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     if (typeof wo.endIndex === 'string') {
       endDateValue = wo.endIndex;
     } else if (wo.endIndex && typeof wo.endIndex === 'object') {
-      endDateValue = wo.endIndex['endDateTimeIndex'] || wo.endIndex['#text'];
+      endDateValue = wo.endIndex['endDateTimeIndex'];
     }
     
     // Extract start date
     if (typeof wo.startIndex === 'string') {
       startDateValue = wo.startIndex;
     } else if (wo.startIndex && typeof wo.startIndex === 'object') {
-      startDateValue = wo.startIndex['startDateTimeIndex'] || wo.startIndex['#text'];
+      startDateValue = wo.startIndex['startDateTimeIndex'];
     }
     
     return { startDateValue, endDateValue };
@@ -519,9 +517,11 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     let timestamp: number;
     
+    // Try as number first (milliseconds timestamp)
     if (!isNaN(Number(dateValue))) {
       timestamp = Number(dateValue);
     } else {
+      // Try as ISO date string
       const date = new Date(dateValue);
       if (isNaN(date.getTime())) {
         console.error(`❌ Invalid ${type} date format:`, dateValue);
