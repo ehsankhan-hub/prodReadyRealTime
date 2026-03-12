@@ -662,8 +662,12 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
     // Sort tracks by trackNo to ensure proper ordering
     const sortedTracks = [...this.listOfTracks].sort((a, b) => a.trackNo - b.trackNo);
+    console.log('🔍 Debug: Adding curves to widget');
+    console.log('🔍 Debug: sortedTracks:', sortedTracks.map(t => ({trackNo: t.trackNo, trackName: t.trackName, curvesCount: t.curves.length})));
+    console.log('🔍 Debug: trackMap entries:', Array.from(this.trackMap.keys()));
     
     sortedTracks.forEach((trackInfo) => {
+      console.log(`🔍 Processing track: ${trackInfo.trackName} (trackNo: ${trackInfo.trackNo})`);
       const track = this.trackMap.get(trackInfo.trackNo);
       if (!track) {
         console.warn(`⚠️ Track not found for trackNo: ${trackInfo.trackNo}, trackName: ${trackInfo.trackName}`);
@@ -671,6 +675,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       }
 
       trackInfo.curves.forEach((curveInfo) => {
+        console.log(`🔍 Processing curve: ${curveInfo.mnemonicId}, data length: ${curveInfo.data?.length || 0}`);
         if (!curveInfo.data?.length) {
           console.warn(`⚠️ No data for curve ${curveInfo.mnemonicId} in track ${trackInfo.trackNo}`);
           return;
@@ -678,6 +683,13 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
         try {
           const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
+          console.log(`🔍 Debug: Creating curve ${curveInfo.mnemonicId}:`);
+          console.log(`   - Index data count: ${indexData.length}`);
+          console.log(`   - Curve data count: ${curveInfo.data.length}`);
+          if (indexData.length > 0) {
+            console.log(`   - First index: ${indexData[0]}, Last index: ${indexData[indexData.length-1]}`);
+            console.log(`   - First value: ${curveInfo.data[0]}, Last value: ${curveInfo.data[curveInfo.data.length-1]}`);
+          }
           
           const geoLogData = new GeoLogData(curveInfo.mnemonicId);
           geoLogData.setValues(indexData, curveInfo.data);
