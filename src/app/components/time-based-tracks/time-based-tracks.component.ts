@@ -737,6 +737,17 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     console.log(`📊 Using full header range: ${new Date(minTime).toISOString()} to ${new Date(maxTime).toISOString()}`);
     
+    // Get actual data range from curves
+    const actualDataRange = this.getTimeRange();
+    console.log(`📊 Actual data range: ${new Date(actualDataRange.minTime).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`);
+    
+    // Use actual data range if header range is invalid
+    if (actualDataRange.minTime > 0 && actualDataRange.maxTime > 0) {
+      minTime = actualDataRange.minTime;
+      maxTime = actualDataRange.maxTime;
+      console.log(`📊 Using actual data range instead`);
+    }
+    
     // Configure widget for time-based data with FULL header range
     this.wellLogWidget.setIndexType('time', 'ms');
     this.wellLogWidget.setDepthLimits(minTime, maxTime);
