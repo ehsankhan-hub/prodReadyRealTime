@@ -574,11 +574,22 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private async parseCurveData(logData: ILogDataResponse, curve: ITimeCurve): Promise<void> {
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
-    const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME' || "RIGTIME");
+    let timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME');
+    if (timeIndex === -1) {
+      timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'RIGTIME');
+    }
 
     if (curveIndex === -1) {
       console.warn(`⚠️ Mnemonic not found: ${curve.mnemonicId}`);
       return;
+    }
+
+    // Debug logging
+    console.log(`🔍 Debug: curve=${curve.mnemonicId}, curveIndex=${curveIndex}, timeIndex=${timeIndex}`);
+    console.log(`🔍 Debug: mnemonics=`, mnemonics);
+    console.log(`🔍 Debug: totalRows=${logData.data.length}`);
+    if (logData.data.length > 0) {
+      console.log(`🔍 Debug: first data row=`, logData.data[0]);
     }
 
     const times: number[] = [];
@@ -633,6 +644,18 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     }
 
     console.log(`✅ Parsed ${times.length} points for curve ${curve.mnemonicId}`);
+    
+    // Debug: Show what was actually parsed
+    console.log(`🔍 Debug: Final parsed data for ${curve.mnemonicId}:`);
+    console.log(`   - Times count: ${times.length}`);
+    console.log(`   - Values count: ${values.length}`);
+    if (times.length > 0) {
+      console.log(`   - First 3 times:`, times.slice(0, 3));
+      console.log(`   - First 3 values:`, values.slice(0, 3));
+      console.log(`   - Last 3 times:`, times.slice(-3));
+      console.log(`   - Last 3 values:`, values.slice(-3));
+    }
+    
     curve.data = values;
     this.curveTimeIndices.set(curve.mnemonicId, times);
   }
