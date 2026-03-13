@@ -37,8 +37,9 @@ export interface ITimeTrack {
   isIndex?: boolean;
 }
 
-export interface ITimeWellboreObject {
+export interface IWellboreObject {
   uid: string;
+  logUid:string;
   name: string;
   wellId: string;
   wellboreId: string;
@@ -96,7 +97,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   wellLogWidget: WellLogWidget | null = null;
   matchedHeaders: Set<string> = new Set();
-  wellboreObjects: ITimeWellboreObject[] = [];
+  wellboreObjects: IWellboreObject[] = [];
   showLoading = false;
   isLiveTracking = false;
   indexCurveTime: number[] = [];
@@ -149,11 +150,11 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private fetchLogHeaders(): void {
     this.showLoading = true;
     this.timeBasedLogService.getTimeLogHeaders(this.well, this.wellbore).subscribe(
-      (headers: ITimeWellboreObject[]) => {
+      (headers: IWellboreObject[]) => {
         this.showLoading = false;
         if (headers?.length) {
           this.wellboreObjects = headers.map(header => {
-            const wellboreObject: ITimeWellboreObject = {
+            const wellboreObject: IWellboreObject = {
               ...header,
               isDepth: false,
               objectInfo: this.generateCurveInfo(header)
@@ -183,7 +184,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     );
   }
 
-  private generateCurveInfo(header: ITimeWellboreObject): ITimeCurve[] {
+  private generateCurveInfo(header: IWellboreObject): ITimeCurve[] {
     return header.mnemonicList.split(',').map((mnemonic: string) => {
       // Find the curve in listOfTracks to get its LogId
       let curveLogId = header.uid; // Default to header uid
@@ -317,7 +318,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     });
   }
 
-  private loadLogData(wo: ITimeWellboreObject, curves: ITimeCurve[]): void {
+  private loadLogData(wo: IWellboreObject, curves: ITimeCurve[]): void {
     // Extract date values from wellbore object
     const { startDateValue, endDateValue } = this.extractDateValues(wo);
     
@@ -480,7 +481,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   // --- Helper Methods ---
-  private extractDateValues(wo: ITimeWellboreObject): { startDateValue?: string; endDateValue?: string } {
+  private extractDateValues(wo: IWellboreObject): { startDateValue?: string; endDateValue?: string } {
     let endDateValue: string | undefined;
     let startDateValue: string | undefined;
     
@@ -991,7 +992,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     });
   }
 
-  private loadAdditionalDataForLogId(wo: ITimeWellboreObject, visibleMin: number, visibleMax: number, isScrollingUp: boolean = false): void {
+  private loadAdditionalDataForLogId(wo: IWellboreObject, visibleMin: number, visibleMax: number, isScrollingUp: boolean = false): void {
     
     // Check memory before loading new data
     this.checkAndCleanupMemory({ min: visibleMin, max: visibleMax });

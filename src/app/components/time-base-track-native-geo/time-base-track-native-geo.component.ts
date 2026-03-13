@@ -6,7 +6,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
 import { TimeBasedLogService } from '../time-based-tracks/time-based-log.service';
 import { TimeBasedThemeService } from '../time-based-tracks/time-based-theme.service';
-import { ITimeWellboreObject, ITimeCurve, ITimeTrack } from '../time-based-tracks/time-based-tracks.component';
+import {  ITimeCurve, ITimeTrack, IWellboreObject } from '../time-based-tracks/time-based-tracks.component';
 import { TimeBasedToolbarComponent } from '../time-based-tracks/time-based-toolbar/time-based-toolbar.component';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
@@ -33,7 +33,7 @@ import { Subscription } from 'rxjs';
 export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input() well: string = '';
   @Input() wellbore: string = '';
-  @Input() wellboreObjects: ITimeWellboreObject[] = [];
+  @Input() wellboreObjects: IWellboreObject[] = [];
   @Input() listOfTracks: ITimeTrack[] = [];
 
   @ViewChild(BaseWidgetComponent) baseWidget!: BaseWidgetComponent;
@@ -53,7 +53,7 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
   private logDataMap: Map<string, GeoLogData> = new Map();
   private matchedHeaders: Set<string> = new Set();
   private logIdToCurves: Map<string, ITimeCurve[]> = new Map();
-  private logIdToHeader: Map<string, ITimeWellboreObject> = new Map();
+  private logIdToHeader: Map<string, IWellboreObject> = new Map();
   private subscriptions: Subscription[] = [];
   private lastVisibleMin = 0;
   private lastVisibleMax = 0;
@@ -128,7 +128,7 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     console.log('🕐 Fetching actual headers for time-based configuration...');
     this.showLoading = true;
     this.timeBasedLogService.getTimeLogHeaders(this.well, this.wellbore).subscribe(
-      (headers: ITimeWellboreObject[]) => {
+      (headers: IWellboreObject[]) => {
         console.log('🕐 Actual headers loaded:', headers);
         this.showLoading = false;
         
@@ -152,8 +152,10 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
             endDate: matchingHeader.endIndex
           });
         } else {
-          console.warn('⚠️ No headers found, falling back to mock data');
-          this.createMockWellboreObject();
+          console.warn('⚠️ No headers found');
+          this.showLoading = false;
+          // Show user-friendly message
+          this.showNoDataMessage('No headers found for the specified well and wellbore.');
         }
         
         // Try to initialize widget now
@@ -162,45 +164,24 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       (error: any) => {
         console.error('❌ Error fetching headers:', error);
         this.showLoading = false;
-        console.log('⚠️ Falling back to mock data due to error');
-        this.createMockWellboreObject();
-        this.tryInitializeWidget();
+        // Show user-friendly error message
+        this.showNoDataMessage('Error loading headers. Please check your connection and try again.');
       }
     );
   }
 
-  private createMockWellboreObject(): void {
-    console.log('🔧 Creating mock wellbore object as fallback...');
-    
-    // Create a mock wellbore object for data loading
-    const mockWellboreObject: ITimeWellboreObject = {
-      uid: 'MWD_Time_SLB',
-      name: 'MWD Time',
-      wellId: this.well,
-      wellboreId: this.wellbore,
-      indexType: 'time',
-      indexCurve: 'TIME',
-      startIndex: '2025-02-11T06:13:15.000Z',
-      endIndex: '2025-02-14T06:13:14.000Z',
-      indexUnit: 'ms',
-      isGrowing: false,
-      mnemonicList: 'TIME,GR,RT,RHOB,NPHI,PEF,DTC,LLD',
-      objectInfo: []
-    };
-    
-    this.wellboreObjects = [mockWellboreObject];
-    this.matchedHeaders.add(mockWellboreObject.uid);
-    this.logIdToHeader.set(mockWellboreObject.uid, mockWellboreObject);
-    
-    // Set up curves for the mock LogId
-    this.setupCurvesForLogIds([mockWellboreObject.uid]);
+  private showNoDataMessage(message: string): void {
+    // You can implement this to show a user-friendly message
+    // For now, just log it and potentially set a property for the template
+    console.warn('📢 User Message:', message);
+    // TODO: Implement UI notification (e.g., toast, alert, or template variable)
   }
 
   private fetchLogHeaders(): void {
     console.log('🕐 Starting to fetch log headers...', { well: this.well, wellbore: this.wellbore });
     this.showLoading = true;
     this.timeBasedLogService.getTimeLogHeaders(this.well, this.wellbore).subscribe(
-      (headers: ITimeWellboreObject[]) => {
+      (headers: IWellboreObject[]) => {
         console.log('🕐 Headers loaded:', headers);
         console.log('🕐 Headers count:', headers?.length || 0);
         console.log('🕐 Input tracks count:', this.listOfTracks?.length || 0);
@@ -291,17 +272,21 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     this.setupTracks();
     this.setupScrollEvents();
     
-    // Set initial visible range to show the data
+    // Configure widget for time-based data with proper limits
     if (this.wellLogWidget) {
-      this.wellLogWidget.setVisibleDepthLimits(1739499194000, 1739513594000);
-      console.log('📊 Set initial visible range to data time range');
+      // Set the total data range first (using your actual data range)
+      const totalStartTime = 1739499194000; // Start of your data
+      const totalEndTime = 1739513594000; // End of your data
+      this.wellLogWidget.setDepthLimits(totalStartTime, totalEndTime);
       
-      // Force widget to update and redraw
-      setTimeout(() => {
-        this.wellLogWidget?.updateLayout();
+      // Set visible range to show most recent 4 hours at bottom
+      const visibleStartTime = totalEndTime - (4 * 3600000); // 4 hours back from end
+      this.wellLogWidget.setVisibleDepthLimits(visibleStartTime, totalEndTime);
       
-        console.log('🔄 Forced widget update and redraw');
-      }, 100);
+      console.log('📊 Widget configured:', {
+        totalRange: `${new Date(totalStartTime).toISOString()} to ${new Date(totalEndTime).toISOString()}`,
+        visibleRange: `${new Date(visibleStartTime).toISOString()} to ${new Date(totalEndTime).toISOString()}`
+      });
     }
     
     this.loadInitialData();
@@ -365,26 +350,7 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     this.logIdToCurves = logIdToCurves;
   }
 
-  private getOrCreateTrack(trackNumber: number, trackName: string): LogTrack {
-    if (this.trackMap.has(trackNumber)) {
-      console.log(`🔄 Using existing track ${trackNumber}`);
-      return this.trackMap.get(trackNumber)!;
-    }
-
-    console.log(`🆕 Creating new track ${trackNumber}: ${trackName}`);
-    // Use time-based limits from the actual data range
-    const currentTime = Date.now();
-    const track = new LogTrack()
-      .setDepthLimits(1739499194000, 1739513594000) // Actual data time range
-      .setVisible(true);
-
-    this.wellLogWidget!.addTrack(track);
-    this.trackMap.set(trackNumber, track);
-    
-    console.log(`✅ Track ${trackNumber} added to widget`);
-    return track;
-  }
-
+  
   private findTrackNumberForCurve(curve: ITimeCurve): number {
     for (const track of this.listOfTracks) {
       if (track.curves.some((c: ITimeCurve) => c.mnemonicId === curve.mnemonicId)) {
@@ -419,44 +385,48 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
 
     // Poll every 500ms for visible depth changes
     this.scrollPollHandle = setInterval(() => {
-      if (!this.widget) return;
-
-      try {
-        const visibleLimits: any = this.widget.getVisibleDepthLimits();
-        if (!visibleLimits) return;
-
-        const vMin = visibleLimits.getLow ? visibleLimits.getLow() : 0;
-        const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
-
-        // Skip invalid ranges (0-0 indicates widget not ready)
-        if (vMin === 0 && vMax === 0) {
-          return;
-        }
-
-        // Only trigger if visible range actually changed beyond tolerance
-        const tolerance = 10.0;
-        const minDiff = Math.abs(vMin - this.lastVisibleMin);
-        const maxDiff = Math.abs(vMax - this.lastVisibleMax);
-        
-        // Detect scroll direction
-        const scrollDirection = vMin < this.lastVisibleMin ? 'up' : 
-                               vMax > this.lastVisibleMax ? 'down' : 'none';
-        
-        if (minDiff > tolerance || maxDiff > tolerance) {
-          console.log(`📜 Scroll ${scrollDirection}: ${this.lastVisibleMin.toFixed(1)}-${this.lastVisibleMax.toFixed(1)} → ${vMin.toFixed(1)}-${vMax.toFixed(1)}`);
-          
-          this.lastVisibleMin = vMin;
-          this.lastVisibleMax = vMax;
-          
-          // Load data for the new visible range
-          this.loadDataForVisibleRange(vMin, vMax);
-        }
-      } catch (error) {
-        console.warn('⚠️ Error in scroll polling:', error);
-      }
+      this.handleScrollEvent();
     }, 500);
     
     console.log('✅ Scroll polling configured');
+  }
+
+  private handleScrollEvent(): void {
+    if (!this.wellLogWidget || this.loadingLogIds.size > 0) {
+      return; // Skip if widget not ready or already loading
+    }
+
+    try {
+      const visibleLimits = this.wellLogWidget.getVisibleDepthLimits();
+      if (!visibleLimits) return;
+
+      const visibleMin = visibleLimits.getLow();
+      const visibleMax = visibleLimits.getHigh();
+      
+      // Check if this is a real scroll event (not just minor adjustment)
+      if (Math.abs(visibleMin - this.lastVisibleMin) < 1000 && 
+          Math.abs(visibleMax - this.lastVisibleMax) < 1000) {
+        return; // Skip minor adjustments
+      }
+
+      console.log(`📜 Scroll: ${new Date(this.lastVisibleMin).toISOString()}-${new Date(this.lastVisibleMax).toISOString()} → ${new Date(visibleMin).toISOString()}-${new Date(visibleMax).toISOString()}`);
+
+      // Calculate smart 4-hour window to load
+      const totalStartTime = this.getTotalTimeRange()?.startTime || 0;
+      const totalEndTime = this.getTotalTimeRange()?.endTime || 0;
+      
+      if (totalStartTime && totalEndTime) {
+        const { loadStart, loadEnd } = this.calculateLoadRange(visibleMin, visibleMax, totalStartTime, totalEndTime);
+        
+        // Check if we need to load data for this range
+        this.checkAndLoadDataForRange(loadStart, loadEnd);
+      }
+
+      this.lastVisibleMin = visibleMin;
+      this.lastVisibleMax = visibleMax;
+    } catch (error) {
+      console.warn('⚠️ Error handling scroll event:', error);
+    }
   }
 
   private loadInitialData(): void {
@@ -469,33 +439,36 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       }
 
       console.log(`📅 Using header dates for ${logId}:`, {
-        startIndex: header.startIndex,
-        endIndex: header.endIndex
+        startDateValue: header.startIndex,
+        endDateValue: header.endIndex
       });
-      
+
       const { startDateValue, endDateValue } = this.extractDateValues(header);
-      console.log(`📅 Extracted date values for ${logId}:`, { startDateValue, endDateValue });
-      
-      if (!startDateValue || !endDateValue) {
-        console.warn(`⚠️ Missing date values for ${logId}`);
+      const startTime = this.parseTimestamp(startDateValue!, 'start');
+      const endTime = this.parseTimestamp(endDateValue!, 'end');
+
+      if (!startTime || !endTime) {
+        console.error(`❌ Invalid timestamps for ${logId}`);
         return;
       }
 
-      const endTime = this.parseTimestamp(endDateValue, 'end');
-      const startTime = endTime ? endTime - (4 * 3600000) : null; // 4 hours before end
+      // Smart initial load: Load 4 hours ending at the end time
+      const windowSize = 4 * 3600000; // 4 hours in ms
+      const initialLoadStart = endTime - windowSize;
+      const initialLoadEnd = endTime;
 
-      if (startTime && endTime) {
-        console.log(`🔄 Loading initial 4-hour window for ${logId}: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
-        this.loadAdditionalData(logId, startTime, endTime);
-      } else {
-        console.error(`❌ Invalid timestamps for ${logId}:`, { startTime, endTime });
-      }
+      console.log(`🎯 Smart initial load for ${logId}:`, {
+        endTime: new Date(endTime).toISOString(),
+        loadStart: new Date(initialLoadStart).toISOString(),
+        loadEnd: new Date(initialLoadEnd).toISOString(),
+        windowSizeHours: 4
+      });
+
+      this.loadAdditionalData(logId, initialLoadStart, initialLoadEnd);
     });
   }
 
-  private loadDataForVisibleRange(visibleMin: number, visibleMax: number): void {
-    console.log(`🔍 Checking if data needed for range: ${new Date(visibleMin).toISOString()} to ${new Date(visibleMax).toISOString()}`);
-    
+  private checkAndLoadDataForRange(visibleMin: number, visibleMax: number): void {
     this.matchedHeaders.forEach(logId => {
       if (this.loadingLogIds.has(logId)) {
         console.log(`⏸️ Skipping ${logId} - already loading`);
@@ -517,29 +490,45 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
         return;
       }
 
-      const currentDataMin = Math.min(...this.indexCurveTime);
-      const currentDataMax = Math.max(...this.indexCurveTime);
+      // Use efficient min/max calculation to avoid stack overflow with large arrays
+      let currentDataMin = this.indexCurveTime[0];
+      let currentDataMax = this.indexCurveTime[0];
+      
+      for (let i = 1; i < this.indexCurveTime.length; i++) {
+        const value = this.indexCurveTime[i];
+        if (value < currentDataMin) currentDataMin = value;
+        if (value > currentDataMax) currentDataMax = value;
+      }
 
-      console.log(`🔍 Data range check for ${logId}:`, {
+      console.log(`🔍 Data range check for ${logId}:`, JSON.stringify({
         visibleRange: `${new Date(visibleMin).toISOString()} to ${new Date(visibleMax).toISOString()}`,
         currentDataRange: `${new Date(currentDataMin).toISOString()} to ${new Date(currentDataMax).toISOString()}`,
-        totalRange: `${new Date(totalStartTime).toISOString()} to ${new Date(totalEndTime).toISOString()}`
-      });
+        totalRange: `${new Date(totalStartTime).toISOString()} to ${new Date(totalEndTime).toISOString()}`,
+        visibleMinRaw: visibleMin,
+        visibleMaxRaw: visibleMax,
+        currentDataMinRaw: currentDataMin,
+        currentDataMaxRaw: currentDataMax,
+        totalStartTimeRaw: totalStartTime,
+        totalEndTimeRaw: totalEndTime
+      }, null, 2));
 
       const edgeBufferMs = 2 * 3600000; // 2 hours
+      const chunkSizeMs = 4 * 3600000; // 4 hours per chunk
 
       // Load earlier data when scrolling up
       if (visibleMin < currentDataMin && currentDataMin > totalStartTime) {
-        const loadMin = Math.max(totalStartTime, visibleMin - edgeBufferMs);
+        // Load a chunk of data before the current range, not everything from the beginning
+        const loadMin = Math.max(totalStartTime, currentDataMin - chunkSizeMs);
         const loadMax = currentDataMin;
-        console.log(`⏪ Loading earlier data for ${logId}: ${new Date(loadMin).toISOString()} to ${new Date(loadMax).toISOString()}`);
+        console.log(`⏪ Loading earlier data chunk for ${logId}: ${new Date(loadMin).toISOString()} to ${new Date(loadMax).toISOString()}`);
         this.loadAdditionalData(logId, loadMin, loadMax);
       }
       // Load later data when scrolling down
       else if (visibleMax > currentDataMax && currentDataMax < totalEndTime) {
+        // Load a chunk of data after the current range, not everything to the end
         const loadMin = currentDataMax;
-        const loadMax = Math.min(totalEndTime, visibleMax + edgeBufferMs);
-        console.log(`⏩ Loading later data for ${logId}: ${new Date(loadMin).toISOString()} to ${new Date(loadMax).toISOString()}`);
+        const loadMax = Math.min(totalEndTime, currentDataMax + chunkSizeMs);
+        console.log(`⏩ Loading later data chunk for ${logId}: ${new Date(loadMin).toISOString()} to ${new Date(loadMax).toISOString()}`);
         this.loadAdditionalData(logId, loadMin, loadMax);
       }
       else {
@@ -621,6 +610,8 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
         hasData: !!response.data,
         responseKeys: Object.keys(response)
       });
+      // Show user-friendly message for no data in range
+      this.showNoDataMessage('No data found for the specified time range.');
       return;
     }
 
@@ -751,11 +742,34 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
           const endTime = this.parseTimestamp(endDateValue!, 'end');
           
           if (startTime && endTime) {
-            // Use a 4-hour window for initial display (ending at the most recent data)
-            const visibleMin = endTime - (4 * 3600000);
-            const visibleMax = endTime;
+            // Preserve user's current scroll position - don't reset to fixed window
+            let visibleMin: number;
+            let visibleMax: number;
             
-            console.log('🔧 Setting final time-based configuration from header:', {
+            try {
+              const currentVisible = this.wellLogWidget.getVisibleDepthLimits();
+              if (currentVisible && currentVisible.getLow() > 0) {
+                // Keep user's current visible range
+                visibleMin = currentVisible.getLow();
+                visibleMax = currentVisible.getHigh();
+                console.log('📍 Preserving user scroll position:', {
+                  visibleMin: new Date(visibleMin).toISOString(),
+                  visibleMax: new Date(visibleMax).toISOString()
+                });
+              } else {
+                // Only use fixed window for initial display
+                visibleMin = endTime - (4 * 3600000);
+                visibleMax = endTime;
+                console.log('🎯 Using default 4-hour window for initial display');
+              }
+            } catch (error) {
+              // Fallback to 4-hour window if getting visible range fails
+              visibleMin = endTime - (4 * 3600000);
+              visibleMax = endTime;
+              console.log('⚠️ Could not get visible range, using default window');
+            }
+            
+            console.log('🔧 Setting time-based configuration:', {
               headerStart: new Date(startTime).toISOString(),
               headerEnd: new Date(endTime).toISOString(),
               visibleMin: new Date(visibleMin).toISOString(),
@@ -860,13 +874,19 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
 
     const sortedEntries = Array.from(dataMap.entries()).sort((a, b) => a[0] - b[0]);
     
+    const mergedTimes = sortedEntries.map(e => e[0]);
+    const mergedValues = sortedEntries.map(e => e[1]);
+
+    console.log(`✅ Merged data: ${mergedTimes.length} total points`);
+    
+    // GeoToolkit handles decimation and optimization automatically
     return {
-      times: sortedEntries.map(e => e[0]),
-      values: sortedEntries.map(e => e[1])
+      times: mergedTimes,
+      values: mergedValues
     };
   }
 
-  private extractDateValues(wo: ITimeWellboreObject): { startDateValue?: string; endDateValue?: string } {
+  private extractDateValues(wo: IWellboreObject): { startDateValue?: string; endDateValue?: string } {
     let endDateValue: string | undefined;
     let startDateValue: string | undefined;
 
@@ -944,22 +964,64 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     }
   }
 
+  private scrollToLatestData(): void {
+    console.log('📍 Setting initial scroll position to latest data');
+    if (this.wellLogWidget) {
+      const totalRange = this.getTotalTimeRange();
+      if (totalRange) {
+        // Show the most recent 4 hours (same as onScrollToLatest)
+        const visibleMin = totalRange.endTime - (4 * 3600000);
+        const visibleMax = totalRange.endTime;
+        this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
+        console.log('📊 Set initial visible range to most recent 4 hours:', {
+          visibleMin: new Date(visibleMin).toISOString(),
+          visibleMax: new Date(visibleMax).toISOString()
+        });
+      } else {
+        // Fallback to hardcoded range if total range not available
+        const endTime = 1739513594000; // Latest timestamp from data
+        const visibleMin = endTime - (4 * 3600000);
+        this.wellLogWidget.setVisibleDepthLimits(visibleMin, endTime);
+        console.log('📊 Set initial visible range to most recent 4 hours (fallback)');
+      }
+      
+      // Force widget to update and redraw
+      this.wellLogWidget.updateLayout();
+      console.log('🔄 Updated widget to show latest data');
+    }
+  }
+
   onScrollToLatest(): void {
-    console.log('⏭️ Scroll to latest');
-    // Implementation needed for scrolling to latest data
+    console.log('⏩ Scroll to latest data');
+    if (this.wellLogWidget) {
+      const totalRange = this.getTotalTimeRange();
+      if (totalRange) {
+        // Show the most recent 4 hours
+        const visibleMin = totalRange.endTime - (4 * 3600000);
+        const visibleMax = totalRange.endTime;
+        this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
+        this.wellLogWidget.updateLayout();
+      }
+    }
   }
 
   onZoomIn(): void {
     console.log('🔍 Zoom in');
     if (this.wellLogWidget) {
       // Implementation needed for zoom in
-    }
-  }
-
-  onZoomOut(): void {
-    console.log('🔍 Zoom out');
-    if (this.wellLogWidget) {
-      // Implementation needed for zoom out
+      const currentLimits = this.wellLogWidget.getVisibleDepthLimits();
+      if (currentLimits) {
+        const currentMin = currentLimits.getLow();
+        const currentMax = currentLimits.getHigh();
+        const currentRange = currentMax - currentMin;
+        const newRange = currentRange / 1.5; // Zoom in by 33%
+        const center = (currentMin + currentMax) / 2;
+        const newMin = center - (newRange / 2);
+        const newMax = center + (newRange / 2);
+        
+        this.wellLogWidget.setVisibleDepthLimits(newMin, newMax);
+        this.wellLogWidget.updateLayout();
+      }
     }
   }
 
@@ -983,19 +1045,91 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
   // Statistics methods
   calculateDuration(): string {
     if (this.indexCurveTime.length < 2) return '0 min';
-    const startTime = Math.min(...this.indexCurveTime);
-    const endTime = Math.max(...this.indexCurveTime);
+    
+    // Use efficient min/max calculation to avoid stack overflow with large arrays
+    let startTime = this.indexCurveTime[0];
+    let endTime = this.indexCurveTime[0];
+    
+    for (let i = 1; i < this.indexCurveTime.length; i++) {
+      const value = this.indexCurveTime[i];
+      if (value < startTime) startTime = value;
+      if (value > endTime) endTime = value;
+    }
+    
     const durationMs = endTime - startTime;
     const hours = Math.floor(durationMs / (1000 * 60 * 60));
     const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   }
 
-  calculateDataPointsPerHour(): number {
-    if (this.indexCurveTime.length < 2) return 0;
-    const startTime = Math.min(...this.indexCurveTime);
-    const endTime = Math.max(...this.indexCurveTime);
-    const durationHours = (endTime - startTime) / (1000 * 60 * 60);
-    return durationHours > 0 ? Math.round(this.indexCurveTime.length / durationHours) : 0;
+  calculateDataPointsPerHour(): string {
+    if (this.indexCurveTime.length < 2) return '0';
+    
+    // Use efficient min/max calculation to avoid stack overflow with large arrays
+    let startTime = this.indexCurveTime[0];
+    let endTime = this.indexCurveTime[0];
+    
+    for (let i = 1; i < this.indexCurveTime.length; i++) {
+      const value = this.indexCurveTime[i];
+      if (value < startTime) startTime = value;
+      if (value > endTime) endTime = value;
+    }
+    
+    const durationMs = endTime - startTime;
+    const durationHours = durationMs / (1000 * 60 * 60);
+    
+    if (durationHours <= 0) return '0';
+    
+    const pointsPerHour = this.indexCurveTime.length / durationHours;
+    return pointsPerHour.toFixed(1);
+  }
+
+  private getTotalTimeRange(): { startTime: number, endTime: number } | null {
+    if (this.matchedHeaders.size === 0) return null;
+    
+    let startTime: number | null = null;
+    let endTime: number | null = null;
+    
+    for (const logId of this.matchedHeaders) {
+      const header = this.logIdToHeader.get(logId);
+      if (!header) continue;
+      
+      const { startDateValue, endDateValue } = this.extractDateValues(header);
+      const parsedStart = this.parseTimestamp(startDateValue!, 'start');
+      const parsedEnd = this.parseTimestamp(endDateValue!, 'end');
+      
+      if (parsedStart && parsedEnd) {
+        if (!startTime || parsedStart < startTime) startTime = parsedStart;
+        if (!endTime || parsedEnd > endTime) endTime = parsedEnd;
+      }
+    }
+    
+    return startTime && endTime ? { startTime, endTime } : null;
+  }
+
+  private calculateLoadRange(scrollMin: number, scrollMax: number, totalStartTime: number, totalEndTime: number): { loadStart: number, loadEnd: number } {
+    // Always load 4-hour windows
+    const windowSize = 4 * 3600000; // 4 hours in ms
+    
+    // Center the window around the current scroll position
+    const scrollCenter = (scrollMin + scrollMax) / 2;
+    const loadStart = scrollCenter - (windowSize / 2);
+    const loadEnd = scrollCenter + (windowSize / 2);
+    
+    // Ensure we don't go beyond total data range
+    const finalLoadStart = Math.max(totalStartTime, loadStart);
+    const finalLoadEnd = Math.min(totalEndTime, loadEnd);
+    
+    console.log(`🎯 Smart 4-hour window calculation:`, {
+      scrollCenter: new Date(scrollCenter).toISOString(),
+      windowStart: new Date(finalLoadStart).toISOString(),
+      windowEnd: new Date(finalLoadEnd).toISOString(),
+      windowSizeHours: (finalLoadEnd - finalLoadStart) / (3600000)
+    });
+    
+    return {
+      loadStart: finalLoadStart,
+      loadEnd: finalLoadEnd
+    };
   }
 }
