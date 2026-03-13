@@ -18,6 +18,15 @@
         </app-mwd-time>
       </div>
     </mat-tab>
+    <mat-tab label="MWD_Time Native">
+      <div class="canvas-container" *ngIf="activeTab === 2">
+        <app-time-base-track-native-geo
+          [well]="'HWYH_1389'"
+          [wellbore]="'HWYH_1389_0'"
+          [listOfTracks]="timeTracks">
+        </app-time-base-track-native-geo>
+      </div>
+    </mat-tab>
   </mat-tab-group>
   <div class="footer-bar">
     <div class="footer-item">

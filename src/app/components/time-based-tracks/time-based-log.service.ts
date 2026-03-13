@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
-import { ILogDataQueryParameter } from './time-based-tracks.component'; 
+import { ILogDataQueryParameter } from './time-based-tracks.interfaces'; 
 
 @Injectable({
   providedIn: 'root'
@@ -193,18 +193,18 @@ export class TimeBasedLogService {
     const chunkSizeMs = chunkSizeDays * 24 * 3600000;
     
     // Use the provided time range from query parameters
-    const chunkStartTime = parseInt(queryParameter.startIndex);
-    const chunkEndTime = parseInt(queryParameter.endIndex);
+    const chunkStartTime = String(queryParameter.startIndex || '');
+    const chunkEndTime = String(queryParameter.endIndex || '');
     
-    console.log(`🔧 Service chunk parameters: startIndex=${queryParameter.startIndex} (${new Date(chunkStartTime).toISOString()}), endIndex=${queryParameter.endIndex} (${new Date(chunkEndTime).toISOString()})`);
+    console.log(`🔧 Service chunk parameters: startIndex=${chunkStartTime} (${new Date(parseInt(chunkStartTime)).toISOString()}), endIndex=${chunkEndTime} (${new Date(parseInt(chunkEndTime)).toISOString()})`);
     
     // Filter data for the current chunk
     const chunkData = matchingData.data.filter((row: string) => {
       const timestamp = parseInt(row.split(',')[0]);
-      return timestamp >= chunkStartTime && timestamp <= chunkEndTime;
+      return timestamp >= parseInt(chunkStartTime) && timestamp <= parseInt(chunkEndTime);
     });
 
-    console.log(`📦 Loading chunk: ${new Date(chunkStartTime).toISOString()} to ${new Date(chunkEndTime).toISOString()} (${chunkData.length} points)`);
+    console.log(`📦 Loading chunk: ${new Date(parseInt(chunkStartTime)).toISOString()} to ${new Date(parseInt(chunkEndTime)).toISOString()} (${chunkData.length} points)`);
 
     // Parse mnemonicList from queryParameter to get the correct order
     const mnemonicOrder = queryParameter.mnemonicList?.split(',').map(m => m.trim()) || [];
@@ -217,8 +217,8 @@ export class TimeBasedLogService {
       }),
       curveData: this.parseCurveData(chunkData, mnemonicOrder),
       chunkInfo: {
-        startTime: chunkStartTime,
-        endTime: chunkEndTime,
+        startTime: parseInt(chunkStartTime),
+        endTime: parseInt(chunkEndTime),
         totalStartTime: minTime,
         totalEndTime: maxTime,
         chunkSize: chunkData.length,

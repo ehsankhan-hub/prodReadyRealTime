@@ -4,6 +4,7 @@ import { BrowserModule } from '@angular/platform-browser';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 import { importProvidersFrom } from '@angular/core';
 import { RouterModule } from '@angular/router';
+import { HttpClientModule } from '@angular/common/http';
 
 const routes = [
   { path: '', redirectTo: '/simple-canvas', pathMatch: 'full' as const },
@@ -15,7 +16,8 @@ bootstrapApplication(AppComponent, {
     importProvidersFrom(
       BrowserModule,
       BrowserAnimationsModule,
-      RouterModule.forRoot(routes)
+      RouterModule.forRoot(routes),
+      HttpClientModule
     )
   ]
 }).catch(err => console.error(err));

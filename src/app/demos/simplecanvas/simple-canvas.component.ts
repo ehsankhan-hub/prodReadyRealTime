@@ -6,7 +6,9 @@ import { LogHeadersService, LogHeader, LogData } from '../../services/log-header
 import { HttpClientModule } from '@angular/common/http';
 import { MwdDensityComponent } from '../../templates/mwd-density/mwd-density.component';
 import { MwdTimeComponent } from '../../templates/mwd-time/mwd-time.component';
+import { TimeBaseTrackNativeGeoComponent } from '../../components/time-base-track-native-geo/time-base-track-native-geo.component';
 import { ITracks } from '../../models/tracks.model';
+import { ITimeTrack, ITimeCurve } from '../../components/time-based-tracks/time-based-tracks.component';
 
 /**
  * Main demo component for displaying MWD Density well log visualization.
@@ -22,7 +24,7 @@ import { ITracks } from '../../models/tracks.model';
 @Component({
   selector: 'app-simple-canvas',
   standalone: true,
-  imports: [CommonModule, HttpClientModule, MatTabsModule, MwdDensityComponent, MwdTimeComponent],
+  imports: [CommonModule, HttpClientModule, MatTabsModule, MwdDensityComponent, MwdTimeComponent, TimeBaseTrackNativeGeoComponent],
   providers: [LogHeadersService],
   templateUrl: './simple-canvas.component.html',
   styleUrls: ['./simple-canvas.component.css']
@@ -36,6 +38,8 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
   densityTracks: ITracks[] = [];
   /** Active tab index for conditional rendering */
   activeTab: number = 0;
+  /** Converted time tracks for native geo component */
+  timeTracks: ITimeTrack[] = [];
 
   /**
    * Creates an instance of SimpleCanvasComponent.
@@ -50,6 +54,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
   ngOnInit(): void {
     console.log(' Simple Canvas Component initialized');
     this.initializeTrackData();
+    this.convertToTimeTracks();
     this.loadLogHeaders();
   }
 
@@ -175,6 +180,34 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
 
     console.log(' MWD Tracks initialized:', this.mwdTracks);
     console.log(' Density Tracks initialized:', this.densityTracks);
+  }
+
+  /**
+   * Converts ITracks[] to ITimeTrack[] for compatibility with time-based components.
+   * Maps track properties and converts curve data structures.
+   * 
+   * @private
+   */
+  private convertToTimeTracks(): void {
+    this.timeTracks = this.mwdTracks.map((track: ITracks): ITimeTrack => ({
+      trackNo: track.trackNo,
+      trackName: track.trackName,
+      trackTitle: track.trackName, // Use trackName as trackTitle
+      trackType: track.trackType,
+      curves: track.curves.map((curve): ITimeCurve => ({
+        mnemonicId: curve.mnemonicId,
+        mnemonic: curve.displayName,
+        data: curve.data,
+        color: curve.color,
+        lineWidth: curve.lineWidth,
+        visible: curve.show,
+        LogId: curve.LogId
+      })),
+      width: track.trackWidth,
+      isIndex: track.isIndex
+    }));
+    
+    console.log(' Converted to time tracks:', this.timeTracks);
   }
 
   /**

@@ -6,6 +6,7 @@ import { MatSnackBarModule } from '@angular/material/snack-bar';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
 import { TimeBasedLogService } from './time-based-log.service';
 import { TimeBasedThemeService } from './time-based-theme.service';
+import { ILogDataQueryParameter } from './time-based-tracks.interfaces';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
@@ -50,19 +51,6 @@ export interface ITimeWellboreObject {
   mnemonicList: string;
   objectInfo: ITimeCurve[];
   isDepth?: boolean;
-}
-
-export interface ILogDataQueryParameter {
-  wellUid: string;
-  logUid: string;
-  wellboreUid: string;
-  logName: string;
-  indexType: string;
-  indexCurve: string;
-  startIndex: any;
-  endIndex: any;
-  isGrowing: boolean;
-  mnemonicList: string;
 }
 
 export interface ILogDataResponse {
