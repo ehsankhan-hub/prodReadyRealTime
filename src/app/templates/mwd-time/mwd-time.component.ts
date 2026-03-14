@@ -77,6 +77,8 @@ export class MwdTimeComponent implements OnInit {
     @Input() lstOfTrack: ITracks[] = [];
     /** Array of Density track configurations */
     @Input() lstOfTrack1: ITracks[] = [];
+    /** Array of Image track configurations */
+    @Input() lstOfTrack2: ITracks[] = [];
   
     /** Combined track configurations in TrackInfo format */
     combinedTracks: ITracks[] = [];
@@ -108,6 +110,11 @@ export class MwdTimeComponent implements OnInit {
       
       if (this.lstOfTrack1.length === 0) {
         this.lstOfTrack1 = this.getDefaultDensityTracks();
+      }
+
+      // Initialize default Image tracks if none provided
+      if (this.lstOfTrack2.length === 0) {
+        this.lstOfTrack2 = this.getDefaultImageTracks();
       }
     }
   
@@ -218,7 +225,7 @@ export class MwdTimeComponent implements OnInit {
               color: '#96CEB4',
               lineStyle: 'solid',
               lineWidth: 2,
-              min: 0.0,
+              min: -0.05,
               max: 0.6,
               autoScale: false,
               show: true,
@@ -227,6 +234,27 @@ export class MwdTimeComponent implements OnInit {
               mnemonicLst: []
             }
           ]
+        }
+      ];
+    }
+  
+    /**
+     * Creates default Image track configuration for formation imaging.
+     * Returns an image track for displaying Log2DVisual formation data.
+     * 
+     * @returns Array of default Image track configurations
+     * @private
+     */
+    private getDefaultImageTracks(): ITracks[] {
+      return [
+        {
+          trackNo: 5,
+          trackName: 'Formation Image',
+          trackType: 'Image',
+          trackWidth: 300,
+          isIndex: false,
+          isDepth: false,
+          curves: []
         }
       ];
     }
@@ -266,7 +294,8 @@ export class MwdTimeComponent implements OnInit {
   
       this.combinedTracks = [
         ...convertToTrackInfo(this.lstOfTrack),
-        ...convertToTrackInfo(this.lstOfTrack1)
+        ...convertToTrackInfo(this.lstOfTrack1),
+        ...convertToTrackInfo(this.lstOfTrack2) // Add image tracks
       ];
   
       console.log('🔗 Combined tracks for display:', this.combinedTracks);
