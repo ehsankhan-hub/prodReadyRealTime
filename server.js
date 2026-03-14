@@ -4,7 +4,7 @@ const path = require('path');
 const url = require('url');
 
 // Read database
-const db = JSON.parse(fs.readFileSync(path.join(__dirname, 'db.json'), 'utf8'));
+const db = JSON.parse(fs.readFileSync(path.join(__dirname, 'db_backup.json'), 'utf8'));
 
 // Enable CORS
 const enableCORS = (req, res, next) => {
@@ -17,6 +17,28 @@ const enableCORS = (req, res, next) => {
     return;
   }
   next();
+};
+
+// Custom route for image data
+const handleGetImageData = (req, res) => {
+  console.log(`🖼️ API Call: getImageData`);
+  
+  // Read the new time-based image data
+  const log2DData = JSON.parse(fs.readFileSync(path.join(__dirname, 'src/assets/data/log2DData.json'), 'utf8'));
+  
+  if (log2DData && log2DData.length > 0) {
+    console.log(`📊 Returning time-based image data: ${log2DData.length} rows`);
+    console.log(`� Time range: ${new Date(log2DData[0].depth).toISOString()} to ${new Date(log2DData[log2DData.length-1].depth).toISOString()}`);
+    
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      imageData: log2DData
+    }));
+  } else {
+    console.log(`❌ No image data found in log2DData.json`);
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Image data not found' }));
+  }
 };
 
 // Custom route for time-based log headers
@@ -281,6 +303,8 @@ const server = http.createServer((req, res) => {
     // Route handling
     if (req.url.startsWith('/api/getLogHeaders/')) {
       handleGetLogHeaders(req, res);
+    } else if (req.url.startsWith('/api/getImageData')) {
+      handleGetImageData(req, res);
     } else if (req.url.startsWith('/timeLogHeaders')) {
       handleTimeLogHeaders(req, res);
     } else if (req.url.startsWith('/timeLogData')) {
@@ -294,6 +318,7 @@ const server = http.createServer((req, res) => {
         message: 'API Server Running',
         endpoints: [
           'GET /api/getLogHeaders/:well/:wellbore',
+          'GET /api/getImageData',
           'GET /timeLogHeaders/:well/:wellbore',
           'GET /timeLogData',
           'GET /logData'
@@ -308,6 +333,7 @@ server.listen(port, () => {
   console.log(`🚀 Custom API Server running on http://localhost:${port}`);
   console.log(`📡 API Endpoints:`);
   console.log(`   GET http://localhost:${port}/api/getLogHeaders/:well/:wellbore`);
+  console.log(`   GET http://localhost:${port}/api/getImageData`);
   console.log(`   GET http://localhost:${port}/timeLogHeaders/:well/:wellbore`);
   console.log(`   GET http://localhost:${port}/timeLogData`);
   console.log(`   GET http://localhost:${port}/logData`);

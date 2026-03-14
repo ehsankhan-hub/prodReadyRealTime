@@ -15,6 +15,43 @@ import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { Iterator } from '@int/geotoolkit/util/iterator';
 import { Subscription } from 'rxjs';
+import { HttpClient } from '@angular/common/http';
+
+// Log2DVisual imports for image track
+import { Log2DVisual, PlotTypes } from '@int/geotoolkit/welllog/Log2DVisual';
+import { Log2DVisualData } from '@int/geotoolkit/welllog/data/Log2DVisualData';
+import { Log2DDataRow } from '@int/geotoolkit/welllog/data/Log2DDataRow';
+import { CompositeLog2DVisualHeader } from '@int/geotoolkit/welllog/header/CompositeLog2DVisualHeader';
+import { DefaultColorProvider } from '@int/geotoolkit/util/DefaultColorProvider';
+import { HeaderType } from '@int/geotoolkit/welllog/header/LogAxisVisualHeader';
+import { Orientation } from '@int/geotoolkit/util/Orientation';
+
+// Interface for image data response
+interface ImageDataResponse {
+  wellId: string;
+  wellboreId: string;
+  objectId: string;
+  startIndex: number;
+  endIndex: number;
+  imageData: Array<{
+    depth: number;
+    values: number[];
+    angles: number[];
+  }>;
+}
+
+// Interface for log data item
+interface LogDataItem {
+  depth: number;
+  values: number[];
+  angles: number[];
+}
+
+// Extended interface for image track
+export interface IImageTrack extends ITimeTrack {
+  trackType: 'Image';
+  imageData?: Log2DVisualData;
+}
 
 @Component({
   selector: 'app-time-base-track-native-geo',
@@ -60,10 +97,15 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
   private scrollPollHandle: ReturnType<typeof setInterval> | undefined;
   private loadingLogIds = new Set<string>();
 
+  // Image track properties
+  private imageTrackMap: Map<number, Log2DVisual> = new Map();
+  private imageData: Log2DVisualData | null = null;
+
   constructor(
     private wellDataService: WellDataService,
     private timeBasedThemeService: TimeBasedThemeService,
-    private ngZone: NgZone
+    private ngZone: NgZone,
+    private http: HttpClient
   ) {}
 
   ngOnInit(): void {
@@ -236,6 +278,10 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       return;
     }
 
+    // Register header provider for Log2DVisual
+    const headerProvider = this.wellLogWidget.getHeaderContainer().getHeaderProvider();
+    headerProvider.registerHeaderProvider(Log2DVisual.getClassName(), new CompositeLog2DVisualHeader());
+
     // Create index track first (important for time-based data)
     const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
     if (indexTrack) {
@@ -254,6 +300,13 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       });
     });
 
+    console.log('🔍 Available tracks configuration:', this.listOfTracks.map(t => ({
+      trackNo: t.trackNo,
+      trackName: t.trackName,
+      trackType: t.trackType,
+      curvesCount: t.curves?.length || 0
+    })));
+
     // Create tracks for each unique track number
     const trackNumbers = new Set<number>();
     this.listOfTracks.forEach(track => trackNumbers.add(track.trackNo));
@@ -262,12 +315,22 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       const trackInfo = this.listOfTracks.find(t => t.trackNo === trackNumber);
       if (!trackInfo) return;
       
+      console.log(`🔍 Processing track ${trackNumber}: ${trackInfo.trackName} (type: ${trackInfo.trackType})`);
+      
       try {
-        const logTrack = this.wellLogWidget!.addTrack(TrackType.LinearTrack);
-        if (logTrack) {
-          logTrack.setName(trackInfo.trackName);
-          logTrack.setWidth(trackInfo.width || 300);
-          this.trackMap.set(trackNumber, logTrack);
+        // Check track type from configuration (case-insensitive)
+        if (trackInfo.trackType?.toLowerCase() === 'image') {
+          console.log(`🖼️ Creating image track for track ${trackNumber} (${trackInfo.trackName})`);
+          this.createImageTrack(trackNumber, trackInfo);
+        } else {
+          // Create regular linear track for other track types
+          const logTrack = this.wellLogWidget!.addTrack(TrackType.LinearTrack);
+          if (logTrack) {
+            logTrack.setName(trackInfo.trackName);
+            logTrack.setWidth(trackInfo.width || 300);
+            this.trackMap.set(trackNumber, logTrack);
+            console.log(`✅ Created regular track ${trackNumber}: ${trackInfo.trackName}`);
+          }
         }
       } catch (error) {
         console.error(`Error creating track ${trackNumber}:`, error);
@@ -276,9 +339,187 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     
     // Store curve mapping for data loading
     this.logIdToCurves = logIdToCurves;
+
+    // Load image data for the image track
+    this.loadImageData();
   }
 
-  
+  private createImageTrack(trackNumber: number, trackInfo: ITimeTrack): void {
+    if (!this.wellLogWidget) {
+      console.error('WellLogWidget not available for image track creation');
+      return;
+    }
+
+    try {
+      // Create linear track for image
+      const logTrack = this.wellLogWidget.addTrack(TrackType.LinearTrack);
+      if (logTrack) {
+        logTrack.setName(trackInfo.trackName || 'Image Track');
+        logTrack.setWidth(trackInfo.width || 300);
+        this.trackMap.set(trackNumber, logTrack);
+
+        console.log(`✅ Created image track: ${trackInfo.trackName}`);
+      }
+    } catch (error) {
+      console.error(`Error creating image track ${trackNumber}:`, error);
+    }
+  }
+
+  private loadImageData(): Promise<void> {
+    console.log('🖼️ Loading image data for image track...');
+    
+    // Load image data from backend service
+    return this.http.get<ImageDataResponse>('http://localhost:3004/api/getImageData').toPromise()
+      .then(response => {
+        if (!response || !response.imageData) {
+          throw new Error('Failed to load image data: No data received from backend');
+        }
+        
+        const log2dData = new Log2DVisualData();
+        
+        // Parse image data and create Log2DDataRow objects
+        response.imageData.forEach((item: LogDataItem) => {
+          const row = new Log2DDataRow(item.depth, item.values, item.angles);
+          log2dData.getRows().push(row);
+        });
+        
+        log2dData.updateLimits();
+        this.imageData = log2dData;
+        
+        console.log(`✅ Loaded image data: ${log2dData.getRows().length} rows from depth ${response.imageData[0]?.depth} to ${response.imageData[response.imageData.length-1]?.depth}`);
+        
+        // Convert depth data to time data for time-based display
+        const timeData = this.convertDepthToTime(log2dData);
+        
+        // Create Log2DVisual and add to track 4
+        this.addLog2DVisualToTrack(timeData);
+        
+      })
+      .catch(error => {
+        console.error('Backend service not available, falling back to static data:', error);
+        
+        // Fallback to static data if backend is not available
+        return this.http.get<LogDataItem[]>('/assets/data/log2DData.json').toPromise()
+          .then(jsonData => {
+            if (!jsonData) {
+              throw new Error('Failed to load fallback log2DData.json: No data received');
+            }
+            
+            const log2dData = new Log2DVisualData();
+            
+            // Parse JSON data and create Log2DDataRow objects
+            jsonData.forEach((item: LogDataItem) => {
+              const row = new Log2DDataRow(item.depth, item.values, item.angles);
+              log2dData.getRows().push(row);
+            });
+            
+            log2dData.updateLimits();
+            this.imageData = log2dData;
+            
+            console.log(`✅ Loaded fallback image data: ${log2dData.getRows().length} rows`);
+            
+            // Convert depth data to time data for time-based display
+            const timeData = this.convertDepthToTime(log2dData);
+            
+            // Create Log2DVisual and add to track 4
+            this.addLog2DVisualToTrack(timeData);
+          });
+      });
+  }
+
+  private convertDepthToTime(depthData: Log2DVisualData): Log2DVisualData {
+    const timeData = new Log2DVisualData();
+    
+    // The new log2DData.json already has timestamps as "depth" values
+    // So we just need to convert them to Log2DDataRow format directly
+    depthData.getRows().forEach(row => {
+      // The depth value is already a timestamp in milliseconds
+      const timestamp = row.getDepth();
+      const timeRow = new Log2DDataRow(timestamp, row.getValues(), row.getAngles());
+      timeData.getRows().push(timeRow);
+    });
+    
+    timeData.updateLimits();
+    console.log(`✅ Converted time-based image data: ${timeData.getRows().length} rows`);
+    console.log(`📅 Image data time range: ${new Date(timeData.getRows()[0]?.getDepth()).toISOString()} to ${new Date(timeData.getRows()[timeData.getRows().length-1]?.getDepth()).toISOString()}`);
+    
+    return timeData;
+  }
+
+  private addLog2DVisualToTrack(timeData: Log2DVisualData): void {
+    if (!this.wellLogWidget || !this.imageData) {
+      console.error('WellLogWidget or image data not available for Log2DVisual creation');
+      return;
+    }
+
+    try {
+      // Find the image track dynamically by track type (case-insensitive)
+      let imageTrackNumber: number | null = null;
+      for (const track of this.listOfTracks) {
+        if (track.trackType?.toLowerCase() === 'image') {
+          imageTrackNumber = track.trackNo;
+          break;
+        }
+      }
+
+      if (!imageTrackNumber) {
+        console.error('No image track found in configuration');
+        return;
+      }
+
+      // Get the image track
+      const imageTrack = this.trackMap.get(imageTrackNumber);
+      if (!imageTrack) {
+        console.error(`Image track (track ${imageTrackNumber}) not found`);
+        return;
+      }
+
+      // Create Log2DVisual with time-based data
+      const log2DVisual = this.create2DVisual(timeData, 'Time-based Image Track', 0, '#ff6b6b');
+      log2DVisual.setPlotType(PlotTypes.Linear);
+      
+      // Add Log2DVisual to the image track
+      imageTrack.addChild([log2DVisual]);
+      
+      // Store reference
+      this.imageTrackMap.set(imageTrackNumber, log2DVisual);
+      
+      console.log(`✅ Log2DVisual added to image track ${imageTrackNumber} successfully`);
+      
+      // Refresh the widget
+      this.wellLogWidget.updateLayout();
+      
+    } catch (error) {
+      console.error('Error adding Log2DVisual to track:', error);
+    }
+  }
+
+  private create2DVisual(
+    log2dData: Log2DVisualData,
+    name: string,
+    offset: number,
+    zeroColor: string
+  ): Log2DVisual {
+    const min = log2dData.getMinValue();
+    const max = log2dData.getMaxValue();
+    const delta = (max - min) / 3;
+    
+    // Create color provider
+    const colors = new DefaultColorProvider()
+      .addColor(min, zeroColor)
+      .addColor(min + delta, 'yellow')
+      .addColor(min + 2 * delta, 'orange')
+      .addColor(max, 'red');
+
+    // Create Log2DVisual
+    return new Log2DVisual()
+      .setName(name)
+      .setData(log2dData)
+      .setColorProvider(colors)
+      .setOffsets(offset)
+      .setMicroPosition(0, 1);
+  }
+
   private findTrackNumberForCurve(curve: ITimeCurve): number {
     for (const track of this.listOfTracks) {
       if (track.curves.some((c: ITimeCurve) => c.mnemonicId === curve.mnemonicId)) {
