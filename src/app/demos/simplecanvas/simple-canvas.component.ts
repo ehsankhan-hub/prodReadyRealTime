@@ -7,6 +7,7 @@ import { HttpClientModule } from '@angular/common/http';
 import { MwdDensityComponent } from '../../templates/mwd-density/mwd-density.component';
 import { MwdTimeComponent } from '../../templates/mwd-time/mwd-time.component';
 import { TimeBaseTrackNativeGeoComponent } from '../../components/time-base-track-native-geo/time-base-track-native-geo.component';
+import { SimpleLog2dDemoComponent } from '../../components/simple-log2d-demo/simple-log2d-demo.component';
 import { ITracks } from '../../models/tracks.model';
 import { ITimeTrack, ITimeCurve } from '../../components/time-based-tracks/time-based-tracks.component';
 
@@ -24,7 +25,7 @@ import { ITimeTrack, ITimeCurve } from '../../components/time-based-tracks/time-
 @Component({
   selector: 'app-simple-canvas',
   standalone: true,
-  imports: [CommonModule, HttpClientModule, MatTabsModule, MwdDensityComponent, MwdTimeComponent, TimeBaseTrackNativeGeoComponent],
+  imports: [CommonModule, HttpClientModule, MatTabsModule, MwdDensityComponent, MwdTimeComponent, TimeBaseTrackNativeGeoComponent, SimpleLog2dDemoComponent],
   providers: [LogHeadersService],
   templateUrl: './simple-canvas.component.html',
   styleUrls: ['./simple-canvas.component.css']
@@ -207,6 +208,17 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
       isIndex: track.isIndex
     }));
     
+    // Add an image track for testing
+    this.timeTracks.push({
+      trackNo: 99,
+      trackName: 'Core Image',
+      trackTitle: 'Core Image',
+      trackType: 'image',
+      curves: [],
+      width: 200,
+      isIndex: false
+    });
+    
     console.log(' Converted to time tracks:', this.timeTracks);
   }
 
@@ -247,7 +259,8 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
    */
   onTabChange(event: MatTabChangeEvent): void {
     this.activeTab = event.index;
-    console.log(` Tab changed to: ${event.index === 0 ? 'MWD Depth' : 'MWD_Time'}`);
+    const tabNames = ['MWD Depth', 'MWD_Time', 'MWD_Time Native', 'Log2D Demo'];
+    console.log(` Tab changed to: ${tabNames[event.index] || 'Unknown'}`);
   }
 
   // Old WellLogWidget methods removed - now using MWD Density component

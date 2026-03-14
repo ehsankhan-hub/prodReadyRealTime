@@ -1,0 +1,59 @@
+.simple-log2d-demo-container {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.simple-log2d-demo-container h3 {
+  color: #333;
+  margin-bottom: 10px;
+}
+
+.simple-log2d-demo-container p {
+  color: #666;
+  margin-bottom: 20px;
+}
+
+.canvas-container {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f9f9f9;
+  min-height: 400px;
+}
+
+.info-panel {
+  background: #f0f8ff;
+  border: 1px solid #b0d4f1;
+  border-radius: 4px;
+  padding: 15px;
+}
+
+.info-panel h4 {
+  color: #2c5282;
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.info-panel ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.info-panel li {
+  color: #4a5568;
+  margin-bottom: 5px;
+}
+
+/* Ensure the canvas fills the container properly */
+.canvas-container app-base-widget {
+  display: block;
+  width: 100%;
+  height: 400px;
+}
+
+.canvas-container app-base-widget canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
