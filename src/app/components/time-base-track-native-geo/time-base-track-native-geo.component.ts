@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { MatButtonModule } from '@angular/material/button';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
-import { TimeBasedLogService } from '../time-based-tracks/time-based-log.service';
+import { WellDataService } from '../../service/well-service/well.service'; 
 import { TimeBasedThemeService } from '../time-based-tracks/time-based-theme.service';
 import {  ITimeCurve, ITimeTrack, IWellboreObject } from '../time-based-tracks/time-based-tracks.component';
 import { TimeBasedToolbarComponent } from '../time-based-tracks/time-based-toolbar/time-based-toolbar.component';
@@ -57,30 +57,24 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
   private subscriptions: Subscription[] = [];
   private lastVisibleMin = 0;
   private lastVisibleMax = 0;
-  private scrollPollHandle: any;
+  private scrollPollHandle: ReturnType<typeof setInterval> | undefined;
   private loadingLogIds = new Set<string>();
 
   constructor(
-    private timeBasedLogService: TimeBasedLogService,
+    private wellDataService: WellDataService,
     private timeBasedThemeService: TimeBasedThemeService,
     private ngZone: NgZone
   ) {}
 
   ngOnInit(): void {
-    console.log('🎯 TimeBaseTrackNativeGeo initialized', { well: this.well, wellbore: this.wellbore });
-    console.log('🔍 Input data check:', {
-      hasWellboreObjects: this.wellboreObjects?.length || 0,
-      hasTracks: this.listOfTracks?.length || 0,
-      wellboreObjects: this.wellboreObjects,
-      tracks: this.listOfTracks
-    });
+    console.log('TimeBaseTrackNativeGeo initialized', { well: this.well, wellbore: this.wellbore });
     
     // Work directly with provided tracks
     if (this.listOfTracks.length > 0) {
-      console.log('🕐 Using provided tracks directly');
+      console.log('Using provided tracks directly');
       this.processProvidedTracks();
     } else {
-      console.log('⚠️ No tracks provided, fetching headers...');
+      console.warn('No tracks provided, fetching headers...');
       this.fetchLogHeaders();
     }
   }
@@ -97,109 +91,74 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
   }
 
   private tryInitializeWidget(): void {
-    console.log('🔍 Checking widget initialization conditions:', {
-      hasBaseWidget: !!this.baseWidget,
-      hasWellboreObjects: this.wellboreObjects.length > 0,
-      hasWellLogWidget: !!this.wellLogWidget,
-      wellboreObjectsCount: this.wellboreObjects.length
-    });
-    
     if (!this.baseWidget || !this.wellboreObjects.length || this.wellLogWidget) {
-      console.log('⏸️ Widget initialization skipped:', {
-        noBaseWidget: !this.baseWidget,
-        noWellboreObjects: !this.wellboreObjects.length,
-        alreadyHasWellLogWidget: !!this.wellLogWidget
-      });
       return;
     }
     
-    console.log('🚀 Proceeding with widget initialization');
     this.initializeWidget();
   }
 
   private processProvidedTracks(): void {
-    console.log('🔧 Processing provided tracks...');
-    
     // Fetch actual headers to get real date ranges
     this.fetchLogHeadersForTracks();
   }
 
   private fetchLogHeadersForTracks(): void {
-    console.log('🕐 Fetching actual headers for time-based configuration...');
     this.showLoading = true;
-    this.timeBasedLogService.getTimeLogHeaders(this.well, this.wellbore).subscribe(
+    this.wellDataService.getTimeLogHeaders(this.well, this.wellbore).subscribe(
       (headers: IWellboreObject[]) => {
-        console.log('🕐 Actual headers loaded:', headers);
         this.showLoading = false;
         
         if (headers && headers.length > 0) {
-          // Use the first header that matches our expected LogId
-          const matchingHeader = headers.find(h => h.uid.includes('MWD_Time')) || headers[0];
-          console.log('🕐 Using header for configuration:', matchingHeader);
+          // Filter for all time-related headers
+          const timeRelatedHeaders = headers.filter(h => h.uid && h.uid.toLowerCase().includes('time'));
           
-          this.wellboreObjects = [matchingHeader];
-          this.matchedHeaders.add(matchingHeader.uid);
-          this.logIdToHeader.set(matchingHeader.uid, matchingHeader);
-          
-          // Set up curves for the actual LogId
-          this.setupCurvesForLogIds([matchingHeader.uid]);
-          
-          console.log('🔍 After processing actual headers:', {
-            wellboreObjectsCount: this.wellboreObjects.length,
-            logIdToCurvesCount: this.logIdToCurves.size,
-            matchedHeadersCount: this.matchedHeaders.size,
-            startDate: matchingHeader.startIndex,
-            endDate: matchingHeader.endIndex
-          });
+          if (timeRelatedHeaders.length > 0) {
+            console.log(`✅ Found ${timeRelatedHeaders.length} time-related headers:`, timeRelatedHeaders.map(h => h.uid));
+            
+            // Use all time-related headers
+            this.wellboreObjects = timeRelatedHeaders;
+            
+            // Process all headers
+            this.processHeaders();
+          } else {
+            console.log('🔧 No time-related headers found, using all available headers as fallback');
+            this.wellboreObjects = headers;
+            this.processHeaders();
+          }
         } else {
-          console.warn('⚠️ No headers found');
+          console.warn('No headers found');
           this.showLoading = false;
-          // Show user-friendly message
           this.showNoDataMessage('No headers found for the specified well and wellbore.');
         }
         
-        // Try to initialize widget now
         this.tryInitializeWidget();
       },
-      (error: any) => {
-        console.error('❌ Error fetching headers:', error);
+      (error: unknown) => {
+        console.error('Error fetching headers:', error);
         this.showLoading = false;
-        // Show user-friendly error message
         this.showNoDataMessage('Error loading headers. Please check your connection and try again.');
+        this.tryInitializeWidget();
       }
     );
   }
 
   private showNoDataMessage(message: string): void {
-    // You can implement this to show a user-friendly message
-    // For now, just log it and potentially set a property for the template
-    console.warn('📢 User Message:', message);
     // TODO: Implement UI notification (e.g., toast, alert, or template variable)
+    console.warn('User Message:', message);
   }
 
   private fetchLogHeaders(): void {
-    console.log('🕐 Starting to fetch log headers...', { well: this.well, wellbore: this.wellbore });
     this.showLoading = true;
-    this.timeBasedLogService.getTimeLogHeaders(this.well, this.wellbore).subscribe(
+    this.wellDataService.getTimeLogHeaders(this.well, this.wellbore).subscribe(
       (headers: IWellboreObject[]) => {
-        console.log('🕐 Headers loaded:', headers);
-        console.log('🕐 Headers count:', headers?.length || 0);
-        console.log('🕐 Input tracks count:', this.listOfTracks?.length || 0);
-        
         this.wellboreObjects = headers;
         this.processHeaders();
         this.showLoading = false;
-        
-        console.log('🔍 After processing headers:', {
-          wellboreObjectsCount: this.wellboreObjects.length,
-          logIdToCurvesCount: this.logIdToCurves.size,
-          matchedHeadersCount: this.matchedHeaders.size
-        });
-        
         this.tryInitializeWidget();
       },
-      (error: any) => {
-        console.error('❌ Error fetching log headers:', error);
+      (error: unknown) => {
+        console.error('Error fetching log headers:', error);
         this.showLoading = false;
       }
     );
@@ -216,40 +175,26 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       }
     });
 
-    console.log('📊 Found unique LogIds:', Array.from(uniqueLogIds));
     this.setupCurvesForLogIds(Array.from(uniqueLogIds));
   }
 
   private setupCurvesForLogIds(logIds: string[]): void {
-    console.log('🔧 Setting up curves for LogIds:', logIds);
-    console.log('🔧 Available tracks:', this.listOfTracks.map(t => ({
-      trackNo: t.trackNo,
-      trackName: t.trackName,
-      curvesCount: t.curves?.length || 0,
-      curves: t.curves?.map(c => ({ mnemonicId: c.mnemonicId, LogId: c.LogId }))
-    })));
-    
     logIds.forEach(logId => {
       const curves = this.listOfTracks
         .filter(track => track.curves)
         .flatMap(track => track.curves)
         .filter((curve: ITimeCurve) => curve.LogId === logId);
 
-      console.log(`🔧 For LogId ${logId}: found ${curves.length} matching curves:`, curves.map(c => c.mnemonicId));
-      
       this.logIdToCurves.set(logId, curves);
-      console.log(`✅ Set up ${curves.length} curves for LogId: ${logId}`);
     });
   }
 
   private initializeWidget(): void {
-    console.log('🚀 Initializing WellLogWidget using TimeBasedLogService');
-    
     // Create WellLogWidget using the service
-    const widget = this.timeBasedLogService.createWellLogWidget(this.baseWidget.Canvas.nativeElement);
+    const widget = this.wellDataService.createWellLogWidget(this.baseWidget.Canvas.nativeElement);
     
     if (!(widget instanceof WellLogWidget)) {
-      console.error('❌ Failed to create WellLogWidget instance');
+      console.error('Failed to create WellLogWidget instance');
       return;
     }
     
@@ -259,16 +204,14 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     this.wellLogWidget = widget;
 
     if (!this.wellLogWidget) {
-      console.error('❌ WellLogWidget not available after creation');
+      console.error('WellLogWidget not available after creation');
       return;
     }
 
     // Configure widget for time-based data
-    console.log('⚙️ Configuring widget for time-based data');
     this.wellLogWidget.setIndexType('time');
     this.wellLogWidget.setIndexUnit('ms');
 
-    console.log('✅ Widget initialized with GeoToolkit native loading');
     this.setupTracks();
     this.setupScrollEvents();
     
@@ -282,21 +225,14 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       // Set visible range to show most recent 4 hours at bottom
       const visibleStartTime = totalEndTime - (4 * 3600000); // 4 hours back from end
       this.wellLogWidget.setVisibleDepthLimits(visibleStartTime, totalEndTime);
-      
-      console.log('📊 Widget configured:', {
-        totalRange: `${new Date(totalStartTime).toISOString()} to ${new Date(totalEndTime).toISOString()}`,
-        visibleRange: `${new Date(visibleStartTime).toISOString()} to ${new Date(totalEndTime).toISOString()}`
-      });
     }
     
     this.loadInitialData();
   }
 
   private setupTracks(): void {
-    console.log('🎨 Setting up tracks for time-based data');
-    
     if (!this.wellLogWidget) {
-      console.error('❌ WellLogWidget not available for track creation');
+      console.error('WellLogWidget not available for track creation');
       return;
     }
 
@@ -305,7 +241,6 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     if (indexTrack) {
       indexTrack.setName('Time Index');
       indexTrack.setWidth(150);
-      console.log('✅ Created index track');
     }
 
     // Group curves by LogId to understand track structure
@@ -319,8 +254,6 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       });
     });
 
-    console.log(`📋 Processing ${logIdToCurves.size} LogIds with tracks`);
-
     // Create tracks for each unique track number
     const trackNumbers = new Set<number>();
     this.listOfTracks.forEach(track => trackNumbers.add(track.trackNo));
@@ -328,8 +261,6 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     trackNumbers.forEach(trackNumber => {
       const trackInfo = this.listOfTracks.find(t => t.trackNo === trackNumber);
       if (!trackInfo) return;
-
-      console.log(`🆕 Creating track ${trackNumber}: ${trackInfo.trackName}`);
       
       try {
         const logTrack = this.wellLogWidget!.addTrack(TrackType.LinearTrack);
@@ -337,14 +268,11 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
           logTrack.setName(trackInfo.trackName);
           logTrack.setWidth(trackInfo.width || 300);
           this.trackMap.set(trackNumber, logTrack);
-          console.log(`✅ Track ${trackNumber} created successfully`);
         }
       } catch (error) {
-        console.error(`❌ Error creating track ${trackNumber}:`, error);
+        console.error(`Error creating track ${trackNumber}:`, error);
       }
     });
-
-    console.log(`🎯 Total tracks created: ${this.trackMap.size}`);
     
     // Store curve mapping for data loading
     this.logIdToCurves = logIdToCurves;
@@ -362,23 +290,18 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
 
   
   private setupScrollEvents(): void {
-    console.log('📜 Setting up event-based scroll detection');
-
     if (!this.widget) {
-      console.warn('⚠️ Widget not available for scroll detection');
       return;
     }
 
     // Initialize the last visible range to prevent immediate false triggers
     try {
-      const initialLimits: any = this.widget?.getVisibleDepthLimits();
+      const initialLimits: { getLow?: () => number; getHigh?: () => number } | undefined = this.widget?.getVisibleDepthLimits();
       if (initialLimits) {
         this.lastVisibleMin = initialLimits.getLow ? initialLimits.getLow() : 0;
         this.lastVisibleMax = initialLimits.getHigh ? initialLimits.getHigh() : 0;
-        console.log(`📊 Initial visible range: ${this.lastVisibleMin.toFixed(1)} - ${this.lastVisibleMax.toFixed(1)}`);
       }
     } catch (error) {
-      console.warn('⚠️ Error getting initial visible limits:', error);
       this.lastVisibleMin = 0;
       this.lastVisibleMax = 0;
     }
@@ -387,8 +310,6 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     this.scrollPollHandle = setInterval(() => {
       this.handleScrollEvent();
     }, 500);
-    
-    console.log('✅ Scroll polling configured');
   }
 
   private handleScrollEvent(): void {
@@ -409,46 +330,34 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
         return; // Skip minor adjustments
       }
 
-      console.log(`📜 Scroll: ${new Date(this.lastVisibleMin).toISOString()}-${new Date(this.lastVisibleMax).toISOString()} → ${new Date(visibleMin).toISOString()}-${new Date(visibleMax).toISOString()}`);
-
       // Calculate smart 4-hour window to load
       const totalStartTime = this.getTotalTimeRange()?.startTime || 0;
       const totalEndTime = this.getTotalTimeRange()?.endTime || 0;
       
       if (totalStartTime && totalEndTime) {
         const { loadStart, loadEnd } = this.calculateLoadRange(visibleMin, visibleMax, totalStartTime, totalEndTime);
-        
-        // Check if we need to load data for this range
         this.checkAndLoadDataForRange(loadStart, loadEnd);
       }
 
       this.lastVisibleMin = visibleMin;
       this.lastVisibleMax = visibleMax;
-    } catch (error) {
-      console.warn('⚠️ Error handling scroll event:', error);
+      } catch (error: unknown) {
+        console.warn('Error handling scroll event:', error);
     }
   }
 
   private loadInitialData(): void {
-    console.log('🔄 Starting initial data load');
-    this.matchedHeaders.forEach(logId => {
+    this.matchedHeaders.forEach((logId: string) => {
       const header = this.logIdToHeader.get(logId);
       if (!header) {
-        console.warn(`⚠️ No header found for LogId: ${logId}`);
         return;
       }
-
-      console.log(`📅 Using header dates for ${logId}:`, {
-        startDateValue: header.startIndex,
-        endDateValue: header.endIndex
-      });
 
       const { startDateValue, endDateValue } = this.extractDateValues(header);
       const startTime = this.parseTimestamp(startDateValue!, 'start');
       const endTime = this.parseTimestamp(endDateValue!, 'end');
 
       if (!startTime || !endTime) {
-        console.error(`❌ Invalid timestamps for ${logId}`);
         return;
       }
 
@@ -456,13 +365,6 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       const windowSize = 4 * 3600000; // 4 hours in ms
       const initialLoadStart = endTime - windowSize;
       const initialLoadEnd = endTime;
-
-      console.log(`🎯 Smart initial load for ${logId}:`, {
-        endTime: new Date(endTime).toISOString(),
-        loadStart: new Date(initialLoadStart).toISOString(),
-        loadEnd: new Date(initialLoadEnd).toISOString(),
-        windowSizeHours: 4
-      });
 
       this.loadAdditionalData(logId, initialLoadStart, initialLoadEnd);
     });
@@ -546,7 +448,7 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     this.loadingLogIds.add(logId);
     console.log(`📥 Loading additional data for ${logId}: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
 
-    const queryParameter: any = {
+    const queryParameter: { wellUid: string; logUid: string; wellboreUid: string; logName: string; indexType: string; indexCurve: string; startIndex: number; endIndex: number; isGrowing: boolean; mnemonicList: string } = {
       wellUid: this.well,
       logUid: header.uid,
       wellboreUid: this.wellbore,
@@ -559,12 +461,12 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       mnemonicList: header.mnemonicList || ''
     };
 
-    this.timeBasedLogService.getLogData(queryParameter).subscribe(
-      (response: any) => {
+    this.wellDataService.getLogData(queryParameter).subscribe(
+      (response: unknown) => {
         this.appendData(response, logId);
         this.loadingLogIds.delete(logId);
       },
-      (error: any) => {
+      (error: unknown) => {
         console.error(`❌ Error loading data for ${logId}:`, error);
         this.loadingLogIds.delete(logId);
       }
@@ -575,7 +477,7 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     console.log('🔧 Raw server response:', response);
 
     // Handle the actual response structure: {logs: [{logData: {...}}]}
-    let logData = null;
+    let logData: { data?: string[]; mnemonics?: string[]; logData?: any } | null = null;
     
     if (response.logs && Array.isArray(response.logs) && response.logs.length > 0) {
       console.log('🔍 Analyzing logs array:', response.logs.map((log: any, index: number) => ({
@@ -634,15 +536,17 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
         const extractedCols = firstRow.split(',').map((col: string) => col.trim());
         console.log('🔧 Extracted columns from first data row:', extractedCols);
         
-        // Since we don't have proper mnemonics, create a mapping based on expected curve order
-        // From the data, we can see: TIME, GR, RT, RHOB, NPHI, PEF, DTC, LLD
-        // But our component only expects GR and RT
-        const expectedMnemonics = ['TIME', 'GR', 'RT', 'RHOB', 'NPHI', 'PEF', 'DTC', 'LLD'];
+        // Create mnemonics based on the configured curves for this log
+        const curves = this.logIdToCurves.get(logId) || [];
+        const configuredMnemonics = curves.map(c => c.mnemonicId);
         
-        // Use expected mnemonics if we have enough columns
-        if (extractedCols.length >= expectedMnemonics.length) {
-          mnemonics = expectedMnemonics;
-          console.log('🔧 Using expected mnemonics mapping:', mnemonics);
+        // Always include TIME as the first column
+        const dynamicMnemonics = ['TIME', ...configuredMnemonics];
+        
+        // Use dynamic mnemonics if we have enough columns
+        if (extractedCols.length >= dynamicMnemonics.length) {
+          mnemonics = dynamicMnemonics;
+          console.log('🔧 Using dynamic mnemonics from configuration:', mnemonics);
         } else {
           // Fallback: create generic mnemonics
           mnemonics = extractedCols.map((_, index) => index === 0 ? 'TIME' : `COL${index}`);
@@ -671,7 +575,7 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       const newTimes: number[] = [];
       const newValues: number[] = [];
 
-      logData.data.forEach((dataRow: string, rowIndex: number) => {
+      logData.data!.forEach((dataRow: string, rowIndex: number) => {
         const cols = dataRow.split(',');
         if (cols.length > curveIndex && cols[curveIndex]) {
           const value = parseFloat(cols[curveIndex]);
@@ -915,7 +819,7 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       
       // Handle other formats as needed
       return null;
-    } catch (error) {
+    } catch (error: unknown) {
       console.warn(`⚠️ Error parsing timestamp ${timestamp}:`, error);
       return null;
     }
@@ -961,33 +865,6 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     if (this.wellLogWidget) {
       // Reset to initial view
       this.loadInitialData();
-    }
-  }
-
-  private scrollToLatestData(): void {
-    console.log('📍 Setting initial scroll position to latest data');
-    if (this.wellLogWidget) {
-      const totalRange = this.getTotalTimeRange();
-      if (totalRange) {
-        // Show the most recent 4 hours (same as onScrollToLatest)
-        const visibleMin = totalRange.endTime - (4 * 3600000);
-        const visibleMax = totalRange.endTime;
-        this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
-        console.log('📊 Set initial visible range to most recent 4 hours:', {
-          visibleMin: new Date(visibleMin).toISOString(),
-          visibleMax: new Date(visibleMax).toISOString()
-        });
-      } else {
-        // Fallback to hardcoded range if total range not available
-        const endTime = 1739513594000; // Latest timestamp from data
-        const visibleMin = endTime - (4 * 3600000);
-        this.wellLogWidget.setVisibleDepthLimits(visibleMin, endTime);
-        console.log('📊 Set initial visible range to most recent 4 hours (fallback)');
-      }
-      
-      // Force widget to update and redraw
-      this.wellLogWidget.updateLayout();
-      console.log('🔄 Updated widget to show latest data');
     }
   }
 

@@ -42,11 +42,15 @@ const handleTimeLogHeaders = (req, res) => {
   
   console.log(`🔍 API Call: timeLogHeaders for ${well}/${wellbore}`);
   
-  const filteredHeaders = db.timeLogHeaders.filter(header => 
-    header['@uidWell'] === well && header['@uidWellbore'] === wellbore
-  );
+  // Filter for headers that contain 'time' (case-insensitive)
+  const filteredHeaders = db.timeLogHeaders.filter(header => {
+    const matchesWellbore = header['@uidWell'] === well && header['@uidWellbore'] === wellbore;
+    const isTimeRelated = header.uid && header.uid.toLowerCase().includes('time');
+    return matchesWellbore && isTimeRelated;
+  });
   
   console.log(`📊 Found ${filteredHeaders.length} time headers for ${well}/${wellbore}`);
+  console.log(`🔍 Time templates matched:`, filteredHeaders.map(h => h.uid));
   
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(filteredHeaders));
