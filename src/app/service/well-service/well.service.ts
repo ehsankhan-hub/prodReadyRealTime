@@ -4,12 +4,12 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
-import { ILogDataQueryParameter } from './time-based-tracks.interfaces'; 
+import { ILogDataQueryParameter } from '../../components/time-based-tracks/time-based-tracks.interfaces';
 
 @Injectable({
   providedIn: 'root'
 })
-export class TimeBasedLogService {
+export class WellDataService {
   private readonly TIME_DB_URL = 'http://localhost:3004/timeLogData';
   private readonly TIME_HEADERS_URL = 'http://localhost:3004/timeLogHeaders';
 
@@ -124,59 +124,6 @@ export class TimeBasedLogService {
     return { start: startTime, end: endTime };
   }
 
-  
-
-  private findAndTransformData(dataList: any, queryParameter: ILogDataQueryParameter): any {
-    // Handle the new server response format: { mnemonicList: "...", data: [...] }
-    if (dataList && dataList.mnemonicList && dataList.data) {
-      console.log(`✅ Found data in new format with ${dataList.data.length} rows`);
-      
-      // Parse mnemonicList from the response
-      const mnemonicOrder = dataList.mnemonicList.split(',').map((m: string) => m.trim());
-      console.log('🔍 Mnemonic order from server:', mnemonicOrder);
-
-      return {
-        indexData: dataList.data.map((row: string) => {
-          const values = row.split(',');
-          return parseInt(values[0]); // First column is TIME timestamp
-        }),
-        curveData: this.parseCurveData(dataList.data, mnemonicOrder)
-      };
-    }
-    
-    // Fallback to old format (array of entries)
-    if (Array.isArray(dataList)) {
-      const matchingData = dataList.find(data => 
-        data.logUid === queryParameter.logUid || 
-        data.id === queryParameter.logUid ||
-        data.wellboreUid === queryParameter.wellboreUid
-      );
-      
-      if (!matchingData) {
-        console.warn(`⚠️ No data found for logUid: ${queryParameter.logUid}`);
-        console.log('🔍 Available data entries:', dataList.map(d => ({ id: d.id, logUid: d.logUid, wellboreUid: d.wellboreUid })));
-        throw new Error(`No data found for logUid: ${queryParameter.logUid}`);
-      }
-
-      console.log(`✅ Found data for LogId: ${queryParameter.logUid}, processing ${matchingData.data?.length || 0} rows`);
-
-      // Parse mnemonicList from queryParameter to get the correct order
-      const mnemonicOrder = queryParameter.mnemonicList?.split(',').map((m: string) => m.trim()) || [];
-      console.log('🔍 Mnemonic order from header:', mnemonicOrder);
-
-      return {
-        indexData: matchingData.data.map((row: string) => {
-          const values = row.split(',');
-          return parseInt(values[0]); // First column is TIME timestamp
-        }),
-        curveData: this.parseCurveData(matchingData.data, mnemonicOrder)
-      };
-    }
-    
-    console.error('❌ Invalid data format received:', dataList);
-    throw new Error('Invalid data format received');
-  }
-
   private findAndTransformChunkedData(dataList: any[], queryParameter: ILogDataQueryParameter, chunkSizeDays: number, chunkNumber: number): any {
     // Handle the new server response format
     const logEntry = dataList.find(data => data.logData);
@@ -248,8 +195,8 @@ export class TimeBasedLogService {
       // Parse each column according to the mnemonic order
       mnemonicOrder.forEach((mnemonic, index) => {
         if (index < values.length && values[index]) {
-          if (mnemonic === 'TIME') {
-            // TIME should be parsed as integer timestamp
+          if (mnemonic === 'TIME' || mnemonic === 'RIGTIME') {
+            // TIME and RIGTIME should be parsed as integer timestamp
             const timestamp = parseInt(values[index]);
             curveData[mnemonic].push(isNaN(timestamp) ? 0 : timestamp);
           } else {
@@ -268,5 +215,4 @@ export class TimeBasedLogService {
     
     return curveData;
   }
-  
 }
