@@ -44,3 +44,9 @@ Thumbs.db
 
 # Database files
 db.json
+db_backup.json
+well-data.csv
+*.json.bak
+
+# Large data files that cause StackBlitz issues
+db-backup.json
