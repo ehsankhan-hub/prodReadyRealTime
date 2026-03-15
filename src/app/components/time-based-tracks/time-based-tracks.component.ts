@@ -84,7 +84,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   /** Internal component state - accessible by template */
   protected selectedScale: string = '1000';
   protected isDarkTheme: boolean = false;
-  protected selectedHour: number = 24;
 
   @ViewChild('widgetComponent') widgetComponent!: BaseWidgetComponent;
 
@@ -319,25 +318,12 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   private loadLogData(wo: IWellboreObject, curves: ITimeCurve[]): void {
-    // Extract date values from wellbore object
-    const { startDateValue, endDateValue } = this.extractDateValues(wo);
+    // Use a larger time range for testing scroll functionality
+    // Load 24 hours of data instead of just 4 hours
+    const dataEndTime = new Date('2025-02-14T06:13:14.000Z').getTime();
+    const dataStartTime = dataEndTime - (24 * 3600000); // 24 hours before data end
     
-    if (!startDateValue || !endDateValue) {
-      console.error('❌ Missing date values:', { startDateValue, endDateValue });
-      return;
-    }
-    
-    // Parse timestamps
-    const endTime = this.parseTimestamp(endDateValue, 'end');
-    const originalStartTime = this.parseTimestamp(startDateValue, 'start');
-    
-    if (!endTime || !originalStartTime) return;
-    
-    // Calculate 4-hour load window from endDateTimeIndex
-    const loadEndTime = endTime;
-    const loadStartTime = loadEndTime - (4 * 3600000); // 4 hours
-    
-    console.log(`🔧 Loading 4-hour window: ${new Date(loadStartTime).toISOString()} to ${new Date(loadEndTime).toISOString()}`);
+    console.log(`🔧 Loading 24-hour window for scroll testing: ${new Date(dataStartTime).toISOString()} to ${new Date(dataEndTime).toISOString()}`);
     
     // Create query parameters
     const queryParameter: ILogDataQueryParameter = {
@@ -347,8 +333,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       logName: wo.name,
       indexType: wo.indexType,
       indexCurve: wo.indexCurve,
-      startIndex: new Date(loadStartTime).toISOString(),
-      endIndex: new Date(loadEndTime).toISOString(),
+      startIndex: new Date(dataStartTime).toISOString(),
+      endIndex: new Date(dataEndTime).toISOString(),
       isGrowing: wo.isGrowing,
       mnemonicList: wo.mnemonicList
     };
@@ -362,8 +348,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   }
 
   // --- Memory Management Properties ---
-  private maxMemoryHours = 12; // Keep maximum 12 hours of data in memory
-  private cleanupThreshold = 8; // Start cleanup after 8 hours of data
+  private maxMemoryHours = 24; // Keep maximum 24 hours of data in memory (increased from 12)
+  private cleanupThreshold = 16; // Start cleanup after 16 hours of data (increased from 8)
 
   // --- Memory Management Methods ---
 
@@ -572,7 +558,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curve.mnemonicId);
     let timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME');
     console.log('Found at index --',curveIndex)
-    console.log('Found at timeIndex --',timeIndex)
     if (timeIndex === -1) {
       timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'RIGTIME');
     }
@@ -582,30 +567,24 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       return;
     }
 
-    // Debug logging
-    console.log(`🔍 Debug: curve=${curve.mnemonicId}, curveIndex=${curveIndex}, timeIndex=${timeIndex}`);
-    console.log(`🔍 Debug: mnemonics=`, mnemonics);
-    console.log(`🔍 Debug: totalRows=${logData.data.length}`);
-    if (logData.data.length > 0) {
-      console.log(`🔍 Debug: first data row=`, logData.data[0]);
-    }
 
     const times: number[] = [];
     const values: number[] = [];
     const batchSize = 1000; // Process 1000 rows at a time
     const totalRows = logData.data.length;
     
-    console.log(`🔄 Starting batch processing for ${curve.mnemonicId}: ${totalRows} rows`);
+    console.log(`🔄 Processing ${curve.mnemonicId}: ${totalRows} rows`);
 
     // Process data in batches to prevent UI freezing
     for (let i = 0; i < totalRows; i += batchSize) {
       const batch = logData.data.slice(i, i + batchSize);
       
       // Process this batch
-      batch.forEach((dataRow: string) => {
+      batch.forEach((dataRow: string, rowIndex: number) => {
         const cols = dataRow.split(',');
         if (cols.length > curveIndex && cols[curveIndex]) {
-          const value = parseFloat(cols[curveIndex]);
+          const valueStr = cols[curveIndex];
+          const value = parseFloat(valueStr);
           
           let time: number;
           if (timeIndex >= 0) {
@@ -622,6 +601,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
             time = NaN;
           }
           
+          
           if (!isNaN(value) && !isNaN(time)) {
             times.push(time);
             values.push(value);
@@ -632,22 +612,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       // Allow UI to breathe between batches
       if (i + batchSize < totalRows) {
         await new Promise(resolve => setTimeout(resolve, 0));
-        console.log(`🔄 Processed ${Math.min(i + batchSize, totalRows)}/${totalRows} rows for ${curve.mnemonicId}`);
       }
     }
 
-    console.log(`✅ Parsed ${times.length} points for curve ${curve.mnemonicId}`);
-    
-    // Debug: Show what was actually parsed
-    console.log(`🔍 Debug: Final parsed data for ${curve.mnemonicId}:`);
-    console.log(`   - Times count: ${times.length}`);
-    console.log(`   - Values count: ${values.length}`);
-    if (times.length > 0) {
-      console.log(`   - First 3 times:`, times.slice(0, 3));
-      console.log(`   - First 3 values:`, values.slice(0, 3));
-      console.log(`   - Last 3 times:`, times.slice(-3));
-      console.log(`   - Last 3 values:`, values.slice(-3));
-    }
+    console.log(`✅ Processed ${times.length} points for ${curve.mnemonicId}`);
     
     curve.data = values;
     this.curveTimeIndices.set(curve.mnemonicId, times);
@@ -658,35 +626,21 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
     // Sort tracks by trackNo to ensure proper ordering
     const sortedTracks = [...this.listOfTracks].sort((a, b) => a.trackNo - b.trackNo);
-    console.log('🔍 Debug: Adding curves to widget');
-    console.log('🔍 Debug: sortedTracks:', sortedTracks.map(t => ({trackNo: t.trackNo, trackName: t.trackName, curvesCount: t.curves.length})));
-    console.log('🔍 Debug: trackMap entries:', Array.from(this.trackMap.keys()));
-    
     sortedTracks.forEach((trackInfo) => {
-      console.log(`🔍 Processing track: ${trackInfo.trackName} (trackNo: ${trackInfo.trackNo})`);
       const track = this.trackMap.get(trackInfo.trackNo);
       if (!track) {
-        console.warn(`⚠️ Track not found for trackNo: ${trackInfo.trackNo}, trackName: ${trackInfo.trackName}`);
+        console.warn(`⚠️ Track not found: ${trackInfo.trackName} (trackNo: ${trackInfo.trackNo})`);
         return;
       }
 
       trackInfo.curves.forEach((curveInfo) => {
-        console.log(`🔍 Processing curve: ${curveInfo.mnemonicId}, data length: ${curveInfo.data?.length || 0}`);
         if (!curveInfo.data?.length) {
-          console.warn(`⚠️ No data for curve ${curveInfo.mnemonicId} in track ${trackInfo.trackNo}`);
+          console.warn(`⚠️ No data for curve: ${curveInfo.mnemonicId}`);
           return;
         }
 
         try {
           const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
-          console.log(`🔍 Debug: Creating curve ${curveInfo.mnemonicId}:`);
-          console.log(`   - Index data count: ${indexData.length}`);
-          console.log(`   - Curve data count: ${curveInfo.data.length}`);
-          if (indexData.length > 0) {
-            console.log(`   - First index: ${indexData[0]}, Last index: ${indexData[indexData.length-1]}`);
-            console.log(`   - First value: ${curveInfo.data[0]}, Last value: ${curveInfo.data[curveInfo.data.length-1]}`);
-          }
-          
           const geoLogData = new GeoLogData(curveInfo.mnemonicId);
           geoLogData.setValues(indexData, curveInfo.data);
 
@@ -695,7 +649,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
           curve.setName(curveInfo.mnemonicId);
           track.addChild(curve);
           
-          console.log(`✅ Added curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName} (${indexData.length} points)`);
+          console.log(`✅ Added curve ${curveInfo.mnemonicId} (${indexData.length} points)`);
         } catch (error) {
           console.error(`❌ Error adding curve ${curveInfo.mnemonicId}:`, error);
         }
@@ -703,49 +657,29 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     });
 
     this.configureWidgetLimits();
+    
+    // Explicitly refresh the widget to ensure curves are displayed
+    if (this.wellLogWidget) {
+      this.wellLogWidget.updateLayout();
+    }
   }
 
   private configureWidgetLimits(): void {
     if (!this.wellLogWidget) return;
 
-    // Get the full range from MATCHED wellbore objects only (time-based headers)
-    let minTime = 0;
-    let maxTime = 0;
-    
-    console.log('🔍 Using only matched headers:', Array.from(this.matchedHeaders));
-    console.log('🔍 Total wellboreObjects:', this.wellboreObjects.length);
-    console.log('🔍 MatchedHeaders count:', this.matchedHeaders.size);
-    
-    for (const wo of this.wellboreObjects) {
-      // Only process headers that were actually matched to time-based curves
-      if (!this.matchedHeaders.has(wo.uid)) {
-        console.log(`⏭️ Skipping unmatched header: ${wo.uid}`);
-        continue; // Skip depth-based and other unrelated headers
-      }
-      
-      console.log(`✅ Processing matched header: ${wo.uid}`);
-      
-      const { startDateValue, endDateValue } = this.extractDateValues(wo);
-      
-      if (startDateValue && endDateValue) {
-        const startTime = this.parseTimestamp(startDateValue, 'start');
-        const endTime = this.parseTimestamp(endDateValue, 'end');
-        
-        if (startTime && endTime) {
-          if (minTime === 0 || startTime < minTime) minTime = startTime;
-          if (maxTime === 0 || endTime > maxTime) maxTime = endTime;
-        }
-      }
-    }
-    
-    if (minTime === 0 && maxTime === 0) {
-      console.error('❌ No valid time range found from headers');
+    // Use the actual data range from parsed curves instead of header metadata
+    const { minTime, maxTime } = this.getTimeRange();
+    if (minTime === 0 || maxTime === 0) {
+      console.warn('⚠️ No valid time range found in curve data');
       return;
     }
     
-    console.log(`📊 Using full header range: ${new Date(minTime).toISOString()} to ${new Date(maxTime).toISOString()}`);
+    // Configure visible range to show most recent data
+    const totalRange = maxTime - minTime;
+    const visibleRangeMs = Math.min(4 * 3600000, totalRange); // 4 hours or total range
+    const visibleMin = maxTime - visibleRangeMs;
+    const visibleMax = maxTime;
     
-    // Configure widget for time-based data with FULL header range
     this.wellLogWidget.setIndexType('time', 'ms');
     this.wellLogWidget.setDepthLimits(minTime, maxTime);
     this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
@@ -756,12 +690,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       this.indexCurveTime = firstCurveTimes;
     }
 
-    // Configure visible range to show most recent data (but index track shows full range)
-    const totalRange = maxTime - minTime;
-    const visibleRangeMs = Math.min(4 * 3600000, totalRange); // 4 hours or total range
-    const visibleMin = maxTime - visibleRangeMs;
-    const visibleMax = maxTime;
-    
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
     this.wellLogWidget.updateLayout();
     
@@ -770,7 +698,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     this.lastVisibleMax = visibleMax;
     this.startScrollPolling();
     
-    console.log(`📊 Configured widget: ${new Date(minTime).toISOString()} to ${new Date(maxTime).toISOString()}, showing most recent ${visibleRangeMs/3600000}h window`);
   }
 
   private getTimeRange(): { minTime: number; maxTime: number } {
@@ -836,12 +763,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   startLivePolling(): void {
     this.isLiveTracking = true;
-    // TODO: Implement live polling logic
   }
 
   stopLivePolling(): void {
     this.isLiveTracking = false;
-    // TODO: Implement stop polling logic
   }
 
   // --- Toolbar methods ---
@@ -888,7 +813,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     this.wellLogWidget.setDepthScale(finalScale);
     this.wellLogWidget.updateLayout();
-    console.log('🔍 Zoomed in:', { oldScale: currentScale, newScale: finalScale, maxScale });
   }
 
   onZoomOut(): void {
@@ -904,23 +828,19 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     this.wellLogWidget.setDepthScale(finalScale);
     this.wellLogWidget.updateLayout();
-    console.log('🔍 Zoomed out:', { oldScale: currentScale, newScale: finalScale, minScale });
   }
 
   
   onEditToggle(enabled: boolean): void {
     console.log('✏️ Edit mode:', enabled);
-    // TODO: Enable/disable annotation tool on the widget
   }
 
   onToolbarColorChange(color: string): void {
     console.log('🎨 Color changed:', color);
-    // TODO: Apply color to selected track/curve
   }
 
   onRigTimeToggle(enabled: boolean): void {
     console.log('🕐 Rig Time:', enabled);
-    // TODO: Toggle rig time display
   }
 
   onTimeRangeChange(range: {start: string, end: string}): void {
@@ -943,7 +863,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     this.scrollPollHandle = setInterval(() => {
       this.checkScrollAndLoadData();
-    }, 500); // Check scroll every 500ms
+    }, 2000); // Check scroll every 2 seconds (reduced from 500ms)
   }
 
   private checkScrollAndLoadData(): void {
@@ -956,8 +876,8 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       const currentVisibleMin = visibleLimits.getLow();
       const currentVisibleMax = visibleLimits.getHigh();
       
-      // Check if user scrolled to load more data (with 30min buffer)
-      const bufferMs = 30 * 60 * 1000; // 30 minutes buffer
+      // Check if user scrolled to load more data (with 60min buffer to reduce frequent requests)
+      const bufferMs = 60 * 60 * 1000; // 60 minutes buffer (increased from 30 minutes)
       const needsLoadEarlier = currentVisibleMin < (this.lastVisibleMin - bufferMs);
       const needsLoadLater = currentVisibleMax > (this.lastVisibleMax + bufferMs);
       
@@ -1208,8 +1128,6 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     this.wellLogWidget.updateLayout();
   }
-
-  // --- Template utility methods ---
 
   formatDateTimeForInput(date: Date | number): string {
     if (!date) return '';

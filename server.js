@@ -4,7 +4,7 @@ const path = require('path');
 const url = require('url');
 
 // Read database
-const db = JSON.parse(fs.readFileSync(path.join(__dirname, 'db_backup.json'), 'utf8'));
+const db = JSON.parse(fs.readFileSync(path.join(__dirname, 'db.json'), 'utf8'));
 
 // Enable CORS
 const enableCORS = (req, res, next) => {
@@ -58,14 +58,14 @@ const handleTimeLogHeaders = (req, res) => {
     // Return all time headers if no specific well/wellbore provided
     console.log(`📊 Returning all time log headers`);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(db.timeLogHeaders));
+    res.end(JSON.stringify(db.logHeaders));
     return;
   }
   
   console.log(`🔍 API Call: timeLogHeaders for ${well}/${wellbore}`);
   
   // Filter for headers that contain 'time' (case-insensitive)
-  const filteredHeaders = db.timeLogHeaders.filter(header => {
+  const filteredHeaders = db.logHeaders.filter(header => {
     const matchesWellbore = header['@uidWell'] === well && header['@uidWellbore'] === wellbore;
     const isTimeRelated = header.uid && header.uid.toLowerCase().includes('time');
     return matchesWellbore && isTimeRelated;
@@ -87,11 +87,16 @@ const handleTimeLogData = (req, res) => {
   
   const { wellUid, logUid, wellboreUid, startIndex, endIndex } = query;
   
-  // Find matching time log data - try multiple field combinations
   console.log(`🔍 Looking for time log data with:`);
   console.log(`   wellUid: ${wellUid}`);
   console.log(`   logUid: ${logUid}`);
   console.log(`   wellboreUid: ${wellboreUid}`);
+  
+  // Debug: Show all available timeLogData entries
+  console.log(`🔍 Available timeLogData entries:`);
+  db.timeLogData.forEach((entry, index) => {
+    console.log(`   ${index}: logUid=${entry.logUid}, logName=${entry.logName || 'N/A'}, wellboreUid=${entry.wellboreUid}`);
+  });
   
   let timeLogEntry = db.timeLogData.find(log => 
     log.wellUid === wellUid && 
@@ -99,7 +104,6 @@ const handleTimeLogData = (req, res) => {
     log.wellboreUid === wellboreUid
   );
   
-  // If not found, try matching by id field (some data uses id instead of logUid)
   if (!timeLogEntry) {
     console.log(`🔍 Trying alternative match with id field...`);
     console.log(`   Looking for id: ${wellUid}_${wellboreUid}`);
@@ -113,10 +117,10 @@ const handleTimeLogData = (req, res) => {
   // If still not found, try matching by name field
   if (!timeLogEntry) {
     console.log(`🔍 Trying alternative match with name field...`);
-    console.log(`   Available logNames in db: ${db.timeLogData.map(log => log.logName).join(', ')}`);
+    console.log(`   Available logNames in db: ${db.timeLogData.map(log => log.logName || log.logUid).join(', ')}`);
     timeLogEntry = db.timeLogData.find(log => 
       log.wellUid === wellUid && 
-      log.logName === logUid && 
+      (log.logName === logUid || log.logUid === logUid) && 
       log.wellboreUid === wellboreUid
     );
   }
@@ -131,7 +135,6 @@ const handleTimeLogData = (req, res) => {
     );
   }
   
-  // If still not found, try matching by removing any suffix numbers
   if (!timeLogEntry) {
     console.log(`🔍 Trying match by removing suffix numbers...`);
     const cleanLogUid = logUid.replace(/\d+$/, ''); // Remove trailing numbers
@@ -192,16 +195,46 @@ const handleTimeLogData = (req, res) => {
   }
   
   // Find matching time log header to get correct mnemonics
-  const timeLogHeader = db.timeLogHeaders.find(header => 
+  const timeLogHeader = db.logHeaders.find(header => 
     header['@uidWell'] === wellUid && 
     header.uid === logUid && 
     header['@uidWellbore'] === wellboreUid
   );
   
-  // Generate mnemonic list from header or use fallback matching the image
-  let mnemonicList = 'RIGTIME,BITDEPTH,CHKP,DEPTH,DIFF_PRESS,FLWOUT,FLWPMP5,HKHT,HKLI,HOOK_SPEED,PVT1,PVT10,PVT11,PVT2,PVT3,PVT4,PVT5,PVT6,PVT7,PVT8,PVT9,ROP,RPM,ROT,SLIPS_INDICATOR,SPM1,SPM2,SPM3,SPP,STKC,TORQUE,TORQUE_RO';
+  console.log(`🔍 Found matching header:`, timeLogHeader ? timeLogHeader.uid : 'None');
+  
+  // Generate mnemonic list dynamically based on actual data columns
+  let mnemonicList = 'TIME,GR,RT,NPHI,RHOB,PEF,EXTRA1,EXTRA2'; // Default fallback
   if (timeLogHeader && timeLogHeader.logCurveInfo) {
-    mnemonicList = timeLogHeader.logCurveInfo.map(curve => curve.mnemonic).join(',');
+    // Use header mnemonics as base
+    const headerMnemonics = timeLogHeader.logCurveInfo.map(curve => curve.mnemonic);
+    
+    // Count actual columns in the first data row
+    const firstDataRow = timeLogEntry.data[0];
+    const actualColumnCount = firstDataRow.split(',').length;
+    
+    // Generate mnemonics to match actual column count
+    if (actualColumnCount > headerMnemonics.length) {
+      // Add extra mnemonics for additional columns
+      const extrasNeeded = actualColumnCount - headerMnemonics.length;
+      const extraMnemonics = [];
+      for (let i = 1; i <= extrasNeeded; i++) {
+        extraMnemonics.push(`EXTRA${i}`);
+      }
+      mnemonicList = [...headerMnemonics, ...extraMnemonics].join(',');
+    } else {
+      // Use only the needed header mnemonics
+      mnemonicList = headerMnemonics.slice(0, actualColumnCount).join(',');
+    }
+    
+    console.log(`🔧 Dynamic mnemonics: ${mnemonicList} (${actualColumnCount} columns)`);
+  } else {
+    // Fallback: count columns in first data row and generate mnemonics
+    const firstDataRow = timeLogEntry.data[0];
+    const actualColumnCount = firstDataRow.split(',').length;
+    const fallbackMnemonics = ['TIME', 'GR', 'RT', 'NPHI', 'RHOB', 'PEF', 'EXTRA1', 'EXTRA2'];
+    mnemonicList = fallbackMnemonics.slice(0, actualColumnCount).join(',');
+    console.log(`⚠️ No header found, using dynamic fallback mnemonics: ${mnemonicList} (${actualColumnCount} columns)`);
   }
   
   // Return the time log data in expected format matching the image
@@ -209,14 +242,14 @@ const handleTimeLogData = (req, res) => {
     logs: [{
       uidWell: wellUid,
       uidWellbore: wellboreUid,
-      startDateTimeIndex: "2026-02-07T11:43:31+03:00",
-      endDateTimeIndex: "2026-02-07T15:43:31+03:00",
+      startDateTimeIndex: timeLogEntry.startIndex, // Use actual data start time
+      endDateTimeIndex: timeLogEntry.endIndex,   // Use actual data end time
       uid: logUid,
       logData: {
         data: filteredData,
         mnemonicList: mnemonicList,
-        unitList: "s,ft,psi,ft,psi,%,galUS/min,ft,klbf,ft/min,bbl,bbl,bbl,bbl,bbl,bbl,bbl,bbl,bbl,ft/h,rpm,rpm,Status,spm,spm,spm,psi,unitless,kft.lbf,kft.lbf",
-        startDateTimeIndex: "2026-02-07T11:43:31+03:00",
+        unitList: "ISO,API,ohm.m,v/v,gAPI,PE,unit1,unit2",
+        startDateTimeIndex: timeLogEntry.startIndex,
         uid: logUid
       }
     }]
