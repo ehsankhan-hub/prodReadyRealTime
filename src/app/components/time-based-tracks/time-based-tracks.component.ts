@@ -394,15 +394,16 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
       if (visibleRange) {
         const keepStartTime = visibleRange.min - (keepBufferHours * 3600000);
-        const keepEndTime = visibleRange.max + (keepBufferHours * 3600000);
+        // Don't limit the end time - keep all recent data to avoid losing current data
+        // const keepEndTime = visibleRange.max + (keepBufferHours * 3600000);
 
-        // Find indices to keep using binary search (fast)
+        // Find start index to keep using binary search (fast)
         keepStartIndex = this.binarySearchForTime(times, keepStartTime);
-        keepEndIndex = this.binarySearchForTime(times, keepEndTime);
-
-        // Clamp to array bounds
         keepStartIndex = Math.max(0, keepStartIndex);
-        keepEndIndex = Math.min(times.length - 1, keepEndIndex);
+        
+        // Keep all data from keepStartIndex to end (don't remove recent data)
+        // keepEndIndex = this.binarySearchForTime(times, keepEndTime);
+        // keepEndIndex = Math.min(times.length - 1, keepEndIndex);
       } else {
         // If no visible range, keep only the most recent maxMemoryHours
         const cutoffTime = times[times.length - 1] - (this.maxMemoryHours * 3600000);
@@ -410,11 +411,11 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
         keepStartIndex = Math.max(0, keepStartIndex);
       }
 
-      // Count how much we're removing
+      // Count how much we're removing (only from start now)
       cleanupCount.before += keepStartIndex;
-      cleanupCount.after += (times.length - 1 - keepEndIndex);
+      cleanupCount.after += 0; // Don't remove from end
 
-      // Keep only the relevant portion
+      // Keep only the relevant portion (from keepStartIndex to end)
       if (keepEndIndex > keepStartIndex) {
         const filteredTimes = times.slice(keepStartIndex, keepEndIndex + 1);
         this.curveTimeIndices.set(mnemonic, filteredTimes);
@@ -427,7 +428,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       }
     }
 
-    console.log(`🧹 Memory cleanup completed: removed ${cleanupCount.before} points from start, ${cleanupCount.after} from end`);
+    console.log(`🧹 Memory cleanup completed: removed ${cleanupCount.before} points from start, ${cleanupCount.after} from end (preserving recent data)`);
     
     // Force garbage collection hint (only available in Chrome DevTools)
     if ((window as any).gc) {
@@ -571,7 +572,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
     const times: number[] = [];
     const values: number[] = [];
-    const batchSize = 1000; // Process 1000 rows at a time
+    const batchSize = 500; // Process 500 rows at a time (reduced from 1000 for better performance)
     const totalRows = logData.data.length;
     
     console.log(`🔄 Processing ${curve.mnemonicId}: ${totalRows} rows`);
@@ -864,7 +865,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     this.scrollPollHandle = setInterval(() => {
       this.checkScrollAndLoadData();
-    }, 2000); // Check scroll every 2 seconds (reduced from 500ms)
+    }, 1000); // Check scroll every 1 second (reduced from 2s for faster response)
   }
 
   private checkScrollAndLoadData(): void {
@@ -901,6 +902,27 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private loadAdditionalData(visibleMin: number, visibleMax: number, needsLoadEarlier: boolean): void {
     if (this.isLoadingData) {
       console.log('⏳ Already loading data, skipping additional request');
+      return;
+    }
+    
+    this.isLoadingData = true;
+    
+    // Get unique LogIds from template that need additional data
+    const logIdCurves = new Map<string, ITimeCurve[]>();
+    this.listOfTracks.forEach((trackInfo) => {
+      trackInfo.curves.forEach((curve) => {
+        if (!logIdCurves.has(curve.LogId!)) {
+          logIdCurves.set(curve.LogId!, []);
+        }
+        logIdCurves.get(curve.LogId!)!.push(curve);
+      });
+    });
+    
+    const logIdsToLoad = Array.from(logIdCurves.keys());
+    const isScrollingUp = needsLoadEarlier;
+    
+    console.log(`🔄 Loading additional data for LogIds:`, logIdsToLoad);
+    
     logIdsToLoad.forEach(logId => {
       // Find matching header for this LogId
       const matchingHeader = this.wellboreObjects.find(h => h.uid === logId);
@@ -991,7 +1013,10 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     
     this.timeBasedLogService.getLogData(queryParameter).subscribe(
       (response: any) => this.processAdditionalDataResponse(response),
-      (error) => console.error('❌ Error loading additional data:', error)
+      (error) => {
+        console.error('❌ Error loading additional data:', error);
+        this.isLoadingData = false; // Reset loading state on error
+      }
     );
   }
 
@@ -1017,6 +1042,9 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
 
   private processAdditionalDataResponse(response: any): void {
     console.log('📥 Processing additional data response');
+    
+    // Reset loading state
+    this.isLoadingData = false;
     
     if (!response || !response.logs || !response.logs[0] || !response.logs[0].logData) {
       console.error('❌ Invalid additional data response:', response);
