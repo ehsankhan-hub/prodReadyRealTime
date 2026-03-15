@@ -152,31 +152,36 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
         this.showLoading = false;
         
         if (headers && headers.length > 0) {
-          // Filter for all time-related headers
-          const timeRelatedHeaders = headers.filter(h => h.uid && h.uid.toLowerCase().includes('time'));
+          // Get all LogId values from static configuration
+          const staticLogIds = this.getAllStaticLogIds();
+          console.log('🔧 Static LogIds from configuration:', staticLogIds);
           
-          if (timeRelatedHeaders.length > 0) {
-            console.log(`✅ Found ${timeRelatedHeaders.length} time-related headers:`, timeRelatedHeaders.map(h => h.uid));
+          // Filter headers that match static configuration (support both uid and objectId)
+          const matchingHeaders = headers.filter(header => {
+            const headerId = (header as any).objectId || header.uid;
+            return headerId && staticLogIds.includes(headerId);
+          });
+          
+          if (matchingHeaders.length > 0) {
+            console.log(`✅ Found ${matchingHeaders.length} headers matching static configuration:`, matchingHeaders.map(h => (h as any).objectId || h.uid));
             
-            // Use all time-related headers
-            this.wellboreObjects = timeRelatedHeaders;
+            // Use only matching headers
+            this.wellboreObjects = matchingHeaders;
             
-            // Process all headers
+            // Process only matching headers
             this.processHeaders();
           } else {
-            console.log('🔧 No time-related headers found, using all available headers as fallback');
-            this.wellboreObjects = headers;
+            console.log('🔧 No headers match static configuration, using all time-related headers as fallback');
+            // Fallback to time-related headers only
+            const timeRelatedHeaders = headers.filter(h => h.uid && h.uid.toLowerCase().includes('time'));
+            this.wellboreObjects = timeRelatedHeaders;
             this.processHeaders();
           }
         } else {
-          console.warn('No headers found');
-          this.showLoading = false;
-          this.showNoDataMessage('No headers found for the specified well and wellbore.');
+          console.log('🔧 No headers found');
         }
-        
-        this.tryInitializeWidget();
       },
-      (error: unknown) => {
+      (error) => {
         console.error('Error fetching headers:', error);
         this.showLoading = false;
         this.showNoDataMessage('Error loading headers. Please check your connection and try again.');
@@ -188,6 +193,23 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
   private showNoDataMessage(message: string): void {
     // TODO: Implement UI notification (e.g., toast, alert, or template variable)
     console.warn('User Message:', message);
+  }
+
+  private getAllStaticLogIds(): string[] {
+    const logIds = new Set<string>();
+    
+    // Collect LogIds from all track configurations
+    this.listOfTracks.forEach(track => {
+      if (track.curves) {
+        track.curves.forEach(curve => {
+          if (curve.LogId) {
+            logIds.add(curve.LogId);
+          }
+        });
+      }
+    });
+    
+    return Array.from(logIds);
   }
 
   private fetchLogHeaders(): void {
@@ -218,6 +240,9 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     });
 
     this.setupCurvesForLogIds(Array.from(uniqueLogIds));
+    
+    // Initialize widget after processing headers
+    this.tryInitializeWidget();
   }
 
   private setupCurvesForLogIds(logIds: string[]): void {
@@ -689,9 +714,13 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
     this.loadingLogIds.add(logId);
     console.log(`📥 Loading additional data for ${logId}: ${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`);
 
+    // Apply the same uid/objectId matching logic for data processing
+    const headerId = (header as any).objectId || header.uid;
+    console.log(`🔧 Using headerId for data loading: ${headerId}`);
+
     const queryParameter: { wellUid: string; logUid: string; wellboreUid: string; logName: string; indexType: string; indexCurve: string; startIndex: number; endIndex: number; isGrowing: boolean; mnemonicList: string } = {
       wellUid: this.well,
-      logUid: header.uid,
+      logUid: headerId, // Use the matched headerId (objectId or uid)
       wellboreUid: this.wellbore,
       logName: header.name,
       indexType: 'time',
@@ -724,13 +753,20 @@ export class TimeBaseTrackNativeGeoComponent implements OnInit, AfterViewInit, O
       console.log('🔍 Analyzing logs array:', response.logs.map((log: any, index: number) => ({
         index,
         uid: log.uid,
+        objectId: log.objectId,
         hasLogData: !!log.logData,
         hasData: !!log.data,
         keys: Object.keys(log)
       })));
       
-      const logEntry = response.logs.find((log: any) => log.uid === logId || log.logData);
-      console.log('🔍 Found log entry:', logEntry);
+      // Apply the same uid/objectId matching logic for data parsing
+      const header = this.logIdToHeader.get(logId);
+      const headerId = (header as any)?.objectId || header?.uid || logId;
+      
+      const logEntry = response.logs.find((log: any) => 
+        (log.uid === headerId || log.objectId === headerId) && (log.logData || log.data)
+      );
+      console.log('🔍 Found log entry with matching headerId:', logEntry, 'searched for:', headerId);
       
       if (logEntry && logEntry.logData) {
         logData = logEntry.logData;
