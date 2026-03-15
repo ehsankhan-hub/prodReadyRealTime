@@ -143,9 +143,9 @@ export class MwdTimeComponent implements OnInit {
               lineWidth: 2,
               min: 0,
               max: 150,
-              autoScale: false,
+              autoScale: true, // Enable auto-scaling for better visibility
               show: true,
-              LogId: 'MWD_Time_SLB',
+              LogId: 'Surface_Time',
               data: [],
               mnemonicLst: []
             }
@@ -167,16 +167,16 @@ export class MwdTimeComponent implements OnInit {
               lineWidth: 2,
               min: 0.1,
               max: 100,
-              autoScale: false,
+              autoScale: true, // Enable auto-scaling for better visibility
               show: true,
-              LogId: 'MWD_Time_SLB',
+              LogId: 'Surface_Time',
               data: [],
               mnemonicLst: []
             }
           ]
         }
       ];
-    }
+     }
   
     /**
      * Creates default Density track configurations.
@@ -203,9 +203,9 @@ export class MwdTimeComponent implements OnInit {
               lineWidth: 2,
               min: 2.0,
               max: 3.0,
-              autoScale: false,
+              autoScale: true, // Enable auto-scaling for better visibility
               show: true,
-              LogId: 'MWD_Time_SLB',
+              LogId: 'Surface_Time',
               data: [],
               mnemonicLst: []
             }
@@ -227,9 +227,33 @@ export class MwdTimeComponent implements OnInit {
               lineWidth: 2,
               min: -0.05,
               max: 0.6,
-              autoScale: false,
+              autoScale: true, // Enable auto-scaling for better visibility
               show: true,
-              LogId: 'MWD_Time_SLB',
+              LogId: 'Surface_Time',
+              data: [],
+              mnemonicLst: []
+            }
+          ]
+        },
+        {
+          trackNo: 5,
+          trackName: 'Photoelectric Factor',
+          trackType: 'Linear',
+          trackWidth: 100,
+          isIndex: false,
+          isDepth: false,
+          curves: [
+            {
+              mnemonicId: 'PEF',
+              displayName: 'Photoelectric Factor',
+              color: '#FFA07A',
+              lineStyle: 'solid',
+              lineWidth: 2,
+              min: 1.0,
+              max: 10.0,
+              autoScale: true, // Enable auto-scaling for better visibility
+              show: true,
+              LogId: 'Surface_Time',
               data: [],
               mnemonicLst: []
             }

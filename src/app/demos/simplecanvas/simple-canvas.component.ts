@@ -37,6 +37,8 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
   mwdTracks: ITracks[] = [];
   /** Density track configurations */
   densityTracks: ITracks[] = [];
+  /** Surface Time track configurations */
+  surfaceTimeTracks: ITracks[] = [];
   /** Active tab index for conditional rendering */
   activeTab: number = 0;
   /** Converted time tracks for native geo component */
@@ -179,8 +181,133 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
       }
     ];
 
+    // Add Surface_Time tracks for comparison
+    this.surfaceTimeTracks = [
+      {
+        trackNo: 6,
+        trackName: 'Surface Gamma Ray',
+        trackType: 'Linear',
+        trackWidth: 100,
+        isIndex: false,
+        isDepth: false,
+        curves: [
+          {
+            mnemonicId: 'GR',
+            displayName: 'Gamma Ray (Surface)',
+            color: '#FF6B6B',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: 0,
+            max: 150,
+            autoScale: false,
+            show: true,
+            LogId: 'Surface_Time',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
+      },
+      {
+        trackNo: 7,
+        trackName: 'Surface Resistivity',
+        trackType: 'Linear',
+        trackWidth: 100,
+        isIndex: false,
+        isDepth: false,
+        curves: [
+          {
+            mnemonicId: 'RT',
+            displayName: 'Resistivity (Surface)',
+            color: '#4ECDC4',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: 0.1,
+            max: 100,
+            autoScale: false,
+            show: true,
+            LogId: 'Surface_Time',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
+      },
+      {
+        trackNo: 8,
+        trackName: 'Surface Bulk Density',
+        trackType: 'Linear',
+        trackWidth: 100,
+        isIndex: false,
+        isDepth: false,
+        curves: [
+          {
+            mnemonicId: 'RHOB',
+            displayName: 'Bulk Density (Surface)',
+            color: '#45B7D1',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: 2.0,
+            max: 3.0,
+            autoScale: false,
+            show: true,
+            LogId: 'Surface_Time',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
+      },
+      {
+        trackNo: 9,
+        trackName: 'Surface Neutron Porosity',
+        trackType: 'Linear',
+        trackWidth: 100,
+        isIndex: false,
+        isDepth: false,
+        curves: [
+          {
+            mnemonicId: 'NPHI',
+            displayName: 'Neutron Porosity (Surface)',
+            color: '#96CEB4',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: -0.05,
+            max: 0.6,
+            autoScale: false,
+            show: true,
+            LogId: 'Surface_Time',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
+      },
+      {
+        trackNo: 10,
+        trackName: 'Surface Photoelectric Factor',
+        trackType: 'Linear',
+        trackWidth: 100,
+        isIndex: false,
+        isDepth: false,
+        curves: [
+          {
+            mnemonicId: 'PEF',
+            displayName: 'Photoelectric Factor (Surface)',
+            color: '#FFA07A',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: 1.0,
+            max: 10.0,
+            autoScale: false,
+            show: true,
+            LogId: 'Surface_Time',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
+      }
+    ];
+
     console.log(' MWD Tracks initialized:', this.mwdTracks);
     console.log(' Density Tracks initialized:', this.densityTracks);
+    console.log(' Surface Time Tracks initialized:', this.surfaceTimeTracks);
   }
 
   /**

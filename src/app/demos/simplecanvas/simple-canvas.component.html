@@ -14,7 +14,10 @@
       <div class="canvas-container" *ngIf="activeTab === 1">
         <app-mwd-time
           [well]="'HWYH_1389'"
-          [wellbore]="'HWYH_1389_0'">
+          [wellbore]="'HWYH_1389_0'"
+          [lstOfTrack]="mwdTracks"
+          [lstOfTrack1]="densityTracks"
+          [lstOfTrack2]="surfaceTimeTracks">
         </app-mwd-time>
       </div>
     </mat-tab>
