@@ -119,6 +119,7 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private lastVisibleMin = -1;
   private lastVisibleMax = -1;
   private subscriptions: any[] = [];
+  private isLoadingData = false; // Prevent concurrent requests
 
 
 
@@ -882,6 +883,11 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       const needsLoadLater = currentVisibleMax > (this.lastVisibleMax + bufferMs);
       
       if (needsLoadEarlier || needsLoadLater) {
+        if (this.isLoadingData) {
+          console.log('⏳ Data loading in progress, skipping scroll request');
+          return;
+        }
+        
         console.log(`🔄 Scroll detected: ${new Date(currentVisibleMin).toISOString()} to ${new Date(currentVisibleMax).toISOString()}`);
         this.loadAdditionalData(currentVisibleMin, currentVisibleMax, needsLoadEarlier);
         this.lastVisibleMin = currentVisibleMin;
@@ -892,12 +898,9 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
     }
   }
 
-  private loadAdditionalData(visibleMin: number, visibleMax: number, isScrollingUp: boolean = false): void {
-    // Use the matched headers (actual LogIds) instead of curve mnemonics
-    const logIdsToLoad = Array.from(this.matchedHeaders);
-    console.log(`🔄 Loading additional data for LogIds:`, logIdsToLoad);
-    
-    // Load data for each LogId
+  private loadAdditionalData(visibleMin: number, visibleMax: number, needsLoadEarlier: boolean): void {
+    if (this.isLoadingData) {
+      console.log('⏳ Already loading data, skipping additional request');
     logIdsToLoad.forEach(logId => {
       // Find matching header for this LogId
       const matchingHeader = this.wellboreObjects.find(h => h.uid === logId);
