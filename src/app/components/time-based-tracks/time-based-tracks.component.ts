@@ -878,12 +878,20 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       const currentVisibleMin = visibleLimits.getLow();
       const currentVisibleMax = visibleLimits.getHigh();
       
-      // Check if user scrolled to load more data (with 60min buffer to reduce frequent requests)
-      const bufferMs = 60 * 60 * 1000; // 60 minutes buffer (increased from 30 minutes)
-      const needsLoadEarlier = currentVisibleMin < (this.lastVisibleMin - bufferMs);
-      const needsLoadLater = currentVisibleMax > (this.lastVisibleMax + bufferMs);
+      // Check if user scrolled to load more data (with 30min buffer for faster response)
+      const bufferMs = 30 * 60 * 1000; // 30 minutes buffer (reduced from 60 for faster response)
       
-      if (needsLoadEarlier || needsLoadLater) {
+      // More sensitive detection for fast scrolling - use smaller threshold for initial load
+      const fastScrollBuffer = 15 * 60 * 1000; // 15 minutes for fast scroll detection
+      const currentBuffer = this.lastVisibleMin === -1 ? fastScrollBuffer : bufferMs;
+      
+      const needsLoadEarlier = currentVisibleMin < (this.lastVisibleMin - currentBuffer);
+      const needsLoadLater = currentVisibleMax > (this.lastVisibleMax + currentBuffer);
+      
+      // Additional check for significant scroll movement (fast scrolling)
+      const significantMovement = Math.abs(currentVisibleMin - this.lastVisibleMin) > (5 * 60 * 1000); // 5 minutes significant movement
+      
+      if (needsLoadEarlier || needsLoadLater || significantMovement) {
         if (this.isLoadingData) {
           console.log('⏳ Data loading in progress, skipping scroll request');
           return;
