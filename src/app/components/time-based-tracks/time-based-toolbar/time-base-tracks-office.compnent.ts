@@ -812,6 +812,10 @@ export class TimeBasedTracksComponent
       '🔍 Debug: trackMap entries:',
       Array.from(this.trackMap.keys())
     );
+
+    let totalCurvesAdded = 0;
+    let totalCurvesSkipped = 0;
+
     sortedTracks.forEach((trackInfo) => {
       console.log(
         `🔍 Processing track: ${trackInfo.trackName} (trackNo: ${trackInfo.trackNo})`
@@ -830,16 +834,27 @@ export class TimeBasedTracksComponent
             curveInfo.data?.length || 0
           }`
         );
+        
+        // Skip curves with no data
         if (!curveInfo.data?.length) {
           console.warn(
-            `⚠️ No data for curve ${curveInfo.mnemonicId} in track ${trackInfo.trackNo}`
+            `⚠️ No data for curve ${curveInfo.mnemonicId} in track ${trackInfo.trackNo} - skipping`
           );
+          totalCurvesSkipped++;
+          return;
+        }
+
+        // Also check if we have time indices for this curve
+        const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId);
+        if (!indexData?.length) {
+          console.warn(
+            `⚠️ No time indices for curve ${curveInfo.mnemonicId} in track ${trackInfo.trackNo} - skipping`
+          );
+          totalCurvesSkipped++;
           return;
         }
 
         try {
-          const indexData =
-            this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
           console.log(`🔍 Debug: Creating curve ${curveInfo.mnemonicId}:`);
           console.log(`   - Index data count: ${indexData.length}`);
           console.log(`   - Curve data count: ${curveInfo.data.length}`);
@@ -867,6 +882,7 @@ export class TimeBasedTracksComponent
           curve.setName(curveInfo.mnemonicId);
           track.addChild(curve);
 
+          totalCurvesAdded++;
           console.log(
             `✅ Added curve ${curveInfo.mnemonicId} to track ${trackInfo.trackName} (${indexData.length} points)`
           );
@@ -875,85 +891,88 @@ export class TimeBasedTracksComponent
             `❌ Error adding curve ${curveInfo.mnemonicId}:`,
             error
           );
+          totalCurvesSkipped++;
         }
       });
     });
 
-    this.configureWidgetLimits();
+    console.log(
+      `📊 Curve Summary: Added ${totalCurvesAdded} curves, skipped ${totalCurvesSkipped} curves`
+    );
+
+    // Only configure widget limits if we actually added some curves
+    if (totalCurvesAdded > 0) {
+      this.configureWidgetLimits();
+    } else {
+      console.warn('⚠️ No curves were added - skipping widget configuration');
+    }
   }
 
   private configureWidgetLimits(): void {
     if (!this.wellLogWidget) return;
 
-    // Get the full range from wellbore objects (getLogHeaders response)
-    let minTime = 0;
-    let maxTime = 0;
+    // Check if we have any actual data before configuring limits
+    const actualDataRange = this.getTimeRange();
+    if (!actualDataRange || actualDataRange.minTime === 0 || actualDataRange.maxTime === 0) {
+      console.warn('⚠️ No data available for widget configuration - skipping');
+      return;
+    }
+
+    console.log(
+      `📊 Using actual data range: ${new Date(
+        actualDataRange.minTime
+      ).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`
+    );
+
+    // Get header range for widget limits
+    let headerMinTime = 0;
+    let headerMaxTime = 0;
 
     for (const wo of this.wellboreObjects) {
       if (!this.matchedHeaders?.has(wo.objectId)) {
         continue;
       }
-      console.log('wo log-header ', wo);
       const { startDateValue, endDateValue } = this.extractDateValues(wo);
-      console.log('startDateValue-', startDateValue);
-      console.log('endDateValue-', endDateValue);
       if (startDateValue && endDateValue) {
         const startTime = this.parseTimestamp(startDateValue, 'start');
         const endTime = this.parseTimestamp(endDateValue, 'end');
-        console.log('startTime parse ', startTime);
-        console.log('endTime parse ', endTime);
         if (startTime && endTime) {
-          if (minTime === 0 || startTime < minTime) minTime = startTime;
-          if (maxTime === 0 || endTime > maxTime) maxTime = endTime;
+          if (headerMinTime === 0 || startTime < headerMinTime) headerMinTime = startTime;
+          if (headerMaxTime === 0 || endTime > headerMaxTime) headerMaxTime = endTime;
         }
       }
     }
 
-    // if (minTime === 0 && maxTime === 0) {
-    //   console.error('❌ No valid time range found from headers - no headers processed or all headers had invalid dates');
-    //   return;
-    // }
-
-    console.log(
-      `📊 Using full header range: ${new Date(
-        minTime
-      ).toISOString()} to ${new Date(maxTime).toISOString()}`
-    );
-
-    // Configure widget for time-based data FIRST
+    // Configure widget for time-based data
     this.wellLogWidget.setIndexType('time', 'ms');
 
     // Set widget limits using HEADER range (start to end index)
-    this.wellLogWidget.setDepthLimits(minTime, maxTime); // Use full header range
+    this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
 
     // Set visible range to 4 hours from end index (most recent data)
     const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
-    const visibleMin = maxTime - fourHoursMs; // Start 4 hours before end
-    const visibleMax = maxTime; // End at the most recent data
+    const visibleMin = actualDataRange.maxTime - fourHoursMs; // Start 4 hours before actual data end
+    const visibleMax = actualDataRange.maxTime; // End at the most recent actual data
 
-    this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
+    // Ensure visible range is within header bounds
+    const finalVisibleMin = Math.max(headerMinTime, visibleMin);
+    const finalVisibleMax = Math.min(headerMaxTime, visibleMax);
 
-    // Set depth scale AFTER limits are configured (this fixes the error)
-    try {
-      this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
-    } catch (error) {
-      console.warn('⚠️ Could not set depth scale:', error);
-      // Continue without depth scale - widget will use default
-    }
+    this.wellLogWidget.setVisibleDepthLimits(finalVisibleMin, finalVisibleMax);
 
     // Update layout after all configurations
     this.wellLogWidget.updateLayout();
 
     // Initialize scroll tracking and start polling
-    this.lastVisibleMin = visibleMin;
-    this.lastVisibleMax = visibleMax;
+    this.lastVisibleMin = finalVisibleMin;
+    this.lastVisibleMax = finalVisibleMax;
     this.startScrollPolling();
 
     console.log(
-      `📊 Widget limits: ${new Date(minTime).toISOString()} to ${new Date(
-        maxTime
-      ).toISOString()}, visible: ${new Date(visibleMin).toISOString()} to ${new Date(
-        visibleMax
+      `📊 Widget limits: ${new Date(headerMinTime).toISOString()} to ${new Date(
+        headerMaxTime
+      ).toISOString()}, visible: ${new Date(finalVisibleMin).toISOString()} to ${new Date(
+        finalVisibleMax
       ).toISOString()}, showing 4h window for scrolling`
     );
   }
