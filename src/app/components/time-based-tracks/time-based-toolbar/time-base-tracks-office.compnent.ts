@@ -413,12 +413,12 @@ export class TimeBasedTracksComponent
 
     if (!endTime || !originalStartTime) return;
 
-    // Calculate 4-hour load window from endDateTimeIndex
+    // Load actual data range instead of 4-hour window
     const loadEndTime = endTime;
-    const loadStartTime = loadEndTime - 4 * 3600000; // 4 hours
+    const loadStartTime = originalStartTime;
 
     console.log(
-      `🔧 Loading 4-hour window: ${new Date(
+      `🔧 Loading actual data range: ${new Date(
         loadStartTime
       ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
     );
