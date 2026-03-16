@@ -1355,33 +1355,60 @@ export class TimeBasedTracksComponent
 
   private processAdditionalDataResponse(response: any): void {
     console.log('📥 Processing additional data response');
+    console.log('🔍 Full response structure:', response);
 
-    if (
-      !response ||
-      !response.logs ||
-      !response.logs[0] ||
-      !response.logs[0].logData
-    ) {
-      console.error('❌ Invalid additional data response:', response);
+    // Handle the actual server response structure
+    if (!response || !response.logs || !response.logs[0]) {
+      console.error('❌ Invalid additional data response - missing logs array:', response);
       return;
     }
 
-    const logData = response.logs[0].logData;
-    const mnemonics = logData.mnemonicList.split(',');
+    const logEntry = response.logs[0];
+    console.log('🔍 Log entry structure:', logEntry);
+
+    // Check for logData in the response
+    if (!logEntry.logData) {
+      console.error('❌ Invalid additional data response - missing logData:', logEntry);
+      return;
+    }
+
+    const logData = logEntry.logData;
+    const rawData = logData.data;
+    const mnemonicList = logData.mnemonicList;
+
+    if (!Array.isArray(rawData) || rawData.length === 0) {
+      console.error('❌ Invalid data structure - expected array in logData.data:', rawData);
+      return;
+    }
+
+    if (!mnemonicList) {
+      console.error('❌ Invalid data structure - missing mnemonicList:', logData);
+      return;
+    }
+
+    console.log(`📥 Processing ${rawData.length} additional data rows`);
+    console.log('📥 Server mnemonic list:', mnemonicList);
+
+    // Create the logData structure expected by parseAdditionalCurveData
+    const formattedLogData: ILogDataResponse = {
+      mnemonicList: mnemonicList,
+      data: rawData,
+    };
 
     // Find curves that need additional data
     this.listOfTracks.forEach((trackInfo) => {
       trackInfo.curves.forEach((curveInfo: ITimeCurve) => {
+        const mnemonics = mnemonicList.split(',');
         const curveIndex = mnemonics.findIndex(
           (m: string) => m.trim() === curveInfo.mnemonicId
         );
         const timeIndex = mnemonics.findIndex(
-          (m: string) => m.trim() === 'TIME' || 'RIGTIME'
+          (m: string) => m.trim() === 'RIGTIME'
         );
 
         if (curveIndex !== -1 && timeIndex !== -1) {
           this.parseAdditionalCurveData(
-            logData,
+            formattedLogData,
             curveInfo,
             curveIndex,
             timeIndex
