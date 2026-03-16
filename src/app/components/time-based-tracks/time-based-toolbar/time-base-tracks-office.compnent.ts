@@ -924,10 +924,11 @@ export class TimeBasedTracksComponent
       ).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`
     );
 
-    // Get header range for widget limits
-    let headerMinTime = 0;
-    let headerMaxTime = 0;
+    // Get header range for widget limits - use actual data range as fallback
+    let headerMinTime = actualDataRange.minTime;
+    let headerMaxTime = actualDataRange.maxTime;
 
+    // Try to get header range from wellbore objects
     for (const wo of this.wellboreObjects) {
       if (!this.matchedHeaders?.has(wo.objectId)) {
         continue;
@@ -941,6 +942,13 @@ export class TimeBasedTracksComponent
           if (headerMaxTime === 0 || endTime > headerMaxTime) headerMaxTime = endTime;
         }
       }
+    }
+
+    // If still using epoch times, fall back to actual data range
+    if (headerMinTime <= 1000000000000 || headerMaxTime <= 1000000000000) {
+      console.warn('⚠️ Header times invalid, using actual data range as fallback');
+      headerMinTime = actualDataRange.minTime;
+      headerMaxTime = actualDataRange.maxTime;
     }
 
     // Configure widget for time-based data
