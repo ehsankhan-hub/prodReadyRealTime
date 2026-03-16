@@ -923,7 +923,8 @@ export class TimeBasedTracksComponent
     // Get actual data range from curves
     const actualDataRange = this.getTimeRange();
     
-    if (actualDataRange && actualDataRange.minTime > 0 && actualDataRange.maxTime > 0) {
+    if (actualDataRange && actualDataRange.minTime > 0 && actualDataRange.maxTime > 0 && 
+        actualDataRange.minTime !== actualDataRange.maxTime) {
       console.log(
         `📊 Actual data range: ${new Date(
           actualDataRange.minTime
@@ -935,7 +936,7 @@ export class TimeBasedTracksComponent
       maxTime = actualDataRange.maxTime;
       console.log(`📊 Using actual data range instead`);
     } else {
-      console.warn(`⚠️ getTimeRange() returned invalid or no data, using header range`);
+      console.warn(`⚠️ getTimeRange() returned invalid or no data (min: ${actualDataRange?.minTime}, max: ${actualDataRange?.maxTime}), using header range`);
     }
 
     // Configure widget for time-based data with FULL header range
