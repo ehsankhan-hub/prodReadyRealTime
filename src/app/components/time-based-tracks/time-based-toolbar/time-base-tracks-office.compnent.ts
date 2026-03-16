@@ -920,22 +920,23 @@ export class TimeBasedTracksComponent
       ).toISOString()} to ${new Date(maxTime).toISOString()}`
     );
 
-    // Get actual data range from curves - use destructuring for safety
-    const { minTime: actualMinTime, maxTime: actualMaxTime } = this.getTimeRange() || { minTime: 0, maxTime: 0 };
+    // Get actual data range from curves
+    const actualDataRange = this.getTimeRange();
     
-    if (actualMinTime > 0 && actualMaxTime > 0 && actualMinTime !== actualMaxTime) {
+    if (actualDataRange && actualDataRange.minTime > 0 && actualDataRange.maxTime > 0 && 
+        actualDataRange.minTime !== actualDataRange.maxTime) {
       console.log(
         `📊 Actual data range: ${new Date(
-          actualMinTime
-        ).toISOString()} to ${new Date(actualMaxTime).toISOString()}`
+          actualDataRange.minTime
+        ).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`
       );
       
       // Use actual data range if available
-      minTime = actualMinTime;
-      maxTime = actualMaxTime;
+      minTime = actualDataRange.minTime;
+      maxTime = actualDataRange.maxTime;
       console.log(`📊 Using actual data range instead`);
     } else {
-      console.warn(`⚠️ getTimeRange() returned invalid or no data (min: ${actualMinTime}, max: ${actualMaxTime}), using header range`);
+      console.warn(`⚠️ getTimeRange() returned invalid or no data, using header range`);
     }
 
     // Configure widget for time-based data with FULL header range
@@ -1000,7 +1001,7 @@ export class TimeBasedTracksComponent
 
     if (!this.wellLogWidget) return;
 
-    const { minTime, maxTime } = this.getTimeRange() || { minTime: 0, maxTime: 0 };
+    const { minTime, maxTime } = this.getTimeRange();
     if (minTime === 0 || maxTime === 0) return;
 
     const scaleHours = parseFloat(newScale);
@@ -1052,7 +1053,7 @@ export class TimeBasedTracksComponent
 
   onResetView(): void {
     if (!this.wellLogWidget) return;
-    const { minTime, maxTime } = this.getTimeRange() || { minTime: 0, maxTime: 0 };
+    const { minTime, maxTime } = this.getTimeRange();
     if (minTime === 0 || maxTime === 0) return;
 
     // Show centered window for better scrollbar visibility
@@ -1073,7 +1074,7 @@ export class TimeBasedTracksComponent
 
   onScrollToLatest(): void {
     if (!this.wellLogWidget) return;
-    const { minTime, maxTime } = this.getTimeRange() || { minTime: 0, maxTime: 0 };
+    const { minTime, maxTime } = this.getTimeRange();
     if (minTime === 0 || maxTime === 0) return;
     const scaleDays = parseFloat(this.selectedScale) || 1;
     const windowMs = scaleDays * 24 * 3600000; // Convert days to milliseconds
