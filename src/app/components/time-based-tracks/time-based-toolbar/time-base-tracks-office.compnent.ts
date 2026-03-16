@@ -923,7 +923,8 @@ export class TimeBasedTracksComponent
     // Get actual data range from curves
     const actualDataRange = this.getTimeRange();
     
-    if (actualDataRange && actualDataRange.minTime > 0 && actualDataRange.maxTime > 0 && 
+    if (actualDataRange && actualDataRange.minTime && actualDataRange.maxTime && 
+        actualDataRange.minTime > 0 && actualDataRange.maxTime > 0 && 
         actualDataRange.minTime !== actualDataRange.maxTime) {
       console.log(
         `📊 Actual data range: ${new Date(
