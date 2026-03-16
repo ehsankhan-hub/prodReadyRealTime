@@ -962,10 +962,10 @@ export class TimeBasedTracksComponent
     console.log(`🔧 Testing with hardcoded range: ${new Date(testDataStart).toISOString()} to ${new Date(testDataEnd).toISOString()}`);
     this.wellLogWidget.setDepthLimits(testDataStart, testDataEnd);
 
-    // Set visible range to 4 hours from end index (most recent data)
+    // Set visible range to 4 hours from end of hardcoded range
     const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
-    const visibleMin = actualDataRange.maxTime - fourHoursMs; // Start 4 hours before actual data end
-    const visibleMax = actualDataRange.maxTime; // End at the most recent actual data
+    const visibleMin = testDataEnd - fourHoursMs; // Start 4 hours before hardcoded range end
+    const visibleMax = testDataEnd; // End at hardcoded range end
 
     // Ensure visible range is within widget bounds
     const finalVisibleMin = Math.max(testDataStart, visibleMin);
