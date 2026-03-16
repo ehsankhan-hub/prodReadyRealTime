@@ -149,6 +149,7 @@ export class TimeBasedTracksComponent
   private lastVisibleMin = -1;
   private lastVisibleMax = -1;
   private subscriptions: any[] = [];
+  private scrollDebounceHandle: any = null;
 
   ngOnInit(): void {
     console.log('🎯 TimeBasedTracksComponent initialized', {
@@ -164,6 +165,10 @@ export class TimeBasedTracksComponent
 
   ngOnDestroy(): void {
     this.stopScrollPolling();
+    if (this.scrollDebounceHandle) {
+      clearTimeout(this.scrollDebounceHandle);
+      this.scrollDebounceHandle = null;
+    }
     if (this.wellLogWidget) {
       try {
         this.wellLogWidget.dispose();
@@ -447,8 +452,8 @@ export class TimeBasedTracksComponent
   }
 
   // --- Memory Management Properties ---
-  private maxMemoryHours = 12; // Keep maximum 12 hours of data in memory
-  private cleanupThreshold = 8; // Start cleanup after 8 hours of data
+  private maxMemoryHours = 8; // Keep maximum 8 hours of data in memory (reduced for performance)
+  private cleanupThreshold = 6; // Start cleanup after 6 hours of data (earlier cleanup)
 
   // --- Memory Management Methods ---
 
@@ -717,7 +722,7 @@ export class TimeBasedTracksComponent
 
     const times: number[] = [];
     const values: number[] = [];
-    const batchSize = 1000; // Process 1000 rows at a time
+    const batchSize = 250; // Process 250 rows at a time for better responsiveness
     const totalRows = logData.data.length;
 
     console.log(
@@ -1182,7 +1187,7 @@ export class TimeBasedTracksComponent
 
     this.scrollPollHandle = setInterval(() => {
       this.checkScrollAndLoadData();
-    }, 500); // Check scroll every 500ms
+    }, 200); // Check scroll every 200ms for more responsive loading
   }
 
   private checkScrollAndLoadData(): void {
@@ -1195,8 +1200,8 @@ export class TimeBasedTracksComponent
       const currentVisibleMin = visibleLimits.getLow();
       const currentVisibleMax = visibleLimits.getHigh();
 
-      // Check if user scrolled to load more data (with 15min buffer)
-      const bufferMs = 15 * 60 * 1000; // 15 minutes buffer
+      // Check if user scrolled to load more data (with 5min buffer for earlier loading)
+      const bufferMs = 5 * 60 * 1000; // 5 minutes buffer
       const needsLoadEarlier =
         currentVisibleMin < this.lastVisibleMin - bufferMs;
       const needsLoadLater = currentVisibleMax > this.lastVisibleMax + bufferMs;
@@ -1207,13 +1212,21 @@ export class TimeBasedTracksComponent
             currentVisibleMin
           ).toISOString()} to ${new Date(currentVisibleMax).toISOString()}`
         );
-        this.loadAdditionalData(
-          currentVisibleMin,
-          currentVisibleMax,
-          needsLoadEarlier
-        );
-        this.lastVisibleMin = currentVisibleMin;
-        this.lastVisibleMax = currentVisibleMax;
+        
+        // Debounce scroll events to reduce excessive network calls
+        if (this.scrollDebounceHandle) {
+          clearTimeout(this.scrollDebounceHandle);
+        }
+        
+        this.scrollDebounceHandle = setTimeout(() => {
+          this.loadAdditionalData(
+            currentVisibleMin,
+            currentVisibleMax,
+            needsLoadEarlier
+          );
+          this.lastVisibleMin = currentVisibleMin;
+          this.lastVisibleMax = currentVisibleMax;
+        }, 150); // 150ms debounce delay
       }
     } catch (error) {
       console.error('❌ Error checking scroll:', error);
@@ -1274,8 +1287,10 @@ export class TimeBasedTracksComponent
     visibleMax: number,
     isScrollingUp: boolean = false
   ): void {
-    // Check memory before loading new data
-    this.checkAndCleanupMemory({ min: visibleMin, max: visibleMax });
+    // Defer memory cleanup to avoid blocking scroll performance
+    setTimeout(() => {
+      this.checkAndCleanupMemory({ min: visibleMin, max: visibleMax });
+    }, 100);
 
     // Extract and parse date values from headers
     const { startDateValue, endDateValue } = this.extractDateValues(header);
