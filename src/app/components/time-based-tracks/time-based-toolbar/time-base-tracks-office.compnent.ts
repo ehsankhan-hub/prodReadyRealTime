@@ -956,11 +956,11 @@ export class TimeBasedTracksComponent
 
     // Set widget limits using HEADER range (start to end index)
     // TODO: Replace hardcoded range with actual header range from getLogHeaders()
-    // Temporary hardcoded one-month range for testing
-    const oneMonthAgo = Date.now() - (30 * 24 * 3600000); // 30 days ago
-    const now = Date.now();
-    console.log(`🔧 Testing with hardcoded range: ${new Date(oneMonthAgo).toISOString()} to ${new Date(now).toISOString()}`);
-    this.wellLogWidget.setDepthLimits(oneMonthAgo, now);
+    // Temporary hardcoded range for testing - includes actual data period
+    const testDataStart = new Date('2026-01-01T00:00:00.000Z').getTime(); // Start of January 2026
+    const testDataEnd = new Date('2026-02-01T00:00:00.000Z').getTime();   // End of January 2026
+    console.log(`🔧 Testing with hardcoded range: ${new Date(testDataStart).toISOString()} to ${new Date(testDataEnd).toISOString()}`);
+    this.wellLogWidget.setDepthLimits(testDataStart, testDataEnd);
 
     // Set visible range to 4 hours from end index (most recent data)
     const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
@@ -968,8 +968,8 @@ export class TimeBasedTracksComponent
     const visibleMax = actualDataRange.maxTime; // End at the most recent actual data
 
     // Ensure visible range is within widget bounds
-    const finalVisibleMin = Math.max(oneMonthAgo, visibleMin);
-    const finalVisibleMax = Math.min(now, visibleMax);
+    const finalVisibleMin = Math.max(testDataStart, visibleMin);
+    const finalVisibleMax = Math.min(testDataEnd, visibleMax);
 
     this.wellLogWidget.setVisibleDepthLimits(finalVisibleMin, finalVisibleMax);
 
