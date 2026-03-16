@@ -940,9 +940,16 @@ export class TimeBasedTracksComponent
       console.warn(`⚠️ getTimeRange() returned invalid or no data, using header range`);
     }
 
-    // Configure widget for time-based data with FULL header range
+    // Configure visible range to show expanded window for scrolling capability
+    const totalRange = maxTime - minTime;
+    // Show expanded window: either 48 hours or 2x the data range, whichever is larger
+    const expandedRangeMs = Math.max(48 * 3600000, totalRange * 2); // 48 hours minimum or 2x data range
+    const visibleMin = minTime; // Start from the beginning
+    const visibleMax = minTime + expandedRangeMs; // Extend beyond data for scroll room
+
+    // Configure widget for time-based data with EXPANDED range to match visible window
     this.wellLogWidget.setIndexType('time', 'ms');
-    this.wellLogWidget.setDepthLimits(minTime, maxTime);
+    this.wellLogWidget.setDepthLimits(visibleMin, visibleMax); // Use expanded range instead of actual data range
     this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
 
     // Store index curve times for template statistics
@@ -950,13 +957,6 @@ export class TimeBasedTracksComponent
     if (firstCurveTimes) {
       this.indexCurveTime = firstCurveTimes;
     }
-
-    // Configure visible range to show expanded window for scrolling capability
-    const totalRange = maxTime - minTime;
-    // Show expanded window: either 48 hours or 2x the data range, whichever is larger
-    const expandedRangeMs = Math.max(48 * 3600000, totalRange * 2); // 48 hours minimum or 2x data range
-    const visibleMin = minTime; // Start from the beginning
-    const visibleMax = minTime + expandedRangeMs; // Extend beyond data for scroll room
 
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
     this.wellLogWidget.updateLayout();
@@ -967,9 +967,11 @@ export class TimeBasedTracksComponent
     this.startScrollPolling();
 
     console.log(
-      `📊 Configured widget: ${new Date(minTime).toISOString()} to ${new Date(
+      `📊 Configured widget: ${new Date(visibleMin).toISOString()} to ${new Date(
+        visibleMax
+      ).toISOString()}, data range: ${new Date(minTime).toISOString()} to ${new Date(
         maxTime
-      ).toISOString()}, showing expanded ${expandedRangeMs / 3600000}h window for scrolling`
+      ).toISOString()}, showing ${expandedRangeMs / 3600000}h window for scrolling`
     );
   }
 
