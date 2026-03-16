@@ -920,10 +920,11 @@ export class TimeBasedTracksComponent
       ).toISOString()} to ${new Date(maxTime).toISOString()}`
     );
 
-    // Configure widget limits using HEADER range (start to end index)
+    // Configure widget for time-based data FIRST
     this.wellLogWidget.setIndexType('time', 'ms');
+
+    // Set widget limits using HEADER range (start to end index)
     this.wellLogWidget.setDepthLimits(minTime, maxTime); // Use full header range
-    this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
 
     // Set visible range to 4 hours from end index (most recent data)
     const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
@@ -931,6 +932,16 @@ export class TimeBasedTracksComponent
     const visibleMax = maxTime; // End at the most recent data
 
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
+
+    // Set depth scale AFTER limits are configured (this fixes the error)
+    try {
+      this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
+    } catch (error) {
+      console.warn('⚠️ Could not set depth scale:', error);
+      // Continue without depth scale - widget will use default
+    }
+
+    // Update layout after all configurations
     this.wellLogWidget.updateLayout();
 
     // Initialize scroll tracking and start polling
