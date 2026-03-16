@@ -413,12 +413,12 @@ export class TimeBasedTracksComponent
 
     if (!endTime || !originalStartTime) return;
 
-    // Load actual data range instead of 4-hour window
+    // Load 24-hour window initially for better performance (chunked loading)
     const loadEndTime = endTime;
-    const loadStartTime = originalStartTime;
+    const loadStartTime = endTime - (24 * 3600000); // 24 hours before end
 
     console.log(
-      `🔧 Loading actual data range: ${new Date(
+      `🔧 Loading 24-hour window: ${new Date(
         loadStartTime
       ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
     );
@@ -909,10 +909,10 @@ export class TimeBasedTracksComponent
       }
     }
 
-    if (minTime === 0 && maxTime === 0) {
-      console.error('❌ No valid time range found from headers - no headers processed or all headers had invalid dates');
-      return;
-    }
+    // if (minTime === 0 && maxTime === 0) {
+    //   console.error('❌ No valid time range found from headers - no headers processed or all headers had invalid dates');
+    //   return;
+    // }
 
     console.log(
       `📊 Using full header range: ${new Date(
@@ -951,11 +951,11 @@ export class TimeBasedTracksComponent
       this.indexCurveTime = firstCurveTimes;
     }
 
-    // Configure visible range to show most recent data (but index track shows full range)
+    // Configure visible range to show ALL data for full scrolling capability
     const totalRange = maxTime - minTime;
-    const visibleRangeMs = Math.min(4 * 3600000, totalRange); // 4 hours or total range
-    const visibleMin = maxTime - visibleRangeMs;
-    const visibleMax = maxTime;
+    const visibleRangeMs = totalRange; // Show full data range instead of 4 hours
+    const visibleMin = minTime; // Start from the beginning
+    const visibleMax = maxTime; // End at the latest data
 
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
     this.wellLogWidget.updateLayout();
