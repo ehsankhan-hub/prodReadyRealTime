@@ -743,12 +743,12 @@ export class TimeBasedTracksComponent
               time = new Date(timeStr).getTime();
             } else {
               const parsedTime = parseFloat(timeStr);
-              // // Check if it's in years (like 2026) vs milliseconds (like 1738692795000)
-              // if (parsedTime < 10000) {
-              //   time = new Date(parsedTime, 0, 1).getTime();
-              // } else {
-              time = parsedTime;
-              //}
+              // Check if it's in years (like 2026) vs milliseconds (like 1738692795000)
+              if (parsedTime < 10000) {
+                time = new Date(parsedTime, 0, 1).getTime();
+              } else {
+                time = parsedTime;
+              }
             }
           } else {
             time = NaN;
