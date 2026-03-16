@@ -890,7 +890,7 @@ export class TimeBasedTracksComponent
     let maxTime = 0;
 
     for (const wo of this.wellboreObjects) {
-      if (!this.matchedHeaders.has(wo.objectId)) {
+      if (!this.matchedHeaders?.has(wo.objectId)) {
         continue;
       }
       console.log('wo log-header ', wo);
@@ -951,11 +951,12 @@ export class TimeBasedTracksComponent
       this.indexCurveTime = firstCurveTimes;
     }
 
-    // Configure visible range to show ALL data for full scrolling capability
+    // Configure visible range to show expanded window for scrolling capability
     const totalRange = maxTime - minTime;
-    const visibleRangeMs = totalRange; // Show full data range instead of 4 hours
+    // Show expanded window: either 48 hours or 2x the data range, whichever is larger
+    const expandedRangeMs = Math.max(48 * 3600000, totalRange * 2); // 48 hours minimum or 2x data range
     const visibleMin = minTime; // Start from the beginning
-    const visibleMax = maxTime; // End at the latest data
+    const visibleMax = minTime + expandedRangeMs; // Extend beyond data for scroll room
 
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
     this.wellLogWidget.updateLayout();
@@ -968,7 +969,7 @@ export class TimeBasedTracksComponent
     console.log(
       `📊 Configured widget: ${new Date(minTime).toISOString()} to ${new Date(
         maxTime
-      ).toISOString()}, showing most recent ${visibleRangeMs / 3600000}h window`
+      ).toISOString()}, showing expanded ${expandedRangeMs / 3600000}h window for scrolling`
     );
   }
 
