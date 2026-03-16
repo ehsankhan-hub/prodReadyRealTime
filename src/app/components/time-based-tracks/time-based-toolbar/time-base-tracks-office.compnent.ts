@@ -413,12 +413,12 @@ export class TimeBasedTracksComponent
 
     if (!endTime || !originalStartTime) return;
 
-    // Load 24-hour window initially for better performance (chunked loading)
+    // Load 4-hour window initially (most recent data) for better performance
     const loadEndTime = endTime;
-    const loadStartTime = endTime - (24 * 3600000); // 24 hours before end
+    const loadStartTime = endTime - (4 * 3600000); // 4 hours before end
 
     console.log(
-      `🔧 Loading 24-hour window: ${new Date(
+      `🔧 Loading initial 4-hour window: ${new Date(
         loadStartTime
       ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
     );
@@ -920,43 +920,15 @@ export class TimeBasedTracksComponent
       ).toISOString()} to ${new Date(maxTime).toISOString()}`
     );
 
-    // Get actual data range from curves
-    const actualDataRange = this.getTimeRange();
-    
-    if (actualDataRange && actualDataRange.minTime && actualDataRange.maxTime && 
-        actualDataRange.minTime > 0 && actualDataRange.maxTime > 0 && 
-        actualDataRange.minTime !== actualDataRange.maxTime) {
-      console.log(
-        `📊 Actual data range: ${new Date(
-          actualDataRange.minTime
-        ).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`
-      );
-      
-      // Use actual data range if available
-      minTime = actualDataRange.minTime;
-      maxTime = actualDataRange.maxTime;
-      console.log(`📊 Using actual data range instead`);
-    } else {
-      console.warn(`⚠️ getTimeRange() returned invalid or no data, using header range`);
-    }
-
-    // Configure visible range to show expanded window for scrolling capability
-    const totalRange = maxTime - minTime;
-    // Show expanded window: either 48 hours or 2x the data range, whichever is larger
-    const expandedRangeMs = Math.max(48 * 3600000, totalRange * 2); // 48 hours minimum or 2x data range
-    const visibleMin = minTime; // Start from the beginning
-    const visibleMax = minTime + expandedRangeMs; // Extend beyond data for scroll room
-
-    // Configure widget for time-based data with ACTUAL data range for proper display
+    // Configure widget limits using HEADER range (start to end index)
     this.wellLogWidget.setIndexType('time', 'ms');
-    this.wellLogWidget.setDepthLimits(minTime, maxTime); // Use actual data range for proper display
+    this.wellLogWidget.setDepthLimits(minTime, maxTime); // Use full header range
     this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
 
-    // Store index curve times for template statistics
-    const firstCurveTimes = this.curveTimeIndices.values().next().value;
-    if (firstCurveTimes) {
-      this.indexCurveTime = firstCurveTimes;
-    }
+    // Set visible range to 4 hours from end index (most recent data)
+    const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
+    const visibleMin = maxTime - fourHoursMs; // Start 4 hours before end
+    const visibleMax = maxTime; // End at the most recent data
 
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
     this.wellLogWidget.updateLayout();
@@ -971,7 +943,7 @@ export class TimeBasedTracksComponent
         maxTime
       ).toISOString()}, visible: ${new Date(visibleMin).toISOString()} to ${new Date(
         visibleMax
-      ).toISOString()}, showing ${expandedRangeMs / 3600000}h window for scrolling`
+      ).toISOString()}, showing 4h window for scrolling`
     );
   }
 
@@ -1175,8 +1147,8 @@ export class TimeBasedTracksComponent
       const currentVisibleMin = visibleLimits.getLow();
       const currentVisibleMax = visibleLimits.getHigh();
 
-      // Check if user scrolled to load more data (with 30min buffer)
-      const bufferMs = 30 * 60 * 1000; // 30 minutes buffer
+      // Check if user scrolled to load more data (with 15min buffer)
+      const bufferMs = 15 * 60 * 1000; // 15 minutes buffer
       const needsLoadEarlier =
         currentVisibleMin < this.lastVisibleMin - bufferMs;
       const needsLoadLater = currentVisibleMax > this.lastVisibleMax + bufferMs;
@@ -1257,7 +1229,7 @@ export class TimeBasedTracksComponent
     // Check memory before loading new data
     this.checkAndCleanupMemory({ min: visibleMin, max: visibleMax });
 
-    // Extract and parse date values
+    // Extract and parse date values from headers
     const { startDateValue, endDateValue } = this.extractDateValues(header);
 
     if (!startDateValue || !endDateValue) {
@@ -1265,29 +1237,29 @@ export class TimeBasedTracksComponent
       return;
     }
 
-    const totalStartTime = this.parseTimestamp(startDateValue, 'start');
-    const totalEndTime = this.parseTimestamp(endDateValue, 'end');
+    const headerStartTime = this.parseTimestamp(startDateValue, 'start');
+    const headerEndTime = this.parseTimestamp(endDateValue, 'end');
 
-    if (!totalStartTime || !totalEndTime) return;
+    if (!headerStartTime || !headerEndTime) return;
 
-    // Calculate load range based on scroll direction
+    // Calculate load range based on scroll direction - use 4-hour chunks
     let loadMin: number;
     let loadMax: number;
 
     if (isScrollingUp) {
-      // When scrolling up: subtract 4 hours from current visibleMin
+      // When scrolling up: load 4 hours before current visibleMin
       const fourHoursMs = 4 * 3600000;
-      loadMin = Math.max(totalStartTime, visibleMin - fourHoursMs);
-      loadMax = visibleMax;
+      loadMin = Math.max(headerStartTime, visibleMin - fourHoursMs);
+      loadMax = visibleMin; // Load up to current visible position
     } else {
-      // Load 2 hours buffer beyond visible range for normal scrolling
-      const bufferMs = 2 * 3600000;
-      loadMin = Math.max(totalStartTime, visibleMin - bufferMs);
-      loadMax = Math.min(totalEndTime, visibleMax + bufferMs);
+      // Normal scrolling: load 4 hours beyond current visible range
+      const fourHoursMs = 4 * 3600000;
+      loadMin = Math.max(headerStartTime, visibleMax - fourHoursMs);
+      loadMax = Math.min(headerEndTime, visibleMax + fourHoursMs);
     }
 
     console.log(
-      `🔧 ${isScrollingUp ? 'Scroll up' : 'Normal'}: Loading ${new Date(
+      `🔧 ${isScrollingUp ? 'Scroll up' : 'Normal'}: Loading 4h chunk ${new Date(
         loadMin
       ).toISOString()} to ${new Date(loadMax).toISOString()}`
     );
@@ -1307,7 +1279,7 @@ export class TimeBasedTracksComponent
     }
 
     console.log(
-      `📥 Loading additional data: ${new Date(
+      `📥 Loading additional 4h chunk: ${new Date(
         loadMin
       ).toISOString()} to ${new Date(loadMax).toISOString()}`
     );
