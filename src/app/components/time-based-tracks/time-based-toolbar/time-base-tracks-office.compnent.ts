@@ -947,9 +947,9 @@ export class TimeBasedTracksComponent
     const visibleMin = minTime; // Start from the beginning
     const visibleMax = minTime + expandedRangeMs; // Extend beyond data for scroll room
 
-    // Configure widget for time-based data with EXPANDED range to match visible window
+    // Configure widget for time-based data with ACTUAL data range for proper display
     this.wellLogWidget.setIndexType('time', 'ms');
-    this.wellLogWidget.setDepthLimits(visibleMin, visibleMax); // Use expanded range instead of actual data range
+    this.wellLogWidget.setDepthLimits(minTime, maxTime); // Use actual data range for proper display
     this.wellLogWidget.setDepthScale(3600000 / 100); // ~1 hour per 100px
 
     // Store index curve times for template statistics
@@ -967,10 +967,10 @@ export class TimeBasedTracksComponent
     this.startScrollPolling();
 
     console.log(
-      `📊 Configured widget: ${new Date(visibleMin).toISOString()} to ${new Date(
-        visibleMax
-      ).toISOString()}, data range: ${new Date(minTime).toISOString()} to ${new Date(
+      `📊 Widget limits: ${new Date(minTime).toISOString()} to ${new Date(
         maxTime
+      ).toISOString()}, visible: ${new Date(visibleMin).toISOString()} to ${new Date(
+        visibleMax
       ).toISOString()}, showing ${expandedRangeMs / 3600000}h window for scrolling`
     );
   }
@@ -1556,160 +1556,4 @@ export class TimeBasedTracksComponent
     return this.timeBasedThemeService.getCurveColor(trackIndex);
   }
 
-  // --- Print Modal Methods ---
-
-  /**
-   * Open print properties modal
-   */
-  openPrintModal(): void {
-    this.showPrintModal = true;
-    console.log('🖨️ Print modal opened');
-  }
-
-  /**
-   * Close print properties modal
-   */
-  closePrintModal(): void {
-    this.showPrintModal = false;
-    console.log('🖨️ Print modal closed');
-  }
-
-  /**
-   * Apply print options and execute print
-   */
-  applyPrintOptions(): void {
-    console.log('🖨️ Applying print options:', this.printOptions);
-
-    // Validate print options
-    if (!this.validatePrintOptions()) {
-      return;
-    }
-
-    // Execute print based on options
-    this.executePrint();
-
-    // Close modal
-    this.closePrintModal();
-  }
-
-  /**
-   * Show error message using snackbar
-   */
-  private showErrorMessage(message: string): void {
-    this.snackBar.open(message, 'Close', {
-      duration: 5000,
-      panelClass: ['error-snackbar'],
-      horizontalPosition: 'center',
-      verticalPosition: 'bottom',
-    });
-  }
-
-  /**
-   * Validate print options
-   */
-  private validatePrintOptions(): boolean {
-    // Check if widget is available
-    if (!this.wellLogWidget) {
-      this.showErrorMessage('No widget available for printing');
-      return false;
-    }
-
-    // Check if there's data to print
-    if (this.curveTimeIndices.size === 0) {
-      this.showErrorMessage('No data available to print');
-      return false;
-    }
-
-    // Validate range selection
-    if (this.printOptions.range === 'range') {
-      // Additional range validation could be added here
-      console.log('🖨️ Range printing selected - would show range inputs');
-    }
-
-    return true;
-  }
-
-  /**
-   * Execute the print operation
-   */
-  private executePrint(): void {
-    try {
-      console.log('🖨️ Executing print with options:', this.printOptions);
-
-      // Prepare print settings based on options
-      const printSettings = this.preparePrintSettings();
-
-      // Execute the print
-      this.performPrint(printSettings);
-
-      console.log('✅ Print operation completed');
-    } catch (error) {
-      console.error('❌ Error during print operation:', error);
-      this.showErrorMessage('Print operation failed. Please try again.');
-    }
-  }
-
-  /**
-   * Prepare print settings based on user options
-   */
-  private preparePrintSettings(): any {
-    const settings: any = {
-      scale: this.printOptions.scale,
-      twoInchLog: this.printOptions.twoInchLog,
-      useSinglePageScale: this.printOptions.useSinglePageScale,
-      header: this.printOptions.header,
-    };
-
-    // Set print range based on selection
-    switch (this.printOptions.range) {
-      case 'visible':
-        if (this.wellLogWidget) {
-          const visibleRange = this.wellLogWidget.getVisibleDepthLimits();
-          if (visibleRange) {
-            settings.startDepth = visibleRange.getLow();
-            settings.endDepth = visibleRange.getHigh();
-          }
-        }
-        break;
-      case 'all':
-        const actualRange = this.wellLogWidget?.getDepthLimits();
-        if (actualRange && actualRange.getLow && actualRange.getHigh) {
-          settings.startDepth = actualRange.getLow();
-          settings.endDepth = actualRange.getHigh();
-        } else if (
-          actualRange &&
-          actualRange.getLow() !== undefined &&
-          actualRange.getHigh() !== undefined
-        ) {
-          settings.startDepth = actualRange.getLow();
-          settings.endDepth = actualRange.getHigh();
-        }
-        break;
-      case 'range':
-        // Would need to get range from additional input fields
-        console.log('🖨️ Custom range printing - implement range inputs');
-        break;
-    }
-
-    return settings;
-  }
-
-  /**
-   * Perform the actual print operation
-   */
-  private performPrint(settings: any): void {
-    if (!this.wellLogWidget) return;
-
-    try {
-      // This would integrate with GeoToolkit's print functionality
-      // For now, we'll use browser print as a fallback
-      console.log('🖨️ Print settings:', settings);
-
-      // Trigger browser print
-      window.print();
-    } catch (error) {
-      console.error('❌ Print execution error:', error);
-      throw error;
-    }
-  }
 }
