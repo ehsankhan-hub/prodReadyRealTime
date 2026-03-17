@@ -177,7 +177,7 @@ export class DynamicTrackGeneratorComponent
   isLoading = false;
   /** Loading state for chunk fetches */
   isLoadingChunk = false;
-
+  isFirstTimeLoading = true;
   /** Available depth scale options (meters per screen height) */
   scaleOptions = [
     { label: '1:100', value: 100 },
@@ -282,8 +282,9 @@ export class DynamicTrackGeneratorComponent
     // console.log('🎨 Generate Canvas Tracks Component initialized');
     // console.log('📊 Input tracks:', this.listOfTracks);
     // Initialize window resize listener for dynamic width adjustment
-    this.initializeWindowResizeListener();
+    // this.initializeWindowResizeListener();
     this.loadLogHeadersAndCreateTracks();
+    this.isFirstTimeLoading = true;
   }
 
   /**
@@ -292,6 +293,7 @@ export class DynamicTrackGeneratorComponent
    */
   ngAfterViewInit(): void {
     this.sceneReady = true;
+
     console.log('🔧 Scene ready - waiting for data to load');
   }
 
@@ -471,6 +473,7 @@ export class DynamicTrackGeneratorComponent
         (result as any).subscribe({
           next: (logDataArray: IWellboreLogData) => {
             console.log('logDataArray  ---', logDataArray);
+            this.isFirstTimeLoading = false;
             if (logDataArray != null) {
               // Parse using backend response format (logs[0].logData)
               curves.forEach((curve) =>
@@ -489,6 +492,7 @@ export class DynamicTrackGeneratorComponent
             resolve();
           },
           error: (err: Error) => {
+            this.isFirstTimeLoading = false;
             console.error(
               '❌ Error loading log data for LogId:',
               header.objectId,
@@ -706,35 +710,36 @@ export class DynamicTrackGeneratorComponent
    */
   private detectTimeBasedData(): boolean {
     // Check track configuration for time-based index track
-    const hasTimeIndexTrack = this.listOfTracks.some(
-      (track) => track.isIndex && !track.isDepth
-    );
+    const hasTimeIndexTrack = this.listOfTracks.some((track) => {
+      return track.isIndex && !track.isDepth;
+    });
 
     if (hasTimeIndexTrack) {
       console.log(
-        '🕐 Time-based data detected from track configuration (isIndex && !isDepth)'
+        '🕐 Time-based data detected from track configuration (isIndex && !isDepth)',
+        hasTimeIndexTrack
       );
       return true;
     }
 
     // Check log header metadata for time indicators
-    if (this.cachedHeaders.length > 0) {
-      const firstHeader = this.cachedHeaders[0];
-      const indexTypeHasTime = firstHeader?.indexType
-        ?.toLowerCase()
-        .includes('time');
-      const indexCurveHasTime = firstHeader?.indexCurve
-        ?.toLowerCase()
-        .includes('time');
+    // if (this.cachedHeaders.length > 0) {
+    //   const firstHeader = this.cachedHeaders[0];
+    //   const indexTypeHasTime = firstHeader?.indexType
+    //     ?.toLowerCase()
+    //     .includes('time');
+    //   const indexCurveHasTime = firstHeader?.indexCurve
+    //     ?.toLowerCase()
+    //     .includes('time');
 
-      if (indexTypeHasTime || indexCurveHasTime) {
-        console.log('🕐 Time-based data detected from log header metadata');
-        console.log(
-          `   indexType: ${firstHeader?.indexType}, indexCurve: ${firstHeader?.indexCurve}`
-        );
-        return true;
-      }
-    }
+    //   if (indexTypeHasTime || indexCurveHasTime) {
+    //     console.log('🕐 Time-based data detected from log header metadata');
+    //     console.log(
+    //       `   indexType: ${firstHeader?.indexType}, indexCurve: ${firstHeader?.indexCurve}`
+    //     );
+    //     return true;
+    //   }
+    // }
 
     // Default: Assume depth-based if no time indicators found
     console.log('📏 Depth-based data assumed (no time indicators found)');
@@ -794,11 +799,8 @@ export class DynamicTrackGeneratorComponent
       this.widgetComponent.Widget = this.wellLogWidget;
       console.log('✅ Widget assigned to BaseWidgetComponent');
 
-      // Apply initial theme styling to GeoToolkit elements
-      this.applyGeoToolkitTheme();
-
       // Apply track styling following GeoToolkit demo pattern
-      console.log('theam flag--', this.theamFlage);
+      this.applyGeoToolkitTheme();
 
       // Create data tracks
       this.createTracks();
@@ -1872,7 +1874,7 @@ export class DynamicTrackGeneratorComponent
           // Create regular track
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
-          track.setWidth(trackInfo.trackWidth || 200);
+          track.setWidth(trackInfo.trackWidth || 257);
           // track.setWidth(trackInfo.trackWidth || 100);
         }
 
@@ -2165,7 +2167,7 @@ export class DynamicTrackGeneratorComponent
 
     // Create real index track - GeoToolkit will automatically use depth/time from data tracks
     const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
-    indexTrack.setWidth(60);
+    indexTrack.setWidth(120);
     indexTrack.setName(isTimeBased ? 'Time' : 'Depth');
 
     // Configure index track to show full scale instead of just visible range
@@ -2250,12 +2252,6 @@ export class DynamicTrackGeneratorComponent
   public getWidget(): WellLogWidget {
     return this.wellLogWidget;
   }
-    changeTheam(event: any) {
-    console.log('theam flag--', this.theamFlage);
-    this.theamFlage = event.checked;
-    console.log('even log ', this.theamFlage);
-  }
-
   /**
    * Toggles between light and dark theme.
    */
@@ -2291,8 +2287,8 @@ export class DynamicTrackGeneratorComponent
             headerBg: 'transparent',
             headerText: '#e2e8f0',
             headerBorder: '#4a5568',
-            trackBg: '#233045',
-            trackBorder: '#4a5568',
+            trackBg: 'white',
+            trackBorder: 'gray',
             gridLines: '#2564e0ff',
             axisText: '#e2e8f0',
             curveColors: [
