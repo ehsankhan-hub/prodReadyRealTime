@@ -120,6 +120,11 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
   private lastVisibleMax = -1;
   private subscriptions: any[] = [];
   private isLoadingData = false; // Prevent concurrent requests
+  
+  // Pre-loading cache properties
+  private preloadCache: Map<string, { times: number[], values: number[], timestamp: number }> = new Map();
+  private maxCacheSize = 5; // Maximum number of chunks to cache
+  private preloadTimeout: any = null;
 
 
 
@@ -1141,33 +1146,74 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       .map(entry => entry[1]);
   }
 
-  private updateCurvesWithAdditionalData(): void {
+private updateCurvesWithAdditionalData(): void {
     if (!this.wellLogWidget) return;
-    
+
     this.listOfTracks.forEach(trackInfo => {
       const track = this.trackMap.get(trackInfo.trackNo);
       if (!track) return;
-      
+
       trackInfo.curves.forEach(curveInfo => {
+
         const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
-        
-        // Remove existing curve and add new one with updated data
-        const existingCurves = track.getChildren().filter((child: any) => child.getName && child.getName() === curveInfo.mnemonicId);
-        existingCurves.forEach((curve: any) => track.removeChild(curve));
-        
-        const geoLogData = new GeoLogData(curveInfo.mnemonicId);
-        geoLogData.setValues(indexData, curveInfo.data);
-        
-        const newCurve = new LogCurve(geoLogData);
-        newCurve.setLineStyle({ color: curveInfo.color || '#63b3ed', width: curveInfo.lineWidth || 1 });
-        newCurve.setName(curveInfo.mnemonicId);
-        track.addChild(newCurve);
+        let existingCurve: any = null;
+
+        // GeoToolkit iterator
+        const iterator: any = track.getChildren();
+        let node = iterator.next();
+
+        while (!node.done) {
+          const curve = node.value;
+
+          if (curve && curve.getName && curve.getName() === curveInfo.mnemonicId) {
+            existingCurve = curve;
+            break;
+          }
+
+          node = iterator.next();
+        }
+
+        if (existingCurve) {
+
+          const geoLogData = existingCurve.getLogData();
+
+          if (geoLogData) {
+            geoLogData.setValues(indexData, curveInfo.data);
+
+            console.log(
+              `✅ Updated existing curve ${curveInfo.mnemonicId} with ${indexData.length} points`
+            );
+          }
+
+        } else {
+
+          const geoLogData = new GeoLogData(curveInfo.mnemonicId);
+          geoLogData.setValues(indexData, curveInfo.data);
+
+          const newCurve = new LogCurve(geoLogData);
+
+          newCurve.setLineStyle({
+            color: curveInfo.color || '#63b3ed',
+            width: curveInfo.lineWidth || 1
+          });
+
+          newCurve.setName(curveInfo.mnemonicId);
+
+          track.addChild(newCurve);
+
+          console.log(
+            `✅ Created new curve ${curveInfo.mnemonicId} with ${indexData.length} points`
+          );
+        }
+
       });
     });
-    
-    this.wellLogWidget.updateLayout();
-  }
 
+    this.wellLogWidget.updateLayout();
+    
+    // Start pre-loading adjacent chunks after current data is loaded
+    this.preloadAdjacentChunks();
+  }
   formatDateTimeForInput(date: Date | number): string {
     if (!date) return '';
     const dateObj = typeof date === 'number' ? new Date(date) : date;
@@ -1362,5 +1408,249 @@ export class TimeBasedTracksComponent implements OnInit, OnDestroy, AfterViewIni
       console.error('❌ Print execution error:', error);
       throw error;
     }
+  }
+
+  // --- Pre-loading Methods ---
+
+  /**
+   * Pre-load adjacent chunks for smoother scrolling
+   */
+  private preloadAdjacentChunks(): void {
+    if (!this.wellLogWidget) return;
+
+    // Clear any existing pre-load timeout
+    if (this.preloadTimeout) {
+      clearTimeout(this.preloadTimeout);
+    }
+
+    // Start pre-loading after a short delay to avoid blocking the UI
+    this.preloadTimeout = setTimeout(() => {
+      this.executePreload();
+    }, 500);
+  }
+
+  /**
+   * Execute the pre-loading of adjacent chunks
+   */
+  private executePreload(): void {
+    if (!this.wellLogWidget) return;
+
+    try {
+      const visibleLimits = this.wellLogWidget.getVisibleDepthLimits();
+      if (!visibleLimits) return;
+
+      const currentMin = visibleLimits.getLow();
+      const currentMax = visibleLimits.getHigh();
+      const chunkSize = 2 * 3600000; // 2 hours chunks
+
+      // Calculate adjacent ranges
+      const previousRange = {
+        start: currentMin - chunkSize,
+        end: currentMin
+      };
+
+      const nextRange = {
+        start: currentMax,
+        end: currentMax + chunkSize
+      };
+
+      console.log('🚀 Starting pre-loading of adjacent chunks');
+      
+      // Pre-load previous and next chunks
+      this.preloadChunk(previousRange, 'previous');
+      this.preloadChunk(nextRange, 'next');
+
+    } catch (error) {
+      console.error('❌ Error during pre-load:', error);
+    }
+  }
+
+  /**
+   * Pre-load a specific chunk
+   */
+  private preloadChunk(range: { start: number, end: number }, direction: 'previous' | 'next'): void {
+    // Check if already cached
+    const cacheKey = `${range.start}-${range.end}`;
+    if (this.preloadCache.has(cacheKey)) {
+      console.log(`📦 Chunk ${direction} already cached`);
+      return;
+    }
+
+    // Get unique LogIds
+    const logIdsToLoad = this.listOfTracks
+      .flatMap(track => track.curves)
+      .map(curve => curve.LogId!)
+      .filter((logId, index, arr) => arr.indexOf(logId) === index);
+
+    console.log(`🚀 Pre-loading ${direction} chunk: ${new Date(range.start).toISOString()} to ${new Date(range.end).toISOString()}`);
+
+    logIdsToLoad.forEach(logId => {
+      const matchingHeader = this.wellboreObjects.find(h => h.uid === logId);
+      if (!matchingHeader) return;
+
+      this.preloadChunkForLogId(matchingHeader, range, direction);
+    });
+  }
+
+  /**
+   * Pre-load chunk data for a specific LogId
+   */
+  private preloadChunkForLogId(wo: IWellboreObject, range: { start: number, end: number }, direction: 'previous' | 'next'): void {
+    const { startDateValue, endDateValue } = this.extractDateValues(wo);
+    
+    if (!startDateValue || !endDateValue) return;
+
+    const totalStartTime = this.parseTimestamp(startDateValue, 'start');
+    const totalEndTime = this.parseTimestamp(endDateValue, 'end');
+    
+    if (!totalStartTime || !totalEndTime) return;
+
+    // Clamp range to available data
+    const loadMin = Math.max(totalStartTime, range.start);
+    const loadMax = Math.min(totalEndTime, range.end);
+
+    if (loadMin >= loadMax) return;
+
+    const queryParameter: ILogDataQueryParameter = {
+      wellUid: this.well,
+      logUid: wo.uid,
+      wellboreUid: this.wellbore,
+      logName: wo.name,
+      indexType: wo.indexType,
+      indexCurve: wo.indexCurve,
+      startIndex: new Date(loadMin).toISOString(),
+      endIndex: new Date(loadMax).toISOString(),
+      isGrowing: wo.isGrowing,
+      mnemonicList: wo.mnemonicList
+    };
+
+    this.timeBasedLogService.getLogData(queryParameter).subscribe(
+      (response: any) => this.processPreloadResponse(response, range, direction),
+      (error) => console.warn(`⚠️ Pre-load failed for ${direction} chunk:`, error)
+    );
+  }
+
+  /**
+   * Process pre-loaded data response
+   */
+  private processPreloadResponse(response: any, range: { start: number, end: number }, direction: 'previous' | 'next'): void {
+    if (!response || !response.logs || !response.logs[0] || !response.logs[0].logData) {
+      return;
+    }
+
+    const logData = response.logs[0].logData;
+    const mnemonics = logData.mnemonicList.split(',');
+    const cacheKey = `${range.start}-${range.end}`;
+
+    // Cache the pre-loaded data for each curve
+    this.listOfTracks.forEach(trackInfo => {
+      trackInfo.curves.forEach(curveInfo => {
+        const curveIndex = mnemonics.findIndex((m: string) => m.trim() === curveInfo.mnemonicId);
+        const timeIndex = mnemonics.findIndex((m: string) => m.trim() === 'TIME' || "RIGTIME");
+        
+        if (curveIndex !== -1 && timeIndex !== -1) {
+          const { times, values } = this.parsePreloadData(logData, curveIndex, timeIndex);
+          
+          if (times.length > 0) {
+            const curveCacheKey = `${curveInfo.mnemonicId}-${cacheKey}`;
+            this.preloadCache.set(curveCacheKey, {
+              times,
+              values,
+              timestamp: Date.now()
+            });
+          }
+        }
+      });
+    });
+
+    // Clean up old cache entries
+    this.cleanupPreloadCache();
+
+    console.log(`✅ Pre-loaded ${direction} chunk cached`);
+  }
+
+  /**
+   * Parse pre-loaded data from response
+   */
+  private parsePreloadData(logData: any, curveIndex: number, timeIndex: number): { times: number[], values: number[] } {
+    const times: number[] = [];
+    const values: number[] = [];
+    
+    logData.data.forEach((dataRow: string) => {
+      const cols = dataRow.split(',');
+      if (cols.length > curveIndex && cols[curveIndex]) {
+        const value = parseFloat(cols[curveIndex]);
+        const timeStr = cols[timeIndex];
+        
+        let time: number;
+        if (timeStr.includes('T') && timeStr.includes('-')) {
+          time = new Date(timeStr).getTime();
+        } else {
+          const parsedTime = parseFloat(timeStr);
+          if (parsedTime < 10000) {
+            time = new Date(parsedTime, 0, 1).getTime();
+          } else {
+            time = parsedTime;
+          }
+        }
+        
+        if (!isNaN(value) && !isNaN(time)) {
+          times.push(time);
+          values.push(value);
+        }
+      }
+    });
+
+    // Sort by time
+    const sortedIndices = times
+      .map((_, index) => index)
+      .sort((a, b) => times[a] - times[b]);
+
+    return {
+      times: sortedIndices.map(i => times[i]),
+      values: sortedIndices.map(i => values[i])
+    };
+  }
+
+  /**
+   * Clean up old pre-load cache entries
+   */
+  private cleanupPreloadCache(): void {
+    if (this.preloadCache.size <= this.maxCacheSize) return;
+
+    // Sort by timestamp (oldest first) and remove excess entries
+    const entries = Array.from(this.preloadCache.entries())
+      .sort(([, a], [, b]) => a.timestamp - b.timestamp);
+
+    const toRemove = entries.slice(0, entries.length - this.maxCacheSize);
+    
+    toRemove.forEach(([key]) => {
+      this.preloadCache.delete(key);
+    });
+
+    console.log(`🧹 Cleaned ${toRemove.length} old pre-load cache entries`);
+  }
+
+  /**
+   * Check if data is available in pre-load cache
+   */
+  private getFromPreloadCache(mnemonicId: string, range: { start: number, end: number }): { times: number[], values: number[] } | null {
+    const tolerance = 60000; // 1 minute tolerance
+    const cacheEntries = Array.from(this.preloadCache.entries())
+      .filter(([key]) => key.startsWith(mnemonicId + '-'));
+
+    for (const [, data] of cacheEntries) {
+      if (data.times.length > 0) {
+        const dataStart = data.times[0];
+        const dataEnd = data.times[data.times.length - 1];
+        
+        if (Math.abs(dataStart - range.start) < tolerance && 
+            Math.abs(dataEnd - range.end) < tolerance) {
+          return data;
+        }
+      }
+    }
+
+    return null;
   }
 }
