@@ -400,58 +400,109 @@ export class TimeBasedTracksComponent
     });
   }
 
-  private loadLogData(header: IWellboreObject, curves: ITimeCurve[]): void {
-    // Extract date values from wellbore object
-    const { startDateValue, endDateValue } = this.extractDateValues(header);
 
-    if (!startDateValue || !endDateValue) {
-      console.error('❌ Missing date values:', {
-        startDateValue,
-        endDateValue,
-      });
-      return;
-    }
+  // private loadLogData(header: IWellboreObject, curves: ITimeCurve[]): void {
+  //   // Extract date values from wellbore object
+  //   const { startDateValue, endDateValue } = this.extractDateValues(header);
 
-    // Parse timestamps
-    const endTime = this.parseTimestamp(endDateValue, 'end');
-    const originalStartTime = this.parseTimestamp(startDateValue, 'start');
+  //   if (!startDateValue || !endDateValue) {
+  //     console.error('❌ Missing date values:', {
+  //       startDateValue,
+  //       endDateValue,
+  //     });
+  //     return;
+  //   }
 
-    if (!endTime || !originalStartTime) return;
+  //   // Parse timestamps
+  //   const endTime = this.parseTimestamp(endDateValue, 'end');
+  //   const originalStartTime = this.parseTimestamp(startDateValue, 'start');
 
-    // Load 4-hour window initially (most recent data) for better performance
-    const loadEndTime = endTime;
-    const loadStartTime = endTime - 4 * 3600000; // 4 hours before end
+  //   if (!endTime || !originalStartTime) return;
 
-    console.log(
-      `🔧 Loading initial 4-hour window: ${new Date(
-        loadStartTime
-      ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
-    );
+  //   // Load 4-hour window initially (most recent data) for better performance
+  //   const loadEndTime = endTime;
+  //   const loadStartTime = endTime - 4 * 3600000; // 4 hours before end
 
-    // Create query parameters
-    const queryParameter: ILogDataQueryParameter = {
-      wellUid: this.well,
-      logUid: header.objectId,
-      wellboreUid: this.wellbore,
-      logName: header.objectId,
-      indexType: header.indexType,
-      indexCurve: header.indexCurve,
-      startIndex: header.startIndex,
-      endIndex: header.endIndex,
-      isGrowing: header.objectGrowing,
-      mnemonicList: '',
-    };
+  //   console.log(
+  //     `🔧 Loading initial 4-hour window: ${new Date(
+  //       loadStartTime
+  //     ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
+  //   );
 
-    console.log(`🔧 Loading data for LogId: ${header.uid}`);
+  //   // Create query parameters
+  //   const queryParameter: ILogDataQueryParameter = {
+  //     wellUid: this.well,
+  //     logUid: header.objectId,
+  //     wellboreUid: this.wellbore,
+  //     logName: header.objectId,
+  //     indexType: header.indexType,
+  //     indexCurve: header.indexCurve,
+  //     startIndex: header.startIndex,
+  //     endIndex: header.endIndex,
+  //     isGrowing: header.objectGrowing,
+  //     mnemonicList: '',
+  //   };
 
-    this.welldataService.getLogData(queryParameter).subscribe(
-      (response: any) => this.processLogDataResponse(response, curves),
-      (error) =>
-        console.error('❌ Error retrieving time-based log data:', error)
-    );
-  }
+  //   console.log(`🔧 Loading data for LogId: ${header.uid}`);
+
+  //   this.welldataService.getLogData(queryParameter).subscribe(
+  //     (response: any) => this.processLogDataResponse(response, curves),
+  //     (error) =>
+  //       console.error('❌ Error retrieving time-based log data:', error)
+  //   );
+  // }
 
   // --- Memory Management Properties ---
+ 
+ 
+ private loadLogData(header: IWellboreObject, curves: ITimeCurve[]): void {
+  // Direct access to header properties (no extractDateValues needed)
+  const startTime = header.startDateTimeIndex;
+  const endTime = header.endDateTimeIndex;
+
+  if (!startTime || !endTime) {
+    console.error('❌ Missing date values:', { startTime, endTime });
+    return;
+  }
+
+  // Parse timestamps
+  const parsedEndTime = new Date(endTime).getTime();
+  const parsedStartTime = new Date(startTime).getTime();
+
+  if (!parsedEndTime || !parsedStartTime) return;
+
+  // Load 4-hour window initially (most recent data) for better performance
+  const loadEndTime = parsedEndTime;
+  const loadStartTime = parsedEndTime - 4 * 3600000; // 4 hours before end
+
+  console.log(
+    `🔧 Loading initial 4-hour window: ${new Date(
+      loadStartTime
+    ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
+  );
+
+  // Create query parameters
+  const queryParameter: ILogDataQueryParameter = {
+    wellUid: this.well,
+    logUid: header.objectId,
+    wellboreUid: this.wellbore,
+    logName: header.objectId,
+    indexType: header.indexType,
+    indexCurve: header.indexCurve,
+    // 👇 USE THE 4-HOUR WINDOW 👇
+    startIndex: new Date(loadStartTime).toISOString(),
+    endIndex: new Date(loadEndTime).toISOString(),
+    isGrowing: header.objectGrowing,
+    mnemonicList: '',
+  };
+
+  console.log(`🔧 Loading data for LogId: ${header.uid}`);
+
+  this.welldataService.getLogData(queryParameter).subscribe(
+    (response: any) => this.processLogDataResponse(response, curves),
+    (error) => console.error('❌ Error loading log data:', error)
+  );
+}
   private maxMemoryHours = 8; // Keep maximum 8 hours of data in memory (reduced for performance)
   private cleanupThreshold = 6; // Start cleanup after 6 hours of data (earlier cleanup)
 
