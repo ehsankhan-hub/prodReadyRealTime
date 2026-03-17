@@ -12,12 +12,12 @@ import { FormsModule } from '@angular/forms';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatSnackBarModule } from '@angular/material/snack-bar';
 import { BaseWidgetComponent } from '../../../components/core/basewidget/basewidget.component';
-import { TimeBasedLogService } from './time-based-log.service';
-import { TimeBasedThemeService } from './time-based-theme.service';
+import { TimeBasedLogService } from '../time-based-log.service';
+import { TimeBasedThemeService } from '../time-based-theme.service';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
-import { TimeBasedToolbarComponent } from './time-based-toolbar/time-based-toolbar.component';
+import { TimeBasedToolbarComponent } from '../time-based-toolbar/time-based-toolbar.component';
 import { AdaptiveTickGenerator } from '@int/geotoolkit/axis/AdaptiveTickGenerator';
 import { LogAxis } from '@int/geotoolkit/welllog/LogAxis';
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
@@ -1532,39 +1532,73 @@ export class TimeBasedTracksComponent
       .map((entry) => entry[1]);
   }
 
-  private updateCurvesWithAdditionalData(): void {
+private updateCurvesWithAdditionalData(): void {
     if (!this.wellLogWidget) return;
 
-    this.listOfTracks.forEach((trackInfo) => {
+    this.listOfTracks.forEach(trackInfo => {
       const track = this.trackMap.get(trackInfo.trackNo);
       if (!track) return;
 
       trackInfo.curves.forEach((curveInfo: ITimeCurve) => {
+
         const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
+        let existingCurve: any = null;
 
-        // Remove existing curve and add new one with updated data
-        const existingCurves = track
-          .getChildren()
-          .filter(
-            (child: any) =>
-              child.getName && child.getName() === curveInfo.mnemonicId
+        // GeoToolkit iterator
+        const iterator: any = track.getChildren();
+        let node = iterator.next();
+
+        while (!node.done) {
+          const curve = node.value;
+
+          if (curve && curve.getName && curve.getName() === curveInfo.mnemonicId) {
+            existingCurve = curve;
+            break;
+          }
+
+          node = iterator.next();
+        }
+
+        if (existingCurve) {
+
+          const geoLogData = existingCurve.getLogData();
+
+          if (geoLogData) {
+            geoLogData.setValues(indexData, curveInfo.data);
+
+            console.log(
+              `✅ Updated existing curve ${curveInfo.mnemonicId} with ${indexData.length} points`
+            );
+          }
+
+        } else {
+
+          const geoLogData = new GeoLogData(curveInfo.mnemonicId);
+          geoLogData.setValues(indexData, curveInfo.data);
+
+          const newCurve = new LogCurve(geoLogData);
+
+          newCurve.setLineStyle({
+            color: curveInfo.color || '#63b3ed',
+            width: curveInfo.lineWidth || 1
+          });
+
+          newCurve.setName(curveInfo.mnemonicId);
+
+          track.addChild(newCurve);
+
+          console.log(
+            `✅ Created new curve ${curveInfo.mnemonicId} with ${indexData.length} points`
           );
-        existingCurves.forEach((curve: any) => track.removeChild(curve));
+        }
 
-        const geoLogData = new GeoLogData(curveInfo.mnemonicId);
-        geoLogData.setValues(indexData, curveInfo.data);
-
-        const newCurve = new LogCurve(geoLogData);
-        newCurve.setLineStyle({
-          color: curveInfo.color || '#63b3ed',
-          width: curveInfo.lineWidth || 1,
-        });
-        newCurve.setName(curveInfo.mnemonicId);
-        track.addChild(newCurve);
       });
     });
 
     this.wellLogWidget.updateLayout();
+    
+    // Start pre-loading adjacent chunks after current data is loaded
+    //this.preloadAdjacentChunks();
   }
 
   // --- Template utility methods ---
