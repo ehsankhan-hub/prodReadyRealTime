@@ -913,111 +913,87 @@ export class TimeBasedTracksComponent
     }
   }
 
-  private configureWidgetLimits(): void {
-    if (!this.wellLogWidget) return;
+private configureWidgetLimits(): void {
+  if (!this.wellLogWidget) return;
 
-    // Check if we have any actual data before configuring limits
-    const actualDataRange = this.getTimeRange();
-    if (
-      !actualDataRange ||
-      actualDataRange.minTime === 0 ||
-      actualDataRange.maxTime === 0
-    ) {
-      console.warn('⚠️ No data available for widget configuration - skipping');
-      return;
-    }
-
-    console.log(
-      `📊 Using actual data range: ${new Date(
-        actualDataRange.minTime
-      ).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`
-    );
-
-    // Get header range for widget limits - use actual data range as fallback
-    let headerMinTime = actualDataRange.minTime;
-    let headerMaxTime = actualDataRange.maxTime;
-
-    // Try to get header range from wellbore objects
-    for (const wo of this.wellboreObjects) {
-      if (!this.matchedHeaders?.has(wo.objectId)) {
-        continue;
-      }
-      const { startDateValue, endDateValue } = this.extractDateValues(wo);
-      if (startDateValue && endDateValue) {
-        const startTime = this.parseTimestamp(startDateValue, 'start');
-        const endTime = this.parseTimestamp(endDateValue, 'end');
-        if (startTime && endTime) {
-          if (headerMinTime === 0 || startTime < headerMinTime)
-            headerMinTime = startTime;
-          if (headerMaxTime === 0 || endTime > headerMaxTime)
-            headerMaxTime = endTime;
-        }
-      }
-    }
-
-    // If still using epoch times, fall back to actual data range
-    if (headerMinTime <= 1000000000000 || headerMaxTime <= 1000000000000) {
-      console.warn(
-        '⚠️ Header times invalid, using actual data range as fallback'
-      );
-      headerMinTime = actualDataRange.minTime;
-      headerMaxTime = actualDataRange.maxTime;
-    }
-
-    // Configure widget for time-based data
-    this.wellLogWidget.setIndexType('time', 'ms');
-
-    // Set widget limits using HEADER range (start to end index)
-    // TODO: Replace hardcoded range with actual header range from getLogHeaders()
-    // Temporary hardcoded range for testing - includes actual data period
-    const testDataStart = new Date('2026-01-01T00:00:00.000Z').getTime(); // Start of January 2026
-    const testDataEnd = new Date('2026-02-01T00:00:00.000Z').getTime(); // End of January 2026
-    console.log(
-      `🔧 Testing with hardcoded range: ${new Date(
-        testDataStart
-      ).toISOString()} to ${new Date(testDataEnd).toISOString()}`
-    );
-    this.wellLogWidget.setDepthLimits(testDataStart, testDataEnd);
-
-    // Set visible range to 4 hours centered around actual data
-    const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
-
-    // Center the 4-hour window around the actual data period
-    const actualDataCenter =
-      (actualDataRange.minTime + actualDataRange.maxTime) / 2;
-    const visibleMin = actualDataCenter - fourHoursMs / 2; // 2 hours before center
-    const visibleMax = actualDataCenter + fourHoursMs / 2; // 2 hours after center
-
-    // Ensure visible range is within widget bounds
-    const finalVisibleMin = Math.max(testDataStart, visibleMin);
-    const finalVisibleMax = Math.min(testDataEnd, visibleMax);
-
-    console.log(
-      `📊 Visible range: ${new Date(
-        finalVisibleMin
-      ).toISOString()} to ${new Date(finalVisibleMax).toISOString()}`
-    );
-
-    this.wellLogWidget.setVisibleDepthLimits(finalVisibleMin, finalVisibleMax);
-
-    // Update layout after all configurations
-    this.wellLogWidget.updateLayout();
-
-    // Initialize scroll tracking and start polling
-    this.lastVisibleMin = finalVisibleMin;
-    this.lastVisibleMax = finalVisibleMax;
-    this.startScrollPolling();
-
-    console.log(
-      `📊 Widget limits: ${new Date(headerMinTime).toISOString()} to ${new Date(
-        headerMaxTime
-      ).toISOString()}, visible: ${new Date(
-        finalVisibleMin
-      ).toISOString()} to ${new Date(
-        finalVisibleMax
-      ).toISOString()}, showing 4h window for scrolling`
-    );
+  // Check if we have any actual data before configuring limits
+  const actualDataRange = this.getTimeRange();
+  if (
+    !actualDataRange ||
+    actualDataRange.minTime === 0 ||
+    actualDataRange.maxTime === 0
+  ) {
+    console.warn('⚠️ No data available for widget configuration - skipping');
+    return;
   }
+
+  console.log(
+    `📊 Using actual data range: ${new Date(
+      actualDataRange.minTime
+    ).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`
+  );
+
+  // Extract actual time range from headers
+  let headerMinTime = Infinity;
+  let headerMaxTime = 0;
+
+  this.wellboreObjects.forEach(header => {
+    const { startDateValue, endDateValue } = this.extractDateValues(header);
+    
+    if (startDateValue && endDateValue) {
+      const startTime = this.parseTimestamp(startDateValue, 'start');
+      const endTime = this.parseTimestamp(endDateValue, 'end');
+      
+      if (startTime && endTime) {
+        headerMinTime = Math.min(headerMinTime, startTime);
+        headerMaxTime = Math.max(headerMaxTime, endTime);
+      }
+    }
+  });
+
+  // Use actual header range for widget limits
+  if (headerMinTime !== Infinity && headerMaxTime !== 0) {
+    console.log(`📊 Header range: ${new Date(headerMinTime).toISOString()} to ${new Date(headerMaxTime).toISOString()}`);
+    this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
+  } else {
+    console.warn('⚠️ No valid header time range found, using actual data range as fallback');
+    headerMinTime = actualDataRange.minTime;
+    headerMaxTime = actualDataRange.maxTime;
+    this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
+  }
+
+  // Configure widget for time-based data
+  this.wellLogWidget.setIndexType('time', 'ms');
+
+  // Set initial visible range to show current data at bottom (most recent)
+  // Show 4-hour window ending at the most recent data (headerMaxTime)
+  const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
+  const visibleMin = Math.max(headerMaxTime - fourHoursMs, headerMinTime);
+  const visibleMax = headerMaxTime;
+
+  console.log(`📊 Initial visible range: ${new Date(visibleMin).toISOString()} to ${new Date(visibleMax).toISOString()}`);
+  console.log(`📊 Scroll positioned at current data bottom (most recent)`);
+
+  this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
+
+  // Update layout after all configurations
+  this.wellLogWidget.updateLayout();
+
+  // Initialize scroll tracking and start polling
+  this.lastVisibleMin = visibleMin;
+  this.lastVisibleMax = visibleMax;
+  this.startScrollPolling();
+
+  console.log(
+    `📊 Widget configured: Header range ${new Date(headerMinTime).toISOString()} to ${new Date(
+      headerMaxTime
+    ).toISOString()}, showing 4h window at bottom for scrolling`
+  );
+  console.log(`📊 Scroll behavior: 
+    - Initial: Shows most recent 4 hours (bottom)
+    - Scroll up: Loads 4-hour chunks backwards (e.g., Jan 13 9:00 -> Jan 13 5:00 -> Jan 13 1:00)
+    - Continues till header start index`);
+}
 
   private getTimeRange(): { minTime: number; maxTime: number } {
     let minTime = 0;
