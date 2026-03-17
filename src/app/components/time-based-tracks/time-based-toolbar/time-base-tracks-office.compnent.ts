@@ -927,29 +927,27 @@ private configureWidgetLimits(): void {
     return;
   }
 
-  console.log(
-    `📊 Using actual data range: ${new Date(
-      actualDataRange.minTime
-    ).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`
-  );
-
-  // Extract actual time range from headers
+  // 👇 SIMPLIFIED HEADER EXTRACTION - NO extractDateValues() NEEDED 👇
   let headerMinTime = Infinity;
   let headerMaxTime = 0;
 
   this.wellboreObjects.forEach(header => {
-    const { startDateValue, endDateValue } = this.extractDateValues(header);
+    // Direct access to header properties
+    const startTime = header.startDateTimeIndex;
+    const endTime = header.endDateTimeIndex;
     
-    if (startDateValue && endDateValue) {
-      const startTime = this.parseTimestamp(startDateValue, 'start');
-      const endTime = this.parseTimestamp(endDateValue, 'end');
+    if (startTime && endTime) {
+      const parsedStart = new Date(startTime).getTime();
+      const parsedEnd = new Date(endTime).getTime();
       
-      if (startTime && endTime) {
-        headerMinTime = Math.min(headerMinTime, startTime);
-        headerMaxTime = Math.max(headerMaxTime, endTime);
+      if (!isNaN(parsedStart) && !isNaN(parsedEnd)) {
+        headerMinTime = Math.min(headerMinTime, parsedStart);
+        headerMaxTime = Math.max(headerMaxTime, parsedEnd);
+        console.log(`📅 Header ${header.objectId}: ${startTime} to ${endTime}`);
       }
     }
   });
+  // 👇 END OF SIMPLIFIED EXTRACTION 👇
 
   // Use actual header range for widget limits
   if (headerMinTime !== Infinity && headerMaxTime !== 0) {
@@ -966,7 +964,6 @@ private configureWidgetLimits(): void {
   this.wellLogWidget.setIndexType('time', 'ms');
 
   // Set initial visible range to show current data at bottom (most recent)
-  // Show 4-hour window ending at the most recent data (headerMaxTime)
   const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
   const visibleMin = Math.max(headerMaxTime - fourHoursMs, headerMinTime);
   const visibleMax = headerMaxTime;
@@ -989,10 +986,6 @@ private configureWidgetLimits(): void {
       headerMaxTime
     ).toISOString()}, showing 4h window at bottom for scrolling`
   );
-  console.log(`📊 Scroll behavior: 
-    - Initial: Shows most recent 4 hours (bottom)
-    - Scroll up: Loads 4-hour chunks backwards (e.g., Jan 13 9:00 -> Jan 13 5:00 -> Jan 13 1:00)
-    - Continues till header start index`);
 }
 
   private getTimeRange(): { minTime: number; maxTime: number } {
