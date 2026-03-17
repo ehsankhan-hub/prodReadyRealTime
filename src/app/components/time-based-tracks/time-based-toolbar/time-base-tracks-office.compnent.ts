@@ -12,12 +12,12 @@ import { FormsModule } from '@angular/forms';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatSnackBarModule } from '@angular/material/snack-bar';
 import { BaseWidgetComponent } from '../../../components/core/basewidget/basewidget.component';
-import { TimeBasedLogService } from '../time-based-log.service';
-import { TimeBasedThemeService } from '../time-based-theme.service';
+import { TimeBasedLogService } from './time-based-log.service';
+import { TimeBasedThemeService } from './time-based-theme.service';
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
-import { TimeBasedToolbarComponent } from '../time-based-toolbar/time-based-toolbar.component';
+import { TimeBasedToolbarComponent } from './time-based-toolbar/time-based-toolbar.component';
 import { AdaptiveTickGenerator } from '@int/geotoolkit/axis/AdaptiveTickGenerator';
 import { LogAxis } from '@int/geotoolkit/welllog/LogAxis';
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
@@ -375,7 +375,7 @@ export class TimeBasedTracksComponent
     logIdCurves.forEach((curves, logId) => {
       // Extract base names by removing suffixes (e.g., Surface_Time_SB -> Surface_Time)
       const logIdBase = logId.replace(/_[A-Z]+$/, '');
-      
+
       // Match using base name comparison only (ignoring suffixes like _SB, _SLB, etc.)
       const matchingHeader = this.wellboreObjects.find((h) => {
         const headerBase = h.objectId.replace(/_[A-Z]+$/, '');
@@ -420,7 +420,7 @@ export class TimeBasedTracksComponent
 
     // Load 4-hour window initially (most recent data) for better performance
     const loadEndTime = endTime;
-    const loadStartTime = endTime - (4 * 3600000); // 4 hours before end
+    const loadStartTime = endTime - 4 * 3600000; // 4 hours before end
 
     console.log(
       `🔧 Loading initial 4-hour window: ${new Date(
@@ -839,7 +839,7 @@ export class TimeBasedTracksComponent
             curveInfo.data?.length || 0
           }`
         );
-        
+
         // Skip curves with no data
         if (!curveInfo.data?.length) {
           console.warn(
@@ -918,7 +918,11 @@ export class TimeBasedTracksComponent
 
     // Check if we have any actual data before configuring limits
     const actualDataRange = this.getTimeRange();
-    if (!actualDataRange || actualDataRange.minTime === 0 || actualDataRange.maxTime === 0) {
+    if (
+      !actualDataRange ||
+      actualDataRange.minTime === 0 ||
+      actualDataRange.maxTime === 0
+    ) {
       console.warn('⚠️ No data available for widget configuration - skipping');
       return;
     }
@@ -943,15 +947,19 @@ export class TimeBasedTracksComponent
         const startTime = this.parseTimestamp(startDateValue, 'start');
         const endTime = this.parseTimestamp(endDateValue, 'end');
         if (startTime && endTime) {
-          if (headerMinTime === 0 || startTime < headerMinTime) headerMinTime = startTime;
-          if (headerMaxTime === 0 || endTime > headerMaxTime) headerMaxTime = endTime;
+          if (headerMinTime === 0 || startTime < headerMinTime)
+            headerMinTime = startTime;
+          if (headerMaxTime === 0 || endTime > headerMaxTime)
+            headerMaxTime = endTime;
         }
       }
     }
 
     // If still using epoch times, fall back to actual data range
     if (headerMinTime <= 1000000000000 || headerMaxTime <= 1000000000000) {
-      console.warn('⚠️ Header times invalid, using actual data range as fallback');
+      console.warn(
+        '⚠️ Header times invalid, using actual data range as fallback'
+      );
       headerMinTime = actualDataRange.minTime;
       headerMaxTime = actualDataRange.maxTime;
     }
@@ -963,23 +971,32 @@ export class TimeBasedTracksComponent
     // TODO: Replace hardcoded range with actual header range from getLogHeaders()
     // Temporary hardcoded range for testing - includes actual data period
     const testDataStart = new Date('2026-01-01T00:00:00.000Z').getTime(); // Start of January 2026
-    const testDataEnd = new Date('2026-02-01T00:00:00.000Z').getTime();   // End of January 2026
-    console.log(`🔧 Testing with hardcoded range: ${new Date(testDataStart).toISOString()} to ${new Date(testDataEnd).toISOString()}`);
+    const testDataEnd = new Date('2026-02-01T00:00:00.000Z').getTime(); // End of January 2026
+    console.log(
+      `🔧 Testing with hardcoded range: ${new Date(
+        testDataStart
+      ).toISOString()} to ${new Date(testDataEnd).toISOString()}`
+    );
     this.wellLogWidget.setDepthLimits(testDataStart, testDataEnd);
 
     // Set visible range to 4 hours centered around actual data
     const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
-    
+
     // Center the 4-hour window around the actual data period
-    const actualDataCenter = (actualDataRange.minTime + actualDataRange.maxTime) / 2;
-    const visibleMin = actualDataCenter - (fourHoursMs / 2); // 2 hours before center
-    const visibleMax = actualDataCenter + (fourHoursMs / 2); // 2 hours after center
+    const actualDataCenter =
+      (actualDataRange.minTime + actualDataRange.maxTime) / 2;
+    const visibleMin = actualDataCenter - fourHoursMs / 2; // 2 hours before center
+    const visibleMax = actualDataCenter + fourHoursMs / 2; // 2 hours after center
 
     // Ensure visible range is within widget bounds
     const finalVisibleMin = Math.max(testDataStart, visibleMin);
     const finalVisibleMax = Math.min(testDataEnd, visibleMax);
-    
-    console.log(`📊 Visible range: ${new Date(finalVisibleMin).toISOString()} to ${new Date(finalVisibleMax).toISOString()}`);
+
+    console.log(
+      `📊 Visible range: ${new Date(
+        finalVisibleMin
+      ).toISOString()} to ${new Date(finalVisibleMax).toISOString()}`
+    );
 
     this.wellLogWidget.setVisibleDepthLimits(finalVisibleMin, finalVisibleMax);
 
@@ -994,7 +1011,9 @@ export class TimeBasedTracksComponent
     console.log(
       `📊 Widget limits: ${new Date(headerMinTime).toISOString()} to ${new Date(
         headerMaxTime
-      ).toISOString()}, visible: ${new Date(finalVisibleMin).toISOString()} to ${new Date(
+      ).toISOString()}, visible: ${new Date(
+        finalVisibleMin
+      ).toISOString()} to ${new Date(
         finalVisibleMax
       ).toISOString()}, showing 4h window for scrolling`
     );
@@ -1212,12 +1231,12 @@ export class TimeBasedTracksComponent
             currentVisibleMin
           ).toISOString()} to ${new Date(currentVisibleMax).toISOString()}`
         );
-        
+
         // Debounce scroll events to reduce excessive network calls
         if (this.scrollDebounceHandle) {
           clearTimeout(this.scrollDebounceHandle);
         }
-        
+
         this.scrollDebounceHandle = setTimeout(() => {
           this.loadAdditionalData(
             currentVisibleMin,
@@ -1250,16 +1269,18 @@ export class TimeBasedTracksComponent
     });
 
     console.log(
-      `🔄 Loading additional data for ${logIdCurves.size} LogIds in range: ${new Date(
-        visibleMin
-      ).toISOString()} to ${new Date(visibleMax).toISOString()}`
+      `🔄 Loading additional data for ${
+        logIdCurves.size
+      } LogIds in range: ${new Date(visibleMin).toISOString()} to ${new Date(
+        visibleMax
+      ).toISOString()}`
     );
 
     // For each LogId, find matching backend header and load data
     logIdCurves.forEach((curves, logId) => {
       // Extract base names by removing suffixes (e.g., Surface_Time_SB -> Surface_Time)
       const logIdBase = logId.replace(/_[A-Z]+$/, '');
-      
+
       // Match using base name comparison only (ignoring suffixes like _SB, _SLB, etc.)
       const matchingHeader = this.wellboreObjects.find((h) => {
         const headerBase = h.objectId.replace(/_[A-Z]+$/, '');
@@ -1276,7 +1297,13 @@ export class TimeBasedTracksComponent
       console.log(
         `✅ Loading additional data for LogId: ${logId} -> matched to header: ${matchingHeader.objectId}`
       );
-      this.loadAdditionalLogData(matchingHeader, curves, visibleMin, visibleMax, isScrollingUp);
+      this.loadAdditionalLogData(
+        matchingHeader,
+        curves,
+        visibleMin,
+        visibleMax,
+        isScrollingUp
+      );
     });
   }
 
@@ -1322,9 +1349,11 @@ export class TimeBasedTracksComponent
     }
 
     console.log(
-      `🔧 ${isScrollingUp ? 'Scroll up' : 'Normal'}: Loading 4h chunk ${new Date(
-        loadMin
-      ).toISOString()} to ${new Date(loadMax).toISOString()}`
+      `🔧 ${
+        isScrollingUp ? 'Scroll up' : 'Normal'
+      }: Loading 4h chunk ${new Date(loadMin).toISOString()} to ${new Date(
+        loadMax
+      ).toISOString()}`
     );
     console.log(
       `📊 Current memory usage: ${this.getTotalDataHours().toFixed(
@@ -1392,16 +1421,22 @@ export class TimeBasedTracksComponent
 
     // Handle the actual server response structure
     if (!response || !response.logs || !response.logs[0]) {
-      console.error('❌ Invalid additional data response - missing logs array:', response);
+      console.error(
+        '❌ Invalid additional data response - missing logs array:',
+        response
+      );
       return;
     }
 
-    const logEntry = response.logs[0];
+    const logEntry = response.logs[0] || response.logs;
     console.log('🔍 Log entry structure:', logEntry);
 
     // Check for logData in the response
     if (!logEntry.logData) {
-      console.error('❌ Invalid additional data response - missing logData:', logEntry);
+      console.error(
+        '❌ Invalid additional data response - missing logData:',
+        logEntry
+      );
       return;
     }
 
@@ -1410,12 +1445,18 @@ export class TimeBasedTracksComponent
     const mnemonicList = logData.mnemonicList;
 
     if (!Array.isArray(rawData) || rawData.length === 0) {
-      console.error('❌ Invalid data structure - expected array in logData.data:', rawData);
+      console.error(
+        '❌ Invalid data structure - expected array in logData.data:',
+        rawData
+      );
       return;
     }
 
     if (!mnemonicList) {
-      console.error('❌ Invalid data structure - missing mnemonicList:', logData);
+      console.error(
+        '❌ Invalid data structure - missing mnemonicList:',
+        logData
+      );
       return;
     }
 
@@ -1532,15 +1573,50 @@ export class TimeBasedTracksComponent
       .map((entry) => entry[1]);
   }
 
-private updateCurvesWithAdditionalData(): void {
+  // private updateCurvesWithAdditionalData(): void {
+  //   if (!this.wellLogWidget) return;
+
+  //   this.listOfTracks.forEach((trackInfo) => {
+  //     const track = this.trackMap.get(trackInfo.trackNo);
+  //     if (!track) return;
+
+  //     trackInfo.curves.forEach((curveInfo: ITimeCurve) => {
+  //       const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
+
+  //       // Remove existing curve and add new one with updated data
+  //       const existingCurves = track
+  //         .getChildren()
+  //         .filter(
+  //           (child: any) =>
+  //             child.getName && child.getName() === curveInfo.mnemonicId
+  //         );
+  //       existingCurves.forEach((curve: any) => track.removeChild(curve));
+
+  //       const geoLogData = new GeoLogData(curveInfo.mnemonicId);
+  //       geoLogData.setValues(indexData, curveInfo.data);
+
+  //       const newCurve = new LogCurve(geoLogData);
+  //       newCurve.setLineStyle({
+  //         color: curveInfo.color || '#63b3ed',
+  //         width: curveInfo.lineWidth || 1,
+  //       });
+  //       newCurve.setName(curveInfo.mnemonicId);
+  //       track.addChild(newCurve);
+  //     });
+  //   });
+
+  //   this.wellLogWidget.updateLayout();
+  // }
+
+  // --- Template utility methods ---
+  private updateCurvesWithAdditionalData(): void {
     if (!this.wellLogWidget) return;
 
-    this.listOfTracks.forEach(trackInfo => {
+    this.listOfTracks.forEach((trackInfo) => {
       const track = this.trackMap.get(trackInfo.trackNo);
       if (!track) return;
 
       trackInfo.curves.forEach((curveInfo: ITimeCurve) => {
-
         const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
         let existingCurve: any = null;
 
@@ -1551,7 +1627,11 @@ private updateCurvesWithAdditionalData(): void {
         while (!node.done) {
           const curve = node.value;
 
-          if (curve && curve.getName && curve.getName() === curveInfo.mnemonicId) {
+          if (
+            curve &&
+            curve.getName &&
+            curve.getName() === curveInfo.mnemonicId
+          ) {
             existingCurve = curve;
             break;
           }
@@ -1560,7 +1640,6 @@ private updateCurvesWithAdditionalData(): void {
         }
 
         if (existingCurve) {
-
           const geoLogData = existingCurve.getLogData();
 
           if (geoLogData) {
@@ -1570,9 +1649,7 @@ private updateCurvesWithAdditionalData(): void {
               `✅ Updated existing curve ${curveInfo.mnemonicId} with ${indexData.length} points`
             );
           }
-
         } else {
-
           const geoLogData = new GeoLogData(curveInfo.mnemonicId);
           geoLogData.setValues(indexData, curveInfo.data);
 
@@ -1580,7 +1657,7 @@ private updateCurvesWithAdditionalData(): void {
 
           newCurve.setLineStyle({
             color: curveInfo.color || '#63b3ed',
-            width: curveInfo.lineWidth || 1
+            width: curveInfo.lineWidth || 1,
           });
 
           newCurve.setName(curveInfo.mnemonicId);
@@ -1591,18 +1668,13 @@ private updateCurvesWithAdditionalData(): void {
             `✅ Created new curve ${curveInfo.mnemonicId} with ${indexData.length} points`
           );
         }
-
       });
     });
 
     this.wellLogWidget.updateLayout();
-    
     // Start pre-loading adjacent chunks after current data is loaded
     //this.preloadAdjacentChunks();
   }
-
-  // --- Template utility methods ---
-
   formatDateTimeForInput(date: Date | number): string {
     if (!date) return '';
     const dateObj = typeof date === 'number' ? new Date(date) : date;
@@ -1651,5 +1723,4 @@ private updateCurvesWithAdditionalData(): void {
   getCurveColor(trackIndex: number): string {
     return this.timeBasedThemeService.getCurveColor(trackIndex);
   }
-
 }
