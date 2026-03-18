@@ -1037,9 +1037,9 @@ export class TimeBasedTracksComponent
       }
     }
 
-    // Set visible range to 4 hours ending at the most recent data
-    const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
-    const visibleMin = Math.max(headerMaxTime - fourHoursMs, headerMinTime);
+    // Set visible range to full header range initially (not just 4 hours)
+    // This allows users to see and scroll through all historical data
+    const visibleMin = headerMinTime;
     const visibleMax = headerMaxTime;
 
     console.log(
@@ -1047,7 +1047,7 @@ export class TimeBasedTracksComponent
         visibleMin
       ).toISOString()} to ${new Date(visibleMax).toISOString()}`
     );
-    console.log(`📊 Scroll positioned at current data bottom (most recent)`);
+    console.log(`📊 Showing full header range for scrolling`);
 
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
 
@@ -1064,7 +1064,7 @@ export class TimeBasedTracksComponent
         headerMinTime
       ).toISOString()} to ${new Date(
         headerMaxTime
-      ).toISOString()}, showing 4h window at bottom for scrolling`
+      ).toISOString()}, showing full header range for scrolling`
     );
   }
 
