@@ -24,7 +24,10 @@ import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 import { ITracks } from '../../../models/chart/tracks';
 import { WellDataService } from '../../../service/well-service/well.service';
-import { IWellboreObject } from '../../../models/wellbore/wellbore-object';
+import {
+  ILogDataQueryParameter,
+  IWellboreObject,
+} from '../../../models/wellbore/wellbore-object';
 
 export interface ITimeCurve {
   mnemonicId: string;
@@ -61,20 +64,6 @@ export interface ITimeWellboreObject {
   objectInfo: ITimeCurve[];
   isDepth?: boolean;
 }
-
-export interface ILogDataQueryParameter {
-  wellUid: string;
-  logUid: string;
-  wellboreUid: string;
-  logName: string;
-  indexType: string;
-  indexCurve: string;
-  startIndex: any;
-  endIndex: any;
-  isGrowing: boolean;
-  mnemonicList: string;
-}
-
 export interface ILogDataResponse {
   mnemonicList: string;
   data: string[];
@@ -400,109 +389,65 @@ export class TimeBasedTracksComponent
     });
   }
 
-
-  // private loadLogData(header: IWellboreObject, curves: ITimeCurve[]): void {
-  //   // Extract date values from wellbore object
-  //   const { startDateValue, endDateValue } = this.extractDateValues(header);
-
-  //   if (!startDateValue || !endDateValue) {
-  //     console.error('❌ Missing date values:', {
-  //       startDateValue,
-  //       endDateValue,
-  //     });
-  //     return;
-  //   }
-
-  //   // Parse timestamps
-  //   const endTime = this.parseTimestamp(endDateValue, 'end');
-  //   const originalStartTime = this.parseTimestamp(startDateValue, 'start');
-
-  //   if (!endTime || !originalStartTime) return;
-
-  //   // Load 4-hour window initially (most recent data) for better performance
-  //   const loadEndTime = endTime;
-  //   const loadStartTime = endTime - 4 * 3600000; // 4 hours before end
-
-  //   console.log(
-  //     `🔧 Loading initial 4-hour window: ${new Date(
-  //       loadStartTime
-  //     ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
-  //   );
-
-  //   // Create query parameters
-  //   const queryParameter: ILogDataQueryParameter = {
-  //     wellUid: this.well,
-  //     logUid: header.objectId,
-  //     wellboreUid: this.wellbore,
-  //     logName: header.objectId,
-  //     indexType: header.indexType,
-  //     indexCurve: header.indexCurve,
-  //     startIndex: header.startIndex,
-  //     endIndex: header.endIndex,
-  //     isGrowing: header.objectGrowing,
-  //     mnemonicList: '',
-  //   };
-
-  //   console.log(`🔧 Loading data for LogId: ${header.uid}`);
-
-  //   this.welldataService.getLogData(queryParameter).subscribe(
-  //     (response: any) => this.processLogDataResponse(response, curves),
-  //     (error) =>
-  //       console.error('❌ Error retrieving time-based log data:', error)
-  //   );
-  // }
-
   // --- Memory Management Properties ---
- 
- 
- private loadLogData(header: IWellboreObject, curves: ITimeCurve[]): void {
-  // Direct access to header properties (no extractDateValues needed)
-  const startTime = header.startDateTimeIndex;
-  const endTime = header.endDateTimeIndex;
 
-  if (!startTime || !endTime) {
-    console.error('❌ Missing date values:', { startTime, endTime });
-    return;
+  private loadLogData(header: IWellboreObject, curves: ITimeCurve[]): void {
+    // Direct access to header properties (no extractDateValues needed)
+    const startTime = header.startIndex;
+    const endTime = header.endIndex;
+    console.error('start and end date values:', { startTime, endTime });
+    if (!startTime || !endTime) {
+      console.error('❌ Missing date values:', { startTime, endTime });
+      return;
+    }
+
+    // Parse timestamps
+    const parsedEndTime = new Date(endTime).getTime();
+    const parsedStartTime = new Date(startTime).getTime();
+
+    if (!parsedEndTime || !parsedStartTime) return;
+
+    // Load 4-hour window initially (most recent data) for better performance
+    const loadEndTime = parsedEndTime;
+    const loadStartTime = parsedEndTime - 4 * 3600000; // 4 hours before end
+
+    console.log(
+      `🔧 Loading initial 4-hour window: ${new Date(
+        loadStartTime
+      ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
+    );
+
+    // Create query parameters
+    const queryParameter: ILogDataQueryParameter = {
+      wellUid: this.well,
+      logUid: header.objectId,
+      wellboreUid: this.wellbore,
+      logName: header.objectId,
+      indexType: header.indexType,
+      indexCurve: header.indexCurve,
+      // 👇 USE THE 4-HOUR WINDOW 👇
+      startIndex: new Date(loadStartTime).toISOString(),
+      endIndex: new Date(loadEndTime).toISOString(),
+      isGrowing: header.objectGrowing,
+      mnemonicList: '',
+    };
+
+    console.log(
+      ' new Date(loadStartTime).toISOString()',
+      new Date(loadStartTime).toISOString()
+    );
+    console.log(
+      ' new Date(loadEndTime).toISOString()',
+      new Date(loadEndTime).toISOString()
+    );
+
+    console.log(`🔧 Loading data for LogId: ${header.uid}`);
+
+    this.welldataService.getLogData(queryParameter).subscribe(
+      (response: any) => this.processLogDataResponse(response, curves),
+      (error) => console.error('❌ Error loading log data:', error)
+    );
   }
-
-  // Parse timestamps
-  const parsedEndTime = new Date(endTime).getTime();
-  const parsedStartTime = new Date(startTime).getTime();
-
-  if (!parsedEndTime || !parsedStartTime) return;
-
-  // Load 4-hour window initially (most recent data) for better performance
-  const loadEndTime = parsedEndTime;
-  const loadStartTime = parsedEndTime - 4 * 3600000; // 4 hours before end
-
-  console.log(
-    `🔧 Loading initial 4-hour window: ${new Date(
-      loadStartTime
-    ).toISOString()} to ${new Date(loadEndTime).toISOString()}`
-  );
-
-  // Create query parameters
-  const queryParameter: ILogDataQueryParameter = {
-    wellUid: this.well,
-    logUid: header.objectId,
-    wellboreUid: this.wellbore,
-    logName: header.objectId,
-    indexType: header.indexType,
-    indexCurve: header.indexCurve,
-    // 👇 USE THE 4-HOUR WINDOW 👇
-    startIndex: new Date(loadStartTime).toISOString(),
-    endIndex: new Date(loadEndTime).toISOString(),
-    isGrowing: header.objectGrowing,
-    mnemonicList: '',
-  };
-
-  console.log(`🔧 Loading data for LogId: ${header.uid}`);
-
-  this.welldataService.getLogData(queryParameter).subscribe(
-    (response: any) => this.processLogDataResponse(response, curves),
-    (error) => console.error('❌ Error loading log data:', error)
-  );
-}
   private maxMemoryHours = 8; // Keep maximum 8 hours of data in memory (reduced for performance)
   private cleanupThreshold = 6; // Start cleanup after 6 hours of data (earlier cleanup)
 
@@ -635,31 +580,7 @@ export class TimeBasedTracksComponent
     return undefined;
   }
 
-  // --- Helper Methods ---
-  private extractDateValues(wo: IWellboreObject): {
-    startDateValue?: string;
-    endDateValue?: string;
-  } {
-    let endDateValue: string | undefined;
-    let startDateValue: string | undefined;
-
-    // Extract end date
-    if (typeof wo.endIndex === 'string') {
-      endDateValue = wo.endIndex;
-    } else if (wo.endIndex && typeof wo.endIndex === 'object') {
-      endDateValue = wo.endIndex['endDateTimeIndex'];
-    }
-
-    // Extract start date
-    if (typeof wo.startIndex === 'string') {
-      startDateValue = wo.startIndex;
-    } else if (wo.startIndex && typeof wo.startIndex === 'object') {
-      startDateValue = wo.startIndex['startDateTimeIndex'];
-    }
-
-    return { startDateValue, endDateValue };
-  }
-
+  
   /**
    * Parses timestamp string to number, handling both Unix timestamps and ISO dates
    */
@@ -964,80 +885,184 @@ export class TimeBasedTracksComponent
     }
   }
 
-private configureWidgetLimits(): void {
-  if (!this.wellLogWidget) return;
+  // private configureWidgetLimits(): void {
+  //   if (!this.wellLogWidget) return;
 
-  // Check if we have any actual data before configuring limits
-  const actualDataRange = this.getTimeRange();
-  if (
-    !actualDataRange ||
-    actualDataRange.minTime === 0 ||
-    actualDataRange.maxTime === 0
-  ) {
-    console.warn('⚠️ No data available for widget configuration - skipping');
-    return;
-  }
+  //   // Check if we have any actual data before configuring limits
+  //   const actualDataRange = this.getTimeRange();
+  //   if (!actualDataRange || actualDataRange.minTime === 0 || actualDataRange.maxTime === 0) {
+  //     console.warn('⚠️ No data available for widget configuration - skipping');
+  //     return;
+  //   }
 
-  // 👇 SIMPLIFIED HEADER EXTRACTION - NO extractDateValues() NEEDED 👇
-  let headerMinTime = Infinity;
-  let headerMaxTime = 0;
+  //   console.log(
+  //     `📊 Using actual data range: ${new Date(
+  //       actualDataRange.minTime
+  //     ).toISOString()} to ${new Date(actualDataRange.maxTime).toISOString()}`
+  //   );
 
-  this.wellboreObjects.forEach(header => {
-    // Direct access to header properties
-    const startTime = header.startDateTimeIndex;
-    const endTime = header.endDateTimeIndex;
-    
-    if (startTime && endTime) {
-      const parsedStart = new Date(startTime).getTime();
-      const parsedEnd = new Date(endTime).getTime();
-      
-      if (!isNaN(parsedStart) && !isNaN(parsedEnd)) {
-        headerMinTime = Math.min(headerMinTime, parsedStart);
-        headerMaxTime = Math.max(headerMaxTime, parsedEnd);
-        console.log(`📅 Header ${header.objectId}: ${startTime} to ${endTime}`);
-      }
+  //   // Get header range for widget limits - use actual data range as fallback
+  //   let headerMinTime = actualDataRange.minTime;
+  //   let headerMaxTime = actualDataRange.maxTime;
+
+  //   // Try to get header range from wellbore objects
+  //   for (const wo of this.wellboreObjects) {
+  //     if (!this.matchedHeaders?.has(wo.objectId)) {
+  //       continue;
+  //     }
+  //     const { startDateValue, endDateValue } = this.extractDateValues(wo);
+  //     if (startDateValue && endDateValue) {
+  //       const startTime = this.parseTimestamp(startDateValue, 'start');
+  //       const endTime = this.parseTimestamp(endDateValue, 'end');
+  //       if (startTime && endTime) {
+  //         if (headerMinTime === 0 || startTime < headerMinTime) headerMinTime = startTime;
+  //         if (headerMaxTime === 0 || endTime > headerMaxTime) headerMaxTime = endTime;
+  //       }
+  //     }
+  //   }
+
+  //   // // If still using epoch times, fall back to actual data range
+  //   if (headerMinTime <= 1000000000000 || headerMaxTime <= 1000000000000) {
+  //     console.warn('⚠️ Header times invalid, using actual data range as fallback');
+  //     headerMinTime = actualDataRange.minTime;
+  //     headerMaxTime = actualDataRange.maxTime;
+  //   }
+
+  //   // Configure widget for time-based data
+  //   this.wellLogWidget.setIndexType('time', 'ms');
+
+  //   // Set widget limits using HEADER range (start to end index)
+  //   // TODO: Replace hardcoded range with actual header range from getLogHeaders()
+  //   // Temporary hardcoded range for testing - includes actual data period
+  //   const testDataStart = new Date('2026-01-13T12:16:24.095Z').getTime(); // Start of January 2026
+  //   const testDataEnd = new Date('2026-02-10T06:46:46Z').getTime();   // End of January 2026
+  //   console.log(`🔧 Testing with hardcoded range: ${new Date(testDataStart).toISOString()} to ${new Date(testDataEnd).toISOString()}`);
+  //   this.wellLogWidget.setDepthLimits(testDataStart, testDataEnd);
+
+  //   // Set visible range to 4 hours centered around actual data
+  //   const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
+
+  //   // Center the 4-hour window around the actual data period
+  //   const actualDataCenter = (actualDataRange.minTime + actualDataRange.maxTime) / 2;
+  //   const visibleMin = actualDataCenter - (fourHoursMs / 2); // 2 hours before center
+  //   const visibleMax = actualDataCenter + (fourHoursMs / 2); // 2 hours after center
+
+  //   // Ensure visible range is within widget bounds
+  //   const finalVisibleMin = Math.max(testDataStart, visibleMin);
+  //   const finalVisibleMax = Math.min(testDataEnd, visibleMax);
+
+  //   console.log(`📊 Visible range: ${new Date(finalVisibleMin).toISOString()} to ${new Date(finalVisibleMax).toISOString()}`);
+
+  //   this.wellLogWidget.setVisibleDepthLimits(finalVisibleMin, finalVisibleMax);
+
+  //   // Update layout after all configurations
+  //   this.wellLogWidget.updateLayout();
+
+  //   // Initialize scroll tracking and start polling
+  //   this.lastVisibleMin = finalVisibleMin;
+  //   this.lastVisibleMax = finalVisibleMax;
+  //   this.startScrollPolling();
+
+  //   console.log(
+  //     `📊 Widget limits: ${new Date(headerMinTime).toISOString()} to ${new Date(
+  //       headerMaxTime
+  //     ).toISOString()}, visible: ${new Date(finalVisibleMin).toISOString()} to ${new Date(
+  //       finalVisibleMax
+  //     ).toISOString()}, showing 4h window for scrolling`
+  //   );
+  // }
+
+  //Update method for fix
+
+  private configureWidgetLimits(): void {
+    if (!this.wellLogWidget) return;
+
+    // Check if we have any actual data before configuring limits
+    const actualDataRange = this.getTimeRange();
+    if (
+      !actualDataRange ||
+      actualDataRange.minTime === 0 ||
+      actualDataRange.maxTime === 0
+    ) {
+      console.warn('⚠️ No data available for widget configuration - skipping');
+      return;
     }
-  });
-  // 👇 END OF SIMPLIFIED EXTRACTION 👇
 
-  // Use actual header range for widget limits
-  if (headerMinTime !== Infinity && headerMaxTime !== 0) {
-    console.log(`📊 Header range: ${new Date(headerMinTime).toISOString()} to ${new Date(headerMaxTime).toISOString()}`);
-    this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
-  } else {
-    console.warn('⚠️ No valid header time range found, using actual data range as fallback');
-    headerMinTime = actualDataRange.minTime;
-    headerMaxTime = actualDataRange.maxTime;
-    this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
+    // 👇 SIMPLIFIED HEADER EXTRACTION - NO extractDateValues() NEEDED 👇
+    let headerMinTime = Infinity;
+    let headerMaxTime = 0;
+
+    this.wellboreObjects.forEach((header) => {
+      // Direct access to header properties
+      const startTime = header.startDateTimeIndex;
+      const endTime = header.endDateTimeIndex;
+      console.log(' header.startDateTimeIndex ', header.startDateTimeIndex);
+      console.log(' header.endDateTimeIndex ', header.endDateTimeIndex);
+      if (startTime && endTime) {
+        const parsedStart = new Date(startTime).getTime();
+        const parsedEnd = new Date(endTime).getTime();
+
+        if (!isNaN(parsedStart) && !isNaN(parsedEnd)) {
+          headerMinTime = Math.min(headerMinTime, parsedStart);
+          headerMaxTime = Math.max(headerMaxTime, parsedEnd);
+          console.log(
+            `📅 Header ${header.objectId}: ${startTime} to ${endTime}`
+          );
+        }
+      }
+    });
+    // 👇 END OF SIMPLIFIED EXTRACTION 👇
+
+    // Use actual header range for widget limits
+    if (headerMinTime !== Infinity && headerMaxTime !== 0) {
+      console.log(
+        `📊 Header range: ${new Date(
+          headerMinTime
+        ).toISOString()} to ${new Date(headerMaxTime).toISOString()}`
+      );
+      this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
+    } else {
+      console.warn(
+        '⚠️ No valid header time range found, using actual data range as fallback'
+      );
+      headerMinTime = actualDataRange.minTime;
+      headerMaxTime = actualDataRange.maxTime;
+      this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
+    }
+
+    // Configure widget for time-based data
+    this.wellLogWidget.setIndexType('time', 'ms');
+
+    // Set initial visible range to show current data at bottom (most recent)
+    const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
+    const visibleMin = Math.max(headerMaxTime - fourHoursMs, headerMinTime);
+    const visibleMax = headerMaxTime;
+
+    console.log(
+      `📊 Initial visible range: ${new Date(
+        visibleMin
+      ).toISOString()} to ${new Date(visibleMax).toISOString()}`
+    );
+    console.log(`📊 Scroll positioned at current data bottom (most recent)`);
+
+    this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
+
+    // Update layout after all configurations
+    this.wellLogWidget.updateLayout();
+
+    // Initialize scroll tracking and start polling
+    this.lastVisibleMin = visibleMin;
+    this.lastVisibleMax = visibleMax;
+    this.startScrollPolling();
+
+    console.log(
+      `📊 Widget configured: Header range ${new Date(
+        headerMinTime
+      ).toISOString()} to ${new Date(
+        headerMaxTime
+      ).toISOString()}, showing 4h window at bottom for scrolling`
+    );
   }
-
-  // Configure widget for time-based data
-  this.wellLogWidget.setIndexType('time', 'ms');
-
-  // Set initial visible range to show current data at bottom (most recent)
-  const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
-  const visibleMin = Math.max(headerMaxTime - fourHoursMs, headerMinTime);
-  const visibleMax = headerMaxTime;
-
-  console.log(`📊 Initial visible range: ${new Date(visibleMin).toISOString()} to ${new Date(visibleMax).toISOString()}`);
-  console.log(`📊 Scroll positioned at current data bottom (most recent)`);
-
-  this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
-
-  // Update layout after all configurations
-  this.wellLogWidget.updateLayout();
-
-  // Initialize scroll tracking and start polling
-  this.lastVisibleMin = visibleMin;
-  this.lastVisibleMax = visibleMax;
-  this.startScrollPolling();
-
-  console.log(
-    `📊 Widget configured: Header range ${new Date(headerMinTime).toISOString()} to ${new Date(
-      headerMaxTime
-    ).toISOString()}, showing 4h window at bottom for scrolling`
-  );
-}
 
   private getTimeRange(): { minTime: number; maxTime: number } {
     let minTime = 0;
@@ -1265,7 +1290,7 @@ private configureWidgetLimits(): void {
           );
           this.lastVisibleMin = currentVisibleMin;
           this.lastVisibleMax = currentVisibleMax;
-        }, 150); // 150ms debounce delay
+        }, 140); // 150ms debounce delay
       }
     } catch (error) {
       console.error('❌ Error checking scroll:', error);
@@ -1339,16 +1364,17 @@ private configureWidgetLimits(): void {
       this.checkAndCleanupMemory({ min: visibleMin, max: visibleMax });
     }, 100);
 
-    // Extract and parse date values from headers
-    const { startDateValue, endDateValue } = this.extractDateValues(header);
+    // Direct access to header properties (no extractDateValues needed)
+    const startTime = header.startIndex;
+    const endTime = header.endIndex;
 
-    if (!startDateValue || !endDateValue) {
+    if (!startTime || !endTime) {
       console.error('❌ Missing date values in loadAdditionalLogData');
       return;
     }
 
-    const headerStartTime = this.parseTimestamp(startDateValue, 'start');
-    const headerEndTime = this.parseTimestamp(endDateValue, 'end');
+    const headerStartTime = new Date(startTime).getTime();
+    const headerEndTime = new Date(endTime).getTime();
 
     if (!headerStartTime || !headerEndTime) return;
 
@@ -1593,42 +1619,6 @@ private configureWidgetLimits(): void {
       .map((entry) => entry[1]);
   }
 
-  // private updateCurvesWithAdditionalData(): void {
-  //   if (!this.wellLogWidget) return;
-
-  //   this.listOfTracks.forEach((trackInfo) => {
-  //     const track = this.trackMap.get(trackInfo.trackNo);
-  //     if (!track) return;
-
-  //     trackInfo.curves.forEach((curveInfo: ITimeCurve) => {
-  //       const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
-
-  //       // Remove existing curve and add new one with updated data
-  //       const existingCurves = track
-  //         .getChildren()
-  //         .filter(
-  //           (child: any) =>
-  //             child.getName && child.getName() === curveInfo.mnemonicId
-  //         );
-  //       existingCurves.forEach((curve: any) => track.removeChild(curve));
-
-  //       const geoLogData = new GeoLogData(curveInfo.mnemonicId);
-  //       geoLogData.setValues(indexData, curveInfo.data);
-
-  //       const newCurve = new LogCurve(geoLogData);
-  //       newCurve.setLineStyle({
-  //         color: curveInfo.color || '#63b3ed',
-  //         width: curveInfo.lineWidth || 1,
-  //       });
-  //       newCurve.setName(curveInfo.mnemonicId);
-  //       track.addChild(newCurve);
-  //     });
-  //   });
-
-  //   this.wellLogWidget.updateLayout();
-  // }
-
-  // --- Template utility methods ---
   private updateCurvesWithAdditionalData(): void {
     if (!this.wellLogWidget) return;
 
@@ -1638,63 +1628,101 @@ private configureWidgetLimits(): void {
 
       trackInfo.curves.forEach((curveInfo: ITimeCurve) => {
         const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
-        let existingCurve: any = null;
 
-        // GeoToolkit iterator
-        const iterator: any = track.getChildren();
-        let node = iterator.next();
-
-        while (!node.done) {
-          const curve = node.value;
-
-          if (
-            curve &&
-            curve.getName &&
-            curve.getName() === curveInfo.mnemonicId
-          ) {
-            existingCurve = curve;
-            break;
-          }
-
-          node = iterator.next();
-        }
-
-        if (existingCurve) {
-          const geoLogData = existingCurve.getLogData();
-
-          if (geoLogData) {
-            geoLogData.setValues(indexData, curveInfo.data);
-
-            console.log(
-              `✅ Updated existing curve ${curveInfo.mnemonicId} with ${indexData.length} points`
-            );
-          }
-        } else {
-          const geoLogData = new GeoLogData(curveInfo.mnemonicId);
-          geoLogData.setValues(indexData, curveInfo.data);
-
-          const newCurve = new LogCurve(geoLogData);
-
-          newCurve.setLineStyle({
-            color: curveInfo.color || '#63b3ed',
-            width: curveInfo.lineWidth || 1,
-          });
-
-          newCurve.setName(curveInfo.mnemonicId);
-
-          track.addChild(newCurve);
-
-          console.log(
-            `✅ Created new curve ${curveInfo.mnemonicId} with ${indexData.length} points`
+        // Remove existing curve and add new one with updated data
+        const existingCurves = track
+          .getChildren()
+          .filter(
+            (child: any) =>
+              child.getName && child.getName() === curveInfo.mnemonicId
           );
-        }
+        existingCurves.forEach((curve: any) => track.removeChild(curve));
+
+        const geoLogData = new GeoLogData(curveInfo.mnemonicId);
+        geoLogData.setValues(indexData, curveInfo.data);
+
+        const newCurve = new LogCurve(geoLogData);
+        newCurve.setLineStyle({
+          color: curveInfo.color || '#63b3ed',
+          width: curveInfo.lineWidth || 1,
+        });
+        newCurve.setName(curveInfo.mnemonicId);
+        track.addChild(newCurve);
       });
     });
 
     this.wellLogWidget.updateLayout();
-    // Start pre-loading adjacent chunks after current data is loaded
-    //this.preloadAdjacentChunks();
   }
+
+  // --- Template utility methods ---
+  // private updateCurvesWithAdditionalData(): void {
+  //   if (!this.wellLogWidget) return;
+
+  //   this.listOfTracks.forEach(trackInfo => {
+  //     const track = this.trackMap.get(trackInfo.trackNo);
+  //     if (!track) return;
+
+  //     trackInfo.curves.forEach((curveInfo: ITimeCurve) => {
+
+  //       const indexData = this.curveTimeIndices.get(curveInfo.mnemonicId) || [];
+  //       let existingCurve: any = null;
+
+  //       // GeoToolkit iterator
+  //       const iterator: any = track.getChildren();
+  //       let node = iterator.next();
+
+  //       while (!node.done) {
+  //         const curve = node.value;
+
+  //         if (curve && curve.getName && curve.getName() === curveInfo.mnemonicId) {
+  //           existingCurve = curve;
+  //           break;
+  //         }
+
+  //         node = iterator.next();
+  //       }
+
+  //       if (existingCurve) {
+
+  //         const geoLogData = existingCurve.getLogData();
+
+  //         if (geoLogData) {
+  //           geoLogData.setValues(indexData, curveInfo.data);
+
+  //           console.log(
+  //             `✅ Updated existing curve ${curveInfo.mnemonicId} with ${indexData.length} points`
+  //           );
+  //         }
+
+  //       } else {
+
+  //         const geoLogData = new GeoLogData(curveInfo.mnemonicId);
+  //         geoLogData.setValues(indexData, curveInfo.data);
+
+  //         const newCurve = new LogCurve(geoLogData);
+
+  //         newCurve.setLineStyle({
+  //           color: curveInfo.color || '#63b3ed',
+  //           width: curveInfo.lineWidth || 1
+  //         });
+
+  //         newCurve.setName(curveInfo.mnemonicId);
+
+  //         track.addChild(newCurve);
+
+  //         console.log(
+  //           `✅ Created new curve ${curveInfo.mnemonicId} with ${indexData.length} points`
+  //         );
+  //       }
+
+  //     });
+  //   });
+
+  //   this.wellLogWidget.updateLayout();
+  //      // Start pre-loading adjacent chunks after current data is loaded
+  //   //this.preloadAdjacentChunks();
+
+  // }
   formatDateTimeForInput(date: Date | number): string {
     if (!date) return '';
     const dateObj = typeof date === 'number' ? new Date(date) : date;
