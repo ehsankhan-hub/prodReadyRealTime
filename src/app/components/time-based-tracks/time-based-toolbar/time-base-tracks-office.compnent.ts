@@ -982,6 +982,11 @@ export class TimeBasedTracksComponent
     let headerMaxTime = 0;
 
     this.wellboreObjects.forEach((header) => {
+      // Only process headers that are matched to template curves
+      if (!this.matchedHeaders?.has(header.objectId)) {
+        return; // Skip unmatched headers
+      }
+      
       // Direct access to header properties (same as loadLogData)
       const startTime = header.startIndex;
       const endTime = header.endIndex;
