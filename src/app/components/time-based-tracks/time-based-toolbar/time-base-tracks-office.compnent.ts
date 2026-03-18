@@ -117,6 +117,7 @@ export class TimeBasedTracksComponent
   wellLogWidget: WellLogWidget | null = null;
   wellboreObjects: IWellboreObject[] = [];
   showLoading = false;
+  isLoading = false; // Prevent multiple simultaneous API calls
   isLiveTracking = false;
   indexCurveTime: number[] = [];
   latestTimestamp: number = 0;
@@ -139,6 +140,7 @@ export class TimeBasedTracksComponent
   private lastVisibleMax = -1;
   private subscriptions: any[] = [];
   private scrollDebounceHandle: any = null;
+  private loadingRanges: Set<string> = new Set(); // Cache of currently loading ranges
 
   ngOnInit(): void {
     console.log('🎯 TimeBasedTracksComponent initialized', {
@@ -1278,7 +1280,7 @@ export class TimeBasedTracksComponent
 
     this.scrollPollHandle = setInterval(() => {
       this.checkScrollAndLoadData();
-    }, 200); // Check scroll every 200ms for more responsive loading
+    }, 500); // Reduced frequency from 200ms to 500ms to reduce CPU usage
   }
 
   private checkScrollAndLoadData(): void {
@@ -1291,13 +1293,17 @@ export class TimeBasedTracksComponent
       const currentVisibleMin = visibleLimits.getLow();
       const currentVisibleMax = visibleLimits.getHigh();
 
-      // Check if user scrolled to load more data (with 5min buffer for earlier loading)
-      const bufferMs = 5 * 60 * 1000; // 5 minutes buffer
+      // Check if user scrolled to load more data (with 10min buffer to reduce excessive calls)
+      const bufferMs = 10 * 60 * 1000; // Increased from 5min to 10min buffer
       const needsLoadEarlier =
         currentVisibleMin < this.lastVisibleMin - bufferMs;
       const needsLoadLater = currentVisibleMax > this.lastVisibleMax + bufferMs;
 
-      if (needsLoadEarlier || needsLoadLater) {
+      // Additional check: prevent duplicate calls with same ranges
+      const rangeChanged = Math.abs(currentVisibleMin - this.lastVisibleMin) > 1000 || 
+                          Math.abs(currentVisibleMax - this.lastVisibleMax) > 1000; // 1 second minimum change
+
+      if ((needsLoadEarlier || needsLoadLater) && rangeChanged) {
         console.log(
           `🔄 Scroll detected: ${new Date(
             currentVisibleMin
@@ -1310,6 +1316,13 @@ export class TimeBasedTracksComponent
         }
 
         this.scrollDebounceHandle = setTimeout(() => {
+          // Prevent multiple simultaneous loads
+          if (this.isLoading) {
+            console.log('⏳ Already loading data, skipping request');
+            return;
+          }
+          
+          this.isLoading = true;
           // Group curves by LogId for batch processing
           const logIdCurves = new Map<string, ITimeCurve[]>();
           this.listOfTracks.forEach((trackInfo) => {
@@ -1357,10 +1370,10 @@ export class TimeBasedTracksComponent
           });
           this.lastVisibleMin = currentVisibleMin;
           this.lastVisibleMax = currentVisibleMax;
-        }, 140); // 150ms debounce delay
+        }, 300); // Increased debounce from immediate to 300ms
       }
     } catch (error) {
-      console.error('❌ Error checking scroll:', error);
+      console.error('❌ Error in scroll polling:', error);
     }
   }
 
@@ -1434,6 +1447,16 @@ export class TimeBasedTracksComponent
       ).toISOString()} to ${new Date(loadMax).toISOString()}`
     );
 
+    // Check if this range is already being loaded to prevent duplicate API calls
+    const rangeKey = `${header.objectId}_${loadMin}_${loadMax}`;
+    if (this.loadingRanges.has(rangeKey)) {
+      console.log(`⏳ Range already being loaded: ${rangeKey}`);
+      return;
+    }
+
+    // Add this range to the loading cache
+    this.loadingRanges.add(rangeKey);
+
     const queryParameter: ILogDataQueryParameter = {
       wellUid: this.well,
       logUid: header.objectId,
@@ -1448,8 +1471,17 @@ export class TimeBasedTracksComponent
     };
 
     this.welldataService.getLogData(queryParameter).subscribe(
-      (response: any) => this.processAdditionalDataResponse(response),
-      (error) => console.error('❌ Error loading additional data:', error)
+      (response: any) => {
+        // Remove range from loading cache
+        this.loadingRanges.delete(rangeKey);
+        this.processAdditionalDataResponse(response);
+      },
+      (error) => {
+        console.error('❌ Error loading additional data:', error);
+        // Remove range from loading cache and reset loading flag on error
+        this.loadingRanges.delete(rangeKey);
+        this.isLoading = false;
+      }
     );
   }
 
@@ -1552,6 +1584,9 @@ export class TimeBasedTracksComponent
     // Update curves with new data
     this.updateCurvesWithAdditionalData();
     console.log('✅ Additional data loaded and curves updated');
+    
+    // Reset loading flag to allow future requests
+    this.isLoading = false;
   }
 
   private parseAdditionalCurveData(
