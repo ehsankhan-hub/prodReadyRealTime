@@ -351,10 +351,16 @@ export class TimeBasedTracksComponent
     const logIdCurves = new Map<string, ITimeCurve[]>();
     this.listOfTracks.forEach((trackInfo) => {
       trackInfo.curves.forEach((curve: ITimeCurve) => {
-        if (!logIdCurves.has(curve.LogId!)) {
-          logIdCurves.set(curve.LogId!, []);
+        // Skip curves with undefined LogId
+        if (!curve.LogId) {
+          console.warn(`⚠️ Skipping curve with undefined LogId: ${curve.mnemonic || 'unknown'}`);
+          return;
         }
-        logIdCurves.get(curve.LogId!)!.push(curve);
+        
+        if (!logIdCurves.has(curve.LogId)) {
+          logIdCurves.set(curve.LogId, []);
+        }
+        logIdCurves.get(curve.LogId)!.push(curve);
       });
     });
 
@@ -1053,9 +1059,10 @@ export class TimeBasedTracksComponent
       }
     }
 
-    // Set visible range to full header range initially (not just 4 hours)
-    // This allows users to see and scroll through all historical data
-    const visibleMin = headerMinTime;
+    // Set initial visible range to 4-hour window for better performance
+    // This enables scroll functionality and loads data incrementally
+    const fourHoursMs = 4 * 60 * 60 * 1000;
+    const visibleMin = headerMaxTime - fourHoursMs; // Show last 4 hours
     const visibleMax = headerMaxTime;
 
     console.log(
@@ -1063,7 +1070,7 @@ export class TimeBasedTracksComponent
         visibleMin
       ).toISOString()} to ${new Date(visibleMax).toISOString()}`
     );
-    console.log(`📊 Showing full header range for scrolling`);
+    console.log(`📊 Showing 4-hour window with full range available for scrolling`);
 
     this.wellLogWidget.setVisibleDepthLimits(visibleMin, visibleMax);
 
