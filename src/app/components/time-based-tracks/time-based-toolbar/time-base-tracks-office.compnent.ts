@@ -344,6 +344,9 @@ export class TimeBasedTracksComponent
   private loadData(): void {
     if (!this.wellLogWidget || !this.wellboreObjects.length) return;
 
+    // Initialize matchedHeaders set
+    this.matchedHeaders = new Set<string>();
+
     // Group curves by LogId from static template (same pattern as dynamic track generator)
     const logIdCurves = new Map<string, ITimeCurve[]>();
     this.listOfTracks.forEach((trackInfo) => {
@@ -385,6 +388,10 @@ export class TimeBasedTracksComponent
       console.log(
         `✅ Loading data for LogId: ${logId} -> matched to header: ${matchingHeader.objectId}`
       );
+      
+      // Add to matchedHeaders set for widget configuration
+      this.matchedHeaders!.add(matchingHeader.objectId);
+      
       this.loadLogData(matchingHeader, curves);
     });
   }
@@ -1296,11 +1303,49 @@ export class TimeBasedTracksComponent
         }
 
         this.scrollDebounceHandle = setTimeout(() => {
-          this.loadAdditionalData(
-            currentVisibleMin,
-            currentVisibleMax,
-            needsLoadEarlier
-          );
+          // Group curves by LogId for batch processing
+          const logIdCurves = new Map<string, ITimeCurve[]>();
+          this.listOfTracks.forEach((trackInfo) => {
+            if (trackInfo.curves) {
+              trackInfo.curves.forEach((curve: ITimeCurve) => {
+                const logId = curve.getLogId();
+                if (!logIdCurves.has(logId)) {
+                  logIdCurves.set(logId, []);
+                }
+                logIdCurves.get(logId)!.push(curve);
+              });
+            }
+          });
+
+          // For each LogId, find matching backend header and load data
+          logIdCurves.forEach((curves, logId) => {
+            // Extract base names by removing suffixes (e.g., Surface_Time_SB -> Surface_Time)
+            const logIdBase = logId.replace(/_[A-Z]+$/, '');
+
+            // Match using base name comparison only (ignoring suffixes like _SB, _SLB, etc.)
+            const matchingHeader = this.wellboreObjects.find((h) => {
+              const headerBase = h.objectId.replace(/_[A-Z]+$/, '');
+              return headerBase === logIdBase; // Base name match only
+            });
+
+            if (!matchingHeader) {
+              console.warn(
+                `⚠️ No backend header found for LogId: ${logId} (base: ${logIdBase})`
+              );
+              return;
+            }
+
+            console.log(
+              `✅ Loading additional data for LogId: ${logId} -> matched to header: ${matchingHeader.objectId}`
+            );
+            this.loadAdditionalLogData(
+              matchingHeader,
+              curves,
+              currentVisibleMin,
+              currentVisibleMax,
+              needsLoadEarlier
+            );
+          });
           this.lastVisibleMin = currentVisibleMin;
           this.lastVisibleMax = currentVisibleMax;
         }, 140); // 150ms debounce delay
@@ -1308,61 +1353,6 @@ export class TimeBasedTracksComponent
     } catch (error) {
       console.error('❌ Error checking scroll:', error);
     }
-  }
-
-  private loadAdditionalData(
-    visibleMin: number,
-    visibleMax: number,
-    isScrollingUp: boolean = false
-  ): void {
-    // Group curves by LogId from static template (same pattern as loadData)
-    const logIdCurves = new Map<string, ITimeCurve[]>();
-    this.listOfTracks.forEach((trackInfo) => {
-      trackInfo.curves.forEach((curve: ITimeCurve) => {
-        if (!logIdCurves.has(curve.LogId!)) {
-          logIdCurves.set(curve.LogId!, []);
-        }
-        logIdCurves.get(curve.LogId!)!.push(curve);
-      });
-    });
-
-    console.log(
-      `🔄 Loading additional data for ${
-        logIdCurves.size
-      } LogIds in range: ${new Date(visibleMin).toISOString()} to ${new Date(
-        visibleMax
-      ).toISOString()}`
-    );
-
-    // For each LogId, find matching backend header and load data
-    logIdCurves.forEach((curves, logId) => {
-      // Extract base names by removing suffixes (e.g., Surface_Time_SB -> Surface_Time)
-      const logIdBase = logId.replace(/_[A-Z]+$/, '');
-
-      // Match using base name comparison only (ignoring suffixes like _SB, _SLB, etc.)
-      const matchingHeader = this.wellboreObjects.find((h) => {
-        const headerBase = h.objectId.replace(/_[A-Z]+$/, '');
-        return headerBase === logIdBase; // Base name match only
-      });
-
-      if (!matchingHeader) {
-        console.warn(
-          `⚠️ No backend header found for LogId: ${logId} (base: ${logIdBase})`
-        );
-        return;
-      }
-
-      console.log(
-        `✅ Loading additional data for LogId: ${logId} -> matched to header: ${matchingHeader.objectId}`
-      );
-      this.loadAdditionalLogData(
-        matchingHeader,
-        curves,
-        visibleMin,
-        visibleMax,
-        isScrollingUp
-      );
-    });
   }
 
   private loadAdditionalLogData(
