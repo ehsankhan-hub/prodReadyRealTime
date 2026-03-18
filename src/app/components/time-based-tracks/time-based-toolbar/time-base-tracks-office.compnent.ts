@@ -1308,11 +1308,13 @@ export class TimeBasedTracksComponent
           this.listOfTracks.forEach((trackInfo) => {
             if (trackInfo.curves) {
               trackInfo.curves.forEach((curve: ITimeCurve) => {
-                const logId = curve.getLogId();
-                if (!logIdCurves.has(logId)) {
-                  logIdCurves.set(logId, []);
+                const logId = curve.LogId;
+                if (logId) {
+                  if (!logIdCurves.has(logId)) {
+                    logIdCurves.set(logId, []);
+                  }
+                  logIdCurves.get(logId)!.push(curve);
                 }
-                logIdCurves.get(logId)!.push(curve);
               });
             }
           });
