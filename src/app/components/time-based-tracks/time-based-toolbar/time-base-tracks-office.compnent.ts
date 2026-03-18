@@ -1022,12 +1022,10 @@ export class TimeBasedTracksComponent
       );
       this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
     } else {
-      console.warn(
-        '⚠️ No valid header time range found, using actual data range as fallback'
+      console.error(
+        '❌ No valid header time range found - cannot configure widget'
       );
-      headerMinTime = actualDataRange.minTime;
-      headerMaxTime = actualDataRange.maxTime;
-      this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
+      return;
     }
 
     // Configure widget for time-based data
