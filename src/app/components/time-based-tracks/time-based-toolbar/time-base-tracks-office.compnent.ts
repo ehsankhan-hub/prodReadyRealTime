@@ -975,7 +975,11 @@ export class TimeBasedTracksComponent
   //Update method for fix
 
   private configureWidgetLimits(): void {
-    if (!this.wellLogWidget) return;
+    console.log('🚀 configureWidgetLimits() called!');
+    if (!this.wellLogWidget) {
+      console.log('❌ No wellLogWidget - exiting');
+      return;
+    }
 
     // Configure widget for time-based data
     this.wellLogWidget.setIndexType('time', 'ms');
