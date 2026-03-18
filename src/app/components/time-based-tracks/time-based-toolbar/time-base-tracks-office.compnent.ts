@@ -980,6 +980,10 @@ export class TimeBasedTracksComponent
     // Configure widget for time-based data
     this.wellLogWidget.setIndexType('time', 'ms');
 
+    console.log(`🔍 Processing ${this.wellboreObjects.length} wellbore objects`);
+    console.log(`🔍 Matched headers:`, Array.from(this.matchedHeaders || []));
+    console.log(`🔍 All wellbore object IDs:`, this.wellboreObjects.map(h => h.objectId));
+
     // 👇 SIMPLIFIED HEADER EXTRACTION - NO extractDateValues() NEEDED 👇
     let headerMinTime = Infinity;
     let headerMaxTime = 0;
@@ -987,6 +991,7 @@ export class TimeBasedTracksComponent
     this.wellboreObjects.forEach((header) => {
       // Only process headers that are matched to template curves
       if (!this.matchedHeaders?.has(header.objectId)) {
+        console.log(`⏭️ Skipping unmatched header: ${header.objectId}`);
         return; // Skip unmatched headers
       }
       
