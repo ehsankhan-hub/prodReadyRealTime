@@ -977,6 +977,9 @@ export class TimeBasedTracksComponent
   private configureWidgetLimits(): void {
     if (!this.wellLogWidget) return;
 
+    // Configure widget for time-based data
+    this.wellLogWidget.setIndexType('time', 'ms');
+
     // 👇 SIMPLIFIED HEADER EXTRACTION - NO extractDateValues() NEEDED 👇
     let headerMinTime = Infinity;
     let headerMaxTime = 0;
@@ -1016,16 +1019,25 @@ export class TimeBasedTracksComponent
       );
       this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
     } else {
-      console.error(
-        '❌ No valid header time range found - cannot configure widget'
-      );
-      return;
+      // Fallback: use current data range if no headers matched
+      console.warn('⚠️ No headers matched, using current data range as fallback');
+      const currentDataRange = this.getTimeRange();
+      if (currentDataRange.minTime !== 0 && currentDataRange.maxTime !== 0) {
+        headerMinTime = currentDataRange.minTime;
+        headerMaxTime = currentDataRange.maxTime;
+        console.log(
+          `📊 Using data range fallback: ${new Date(
+            headerMinTime
+          ).toISOString()} to ${new Date(headerMaxTime).toISOString()}`
+        );
+        this.wellLogWidget.setDepthLimits(headerMinTime, headerMaxTime);
+      } else {
+        console.error('❌ No data available for widget configuration');
+        return; // Exit early to prevent further errors
+      }
     }
 
-    // Configure widget for time-based data
-    this.wellLogWidget.setIndexType('time', 'ms');
-
-    // Set initial visible range to show current data at bottom (most recent)
+    // Set visible range to 4 hours ending at the most recent data
     const fourHoursMs = 4 * 3600000; // 4 hours in milliseconds
     const visibleMin = Math.max(headerMaxTime - fourHoursMs, headerMinTime);
     const visibleMax = headerMaxTime;
