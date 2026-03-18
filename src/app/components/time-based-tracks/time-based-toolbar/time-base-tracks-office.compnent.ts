@@ -993,11 +993,11 @@ export class TimeBasedTracksComponent
     let headerMaxTime = 0;
 
     this.wellboreObjects.forEach((header) => {
-      // Direct access to header properties
-      const startTime = header.startDateTimeIndex;
-      const endTime = header.endDateTimeIndex;
-      console.log(' header.startDateTimeIndex ', header.startDateTimeIndex);
-      console.log(' header.endDateTimeIndex ', header.endDateTimeIndex);
+      // Direct access to header properties (same as loadLogData)
+      const startTime = header.startIndex;
+      const endTime = header.endIndex;
+      console.log(' header.startIndex ', header.startIndex);
+      console.log(' header.endIndex ', header.endIndex);
       if (startTime && endTime) {
         const parsedStart = new Date(startTime).getTime();
         const parsedEnd = new Date(endTime).getTime();
