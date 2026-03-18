@@ -977,17 +977,6 @@ export class TimeBasedTracksComponent
   private configureWidgetLimits(): void {
     if (!this.wellLogWidget) return;
 
-    // Check if we have any actual data before configuring limits
-    const actualDataRange = this.getTimeRange();
-    if (
-      !actualDataRange ||
-      actualDataRange.minTime === 0 ||
-      actualDataRange.maxTime === 0
-    ) {
-      console.warn('⚠️ No data available for widget configuration - skipping');
-      return;
-    }
-
     // 👇 SIMPLIFIED HEADER EXTRACTION - NO extractDateValues() NEEDED 👇
     let headerMinTime = Infinity;
     let headerMaxTime = 0;
