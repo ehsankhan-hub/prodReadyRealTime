@@ -887,6 +887,9 @@ export class DynamicTrackGeneratorComponent
             return;
           }
 
+          // Detect if this is time-based data
+          const isTimeBased = this.detectTimeBasedData();
+
           // Use actual depth from loaded data if headerMaxDepth is 0 (e.g. time-based logs)
           const fullMaxDepth =
             this.headerMaxDepth > 0 ? this.headerMaxDepth : loadedMax;
@@ -902,8 +905,6 @@ export class DynamicTrackGeneratorComponent
             console.warn('⚠️ Invalid max depth, skipping depth limits');
             return;
           }
-
-          const isTimeBased = this.detectTimeBasedData();
           
           if (isTimeBased) {
             // For time-based data: show most recent 4 hours at bottom
