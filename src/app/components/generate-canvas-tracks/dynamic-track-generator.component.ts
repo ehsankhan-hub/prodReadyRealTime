@@ -2266,11 +2266,10 @@ export class DynamicTrackGeneratorComponent
     // Configure time-based index track formatting
     if (isTimeBased) {
       try {
-        // Set time-based formatting for the index track
-        indexTrack.setIndexType(IndexType.Time);
-        indexTrack.setIndexUnit('s');
+        // Set time-based formatting for the widget (not indexTrack)
+        this.wellLogWidget.setIndexType('time', 'ms');
         
-        // Try to set time formatting - this may vary by GeoToolkit version
+        // Try to set time formatting on index track - this may vary by GeoToolkit version
         if (typeof (indexTrack as any).setTimeFormat === 'function') {
           (indexTrack as any).setTimeFormat('yyyy-MM-dd HH:mm:ss');
         }
@@ -2278,9 +2277,9 @@ export class DynamicTrackGeneratorComponent
           (indexTrack as any).setFormat('yyyy-MM-dd HH:mm:ss');
         }
         
-        console.log('🕐 Configured time-based index track with timestamp formatting');
+        console.log('🕐 Configured time-based widget with timestamp formatting');
       } catch (e) {
-        console.warn('⚠️ Could not set time formatting on index track:', e);
+        console.warn('⚠️ Could not set time formatting:', e);
       }
     }
 
