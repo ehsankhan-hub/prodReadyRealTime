@@ -12,7 +12,12 @@ import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
-import { BaseWidgetComponent } from '../../../basewidget/basewidget.component'; 
+import { BaseWidgetComponent } from '../../../components/core/basewidget/basewidget.component';
+import {
+  RealTimeDisplayService,
+  LogData,
+} from '../../../service/real-time-display.service';
+
 import {
   PrintPropertiesDialogComponent,
   PrintPropertiesData,
@@ -203,13 +208,8 @@ export class DynamicTrackGeneratorComponent
   // --- Chunked loading state ---
   /** Cached log headers for lazy loading */
   private cachedHeaders: IWellboreObject[] = [];
-  /** Number of rows per chunk - dynamic based on data type */
-  private get CHUNK_SIZE(): number {
-    const isTimeBased = this.detectTimeBasedData();
-    // For time-based data: 4 hours in milliseconds (4 * 60 * 60 * 1000)
-    // For depth-based data: 2000 units (original)
-    return isTimeBased ? (4 * 60 * 60 * 1000) : 2000;
-  }
+  /** Number of depth rows per chunk */
+  private readonly CHUNK_SIZE = 2000;
   /** The overall max depth from headers (not from loaded data) */
   private headerMaxDepth = 0;
   /** Tracks which depth ranges have been loaded per curve */
@@ -351,14 +351,13 @@ export class DynamicTrackGeneratorComponent
   private async processLogHeaders(headers: IWellboreObject[]): Promise<void> {
     console.log('processLogHeaders ', headers);
 
-    // Detect if this is time-based data
-    const isTimeBased = this.detectTimeBasedData();
-    console.log(`🔍 Data type detected for header processing: ${isTimeBased ? 'TIME-based' : 'DEPTH-based'}`);
-
     // Calculate headerMaxDepth from backend endIndex for proper depth limits
     headers?.forEach((h) => {
       // endIndex can be a string number (depth) or a date string (time)
       const endVal = h.endIndex?.['#text'] || h.endIndex;
+      
+      // Check if this is time-based data by looking at the component's detection
+      const isTimeBased = this.detectTimeBasedData();
       
       if (isTimeBased) {
         // For time-based data, convert date to timestamp and use for headerMaxDepth
@@ -422,6 +421,9 @@ export class DynamicTrackGeneratorComponent
       let headerStart: number;
       let headerEnd: number;
 
+      // Check if this is time-based data by looking at the component's detection
+      const isTimeBased = this.detectTimeBasedData();
+
       if (isTimeBased) {
         // For time-based data, convert dates to timestamps
         try {
@@ -456,7 +458,7 @@ export class DynamicTrackGeneratorComponent
       const chunkEnd = headerEnd;
 
       console.log(
-        `📦 Loading initial chunk for LogId ${logId}: ${new Date(chunkStart).toISOString()}-${new Date(chunkEnd).toISOString()} (of full range ${new Date(headerStart).toISOString()}-${new Date(headerEnd).toISOString()}, ${curves.length} curves)`
+        `📦 Loading initial chunk for LogId ${logId}: ${isTimeBased ? new Date(chunkStart).toISOString() : chunkStart}-${isTimeBased ? new Date(chunkEnd).toISOString() : chunkEnd} (of full range ${isTimeBased ? new Date(headerStart).toISOString() : headerStart}-${isTimeBased ? new Date(headerEnd).toISOString() : headerEnd}, ${curves.length} curves)`
       );
       
       loadPromises.push(
@@ -622,9 +624,6 @@ export class DynamicTrackGeneratorComponent
       (m: any) => m.trim() === curve.mnemonicId
     );
 
-    // Check if this is time-based data by looking at the component's detection
-    const isTimeBasedData = this.detectTimeBasedData();
-    
     // Determine if index is depth-based or time-based
     const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
     const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP'];
@@ -632,9 +631,18 @@ export class DynamicTrackGeneratorComponent
     let indexColIdx = -1;
     let isDepthIndex = false;
 
-    // For time-based data, prioritize time mnemonics first
-    if (isTimeBasedData) {
-      // First try time mnemonics
+    // First try depth mnemonics
+    for (const dm of depthMnemonics) {
+      indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
+      if (indexColIdx !== -1) {
+        isDepthIndex = true;
+        console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
+        break;
+      }
+    }
+
+    // If no depth index found, try time mnemonics
+    if (indexColIdx === -1) {
       for (const tm of timeMnemonics) {
         indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
         if (indexColIdx !== -1) {
@@ -643,48 +651,14 @@ export class DynamicTrackGeneratorComponent
           break;
         }
       }
-
-      // If no time index found, try depth mnemonics as fallback
-      if (indexColIdx === -1) {
-        for (const dm of depthMnemonics) {
-          indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
-          if (indexColIdx !== -1) {
-            isDepthIndex = true;
-            console.log(`📏 Found depth index as fallback: ${dm} at position ${indexColIdx}`);
-            break;
-          }
-        }
-      }
-    } else {
-      // For depth-based data, prioritize depth mnemonics first (original logic)
-      for (const dm of depthMnemonics) {
-        indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
-        if (indexColIdx !== -1) {
-          isDepthIndex = true;
-          console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
-          break;
-        }
-      }
-
-      // If no depth index found, try time mnemonics
-      if (indexColIdx === -1) {
-        for (const tm of timeMnemonics) {
-          indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
-          if (indexColIdx !== -1) {
-            isDepthIndex = false;
-            console.log(`🕐 Found time index: ${tm} at position ${indexColIdx}`);
-            break;
-          }
-        }
-      }
     }
 
     // Fallback: use first column
     if (indexColIdx === -1) {
       indexColIdx = 0;
-      isDepthIndex = isTimeBasedData ? false : true; // Default based on data type
+      isDepthIndex = true;
       console.warn(
-        `⚠️ No index column found, defaulting to first column as ${isTimeBasedData ? 'time' : 'depth'}`
+        '⚠️ No index column found, defaulting to first column as depth'
       );
     }
 
@@ -842,7 +816,7 @@ export class DynamicTrackGeneratorComponent
       // Create WellLogWidget with dynamic configuration
       this.wellLogWidget = new WellLogWidget({
         indextype: isTimeBased ? IndexType.Time : IndexType.Depth,
-        indexunit: isTimeBased ? 'ms' : 'ft',
+        indexunit: isTimeBased ? 's' : 'ft',
         horizontalscrollable: false,
         verticalscrollable: true,
         header: {
@@ -880,46 +854,19 @@ export class DynamicTrackGeneratorComponent
       // Set depth limits, show recent data first, and configure crosshair + scroll listener
       setTimeout(() => {
         try {
-          // Validate we have data before proceeding
-          const loadedMax = this.getMaxDepth();
-          if (loadedMax <= 0 || !isFinite(loadedMax)) {
-            console.warn('⚠️ Invalid depth range detected, skipping scene setup');
-            return;
-          }
-
-          // Detect if this is time-based data
-          const isTimeBased = this.detectTimeBasedData();
-
           // Use actual depth from loaded data if headerMaxDepth is 0 (e.g. time-based logs)
           const fullMaxDepth =
-            this.headerMaxDepth > 0 ? this.headerMaxDepth : loadedMax;
+            this.headerMaxDepth > 0 ? this.headerMaxDepth : this.getMaxDepth();
           console.log('📊 Setting depth limits: 0 to', fullMaxDepth);
-          
-          // For time-based data, set reasonable limits instead of massive headerMaxDepth
-          if (isTimeBased && this.headerMaxDepth > loadedMax * 100) {
-            console.log('🕐 Time-based: Using actual data range instead of header max for depth limits');
-            this.wellLogWidget.setDepthLimits(loadedMax - (4 * 60 * 60 * 1000), loadedMax + (4 * 60 * 60 * 1000));
-          } else if (fullMaxDepth > 0 && isFinite(fullMaxDepth)) {
-            this.wellLogWidget.setDepthLimits(0, fullMaxDepth);
-          } else {
-            console.warn('⚠️ Invalid max depth, skipping depth limits');
-            return;
-          }
-          
-          if (isTimeBased) {
-            // For time-based data: show most recent 4 hours at bottom
-            const fourHoursInMs = 4 * 60 * 60 * 1000;
-            const recentStart = loadedMax - fourHoursInMs;
-            console.log(`🕐 Time-based: showing recent 4 hours: ${new Date(recentStart).toISOString()} - ${new Date(loadedMax).toISOString()}`);
-            this.wellLogWidget.setVisibleDepthLimits(recentStart, loadedMax);
-          } else if (this.selectedScale > 0 && this.selectedScale < loadedMax) {
-            // For depth-based data: use selected scale if available
+          this.wellLogWidget.setDepthLimits(0, fullMaxDepth);
+
+          // Show recent data first: scroll to bottom of loaded data
+          const loadedMax = this.getMaxDepth();
+          if (this.selectedScale > 0 && this.selectedScale < loadedMax) {
             const visibleRange = this.selectedScale;
             const recentStart = loadedMax - visibleRange;
-            console.log(`📏 Depth-based: showing recent ${visibleRange} units: ${recentStart} - ${loadedMax}`);
             this.wellLogWidget.setVisibleDepthLimits(recentStart, loadedMax);
           } else {
-            // Fallback to scale method
             this.applyScale(this.selectedScale);
           }
 
@@ -1120,12 +1067,13 @@ export class DynamicTrackGeneratorComponent
     chunkRequests.forEach(({ header, curves, start, end }, key) => {
       // Mark range as in-flight immediately to prevent duplicates
       this.inFlightRanges.add(key);
-      console.log(`  📥 Chunk: ${new Date(start).toISOString()}-${new Date(end).toISOString()} for ${header.objectId}`);
-
+      
       // Check if this is time-based data for proper formatting
       const isTimeBased = this.detectTimeBasedData();
       const startIndex = isTimeBased ? new Date(start).toISOString() : start.toString();
       const endIndex = isTimeBased ? new Date(end).toISOString() : end.toString();
+      
+      console.log(`  📥 Chunk: ${startIndex}-${endIndex} for ${header.objectId}`);
 
       this.logHeadersService
         .getLogData({
@@ -1146,7 +1094,7 @@ export class DynamicTrackGeneratorComponent
             if (
               logDataArray != null &&
               logDataArray.logs &&
-              logDataArray.length > 0 &&
+              logDataArray.logs.length > 0 &&
               logDataArray.logs[0].logData?.data?.length > 0
             ) {
               const convertedLogData = this.convertResponseToLogData(
@@ -1269,7 +1217,6 @@ export class DynamicTrackGeneratorComponent
         
         // Force widget to update with new data
         this.wellLogWidget.updateLayout();
-        this.wellLogWidget.render();
         
         console.log(
           `🔄 Updated GeoToolkit curve ${curve.mnemonicId} with ${mergedValues.length} points`
@@ -2283,11 +2230,6 @@ export class DynamicTrackGeneratorComponent
     const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
     indexTrack.setWidth(120);
     indexTrack.setName(isTimeBased ? 'Time' : 'Depth');
-
-    // Simple time-based configuration - no complex formatting to avoid errors
-    if (isTimeBased) {
-      console.log('🕐 Created time-based index track');
-    }
 
     // Configure index track to show full scale instead of just visible range
     // Get the full depth range from ALL loaded data (FIXED: check all tracks, not just first)
