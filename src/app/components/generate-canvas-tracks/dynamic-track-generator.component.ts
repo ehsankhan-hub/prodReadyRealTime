@@ -622,6 +622,9 @@ export class DynamicTrackGeneratorComponent
       (m: any) => m.trim() === curve.mnemonicId
     );
 
+    // Check if this is time-based data by looking at the component's detection
+    const isTimeBasedData = this.detectTimeBasedData();
+    
     // Determine if index is depth-based or time-based
     const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
     const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP'];
@@ -629,18 +632,9 @@ export class DynamicTrackGeneratorComponent
     let indexColIdx = -1;
     let isDepthIndex = false;
 
-    // First try depth mnemonics
-    for (const dm of depthMnemonics) {
-      indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
-      if (indexColIdx !== -1) {
-        isDepthIndex = true;
-        console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
-        break;
-      }
-    }
-
-    // If no depth index found, try time mnemonics
-    if (indexColIdx === -1) {
+    // For time-based data, prioritize time mnemonics first
+    if (isTimeBasedData) {
+      // First try time mnemonics
       for (const tm of timeMnemonics) {
         indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
         if (indexColIdx !== -1) {
@@ -649,14 +643,48 @@ export class DynamicTrackGeneratorComponent
           break;
         }
       }
+
+      // If no time index found, try depth mnemonics as fallback
+      if (indexColIdx === -1) {
+        for (const dm of depthMnemonics) {
+          indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
+          if (indexColIdx !== -1) {
+            isDepthIndex = true;
+            console.log(`📏 Found depth index as fallback: ${dm} at position ${indexColIdx}`);
+            break;
+          }
+        }
+      }
+    } else {
+      // For depth-based data, prioritize depth mnemonics first (original logic)
+      for (const dm of depthMnemonics) {
+        indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
+        if (indexColIdx !== -1) {
+          isDepthIndex = true;
+          console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
+          break;
+        }
+      }
+
+      // If no depth index found, try time mnemonics
+      if (indexColIdx === -1) {
+        for (const tm of timeMnemonics) {
+          indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
+          if (indexColIdx !== -1) {
+            isDepthIndex = false;
+            console.log(`🕐 Found time index: ${tm} at position ${indexColIdx}`);
+            break;
+          }
+        }
+      }
     }
 
     // Fallback: use first column
     if (indexColIdx === -1) {
       indexColIdx = 0;
-      isDepthIndex = true;
+      isDepthIndex = isTimeBasedData ? false : true; // Default based on data type
       console.warn(
-        '⚠️ No index column found, defaulting to first column as depth'
+        `⚠️ No index column found, defaulting to first column as ${isTimeBasedData ? 'time' : 'depth'}`
       );
     }
 
