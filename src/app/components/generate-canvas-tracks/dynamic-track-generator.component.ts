@@ -1068,12 +1068,23 @@ export class DynamicTrackGeneratorComponent
       // Mark range as in-flight immediately to prevent duplicates
       this.inFlightRanges.add(key);
       
-      // Check if this is time-based data for proper formatting
-      const isTimeBased = this.detectTimeBasedData();
+      // Check if this is time-based data by looking at actual loaded data, not track configuration
+      // This prevents the 1970 date issue when track config says time-based but data is depth-based
+      let isTimeBased = false;
+      if (curves.length > 0 && this.curveDepthIndices.has(curves[0].mnemonicId)) {
+        const existingDepths = this.curveDepthIndices.get(curves[0].mnemonicId) || [];
+        if (existingDepths.length > 0) {
+          // If the first depth value is a timestamp (large number), it's time-based
+          // If it's a reasonable depth value (< 50000), it's depth-based
+          const firstDepth = existingDepths[0];
+          isTimeBased = firstDepth > 1000000000000; // Timestamps are > 1 trillion
+        }
+      }
+      
       const startIndex = isTimeBased ? new Date(start).toISOString() : start.toString();
       const endIndex = isTimeBased ? new Date(end).toISOString() : end.toString();
       
-      console.log(`  📥 Chunk: ${startIndex}-${endIndex} for ${header.objectId}`);
+      console.log(`  📥 Chunk: ${startIndex}-${endIndex} for ${header.objectId} (detected as ${isTimeBased ? 'time-based' : 'depth-based'})`);
 
       this.logHeadersService
         .getLogData({
