@@ -39,6 +39,7 @@ export interface ITimeTrack {
 
 export interface IWellboreObject {
   uid: string;
+  objectId?:string;
   logUid:string;
   name: string;
   wellId: string;

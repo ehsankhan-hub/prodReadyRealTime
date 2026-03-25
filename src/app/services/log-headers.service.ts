@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
 import { map, shareReplay } from 'rxjs/operators';
+import { IWellboreObject } from '../components/time-based-tracks/time-based-tracks.component';
 
 /**
  * Interface representing curve information within a log header.
@@ -140,10 +141,11 @@ export class LogHeadersService {
   /**
    * Retrieves log headers for a specific well and wellbore.
    * Fetches all headers and filters client-side by well and wellbore identifiers.
+   * Converts LogHeader objects to IWellboreObject format for compatibility.
    * 
    * @param well - Unique identifier for the well
    * @param wellbore - Unique identifier for the wellbore
-   * @returns Observable emitting an array of filtered LogHeader objects
+   * @returns Observable emitting an array of filtered IWellboreObject objects
    * 
    * @example
    * ```typescript
@@ -151,13 +153,31 @@ export class LogHeadersService {
    *   .subscribe(headers => console.log('Found headers:', headers));
    * ```
    */
-  getLogHeaders(well: string, wellbore: string): Observable<LogHeader[]> {
+  getLogHeaders(well: string, wellbore: string): Observable<IWellboreObject[]> {
     return this.http.get<{logHeaders: LogHeader[]}>(`${this.baseUrl}/logHeaders`).pipe(
       map((response: {logHeaders: LogHeader[]}) => {
         const headers = response.logHeaders || [];
-        return headers.filter(header => 
+        const filteredHeaders = headers.filter(header => 
           header['@uidWell'] === well && header['@uidWellbore'] === wellbore
         );
+        
+        // Convert LogHeader[] to IWellboreObject[]
+        return filteredHeaders.map(header => ({
+          uid: header.uid,
+          objectId: header.uid, // Map uid to objectId for compatibility
+          logUid: header.uid,
+          name: header.name,
+          wellId: header['@uidWell'],
+          wellboreId: header['@uidWellbore'],
+          indexType: header.indexType,
+          indexCurve: header.indexCurve,
+          startIndex: header.startIndex,
+          endIndex: header.endIndex,
+          indexUnit: header.startIndex?.['@uom'] || 'm',
+          isGrowing: header.objectGrowing === 'true',
+          mnemonicList: header.logCurveInfo?.map(curve => curve.mnemonic).join(',') || '',
+          objectInfo: [] // Empty array for now since ITimeCurve interface requirements differ
+        }));
       })
     );
   }

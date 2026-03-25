@@ -1,8 +1,7 @@
 import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { GenerateCanvasTracksComponent, TrackInfo } from '../../components/generate-canvas-tracks/generate-canvas-tracks.component';
-import { ITracks } from '../../models/tracks.model';
-import { TimeBasedTracksComponent } from 'src/app/components/time-based-tracks/time-based-tracks.component';
+import { TimeBasedTracksComponent } from '../../components/time-based-tracks/time-based-tracks.component';
+import { ITracks } from 'src/app/models/tracks.model';
 
 /**
  * Component for displaying MWD Time-based well log data.
@@ -19,7 +18,7 @@ import { TimeBasedTracksComponent } from 'src/app/components/time-based-tracks/t
 @Component({
   selector: 'app-mwd-time',
   standalone: true,
-  imports: [CommonModule,  GenerateCanvasTracksComponent,TimeBasedTracksComponent],
+  imports: [CommonModule,  TimeBasedTracksComponent],
   template: `
     <div class="mwd-time-container">
       
@@ -284,44 +283,18 @@ export class MwdTimeComponent implements OnInit {
     }
   
     /**
-     * Combines MWD and Density track configurations into a unified format.
-     * Converts ITracks to TrackInfo format and merges them for rendering.
+     * Combines all track configurations into a single array for rendering.
+     * Merges MWD, Density, and Image tracks into one unified collection.
      * 
      * @private
      */
     private combineTracks(): void {
-      // Convert ITracks to TrackInfo format
-      const convertToTrackInfo = (tracks: ITracks[]): TrackInfo[] => {
-        return tracks.map(track => ({
-          trackNo: track.trackNo,
-          trackName: track.trackName,
-          trackType: track.trackType,
-          trackWidth: track.trackWidth,
-          isIndex: track.isIndex,
-          isDepth: track.isDepth,
-          curves: track.curves.map(curve => ({
-            mnemonicId: curve.mnemonicId,
-            displayName: curve.displayName,
-            color: curve.color,
-            lineStyle: curve.lineStyle,
-            lineWidth: curve.lineWidth,
-            min: curve.min,
-            max: curve.max,
-            autoScale: curve.autoScale,
-            show: curve.show,
-            LogId: curve.LogId,
-            data: curve.data,
-            mnemonicLst: curve.mnemonicLst
-          }))
-        }));
-      };
-  
       this.combinedTracks = [
-        ...convertToTrackInfo(this.lstOfTrack),
-        ...convertToTrackInfo(this.lstOfTrack1),
-        ...convertToTrackInfo(this.lstOfTrack2) // Add image tracks
+        ...this.lstOfTrack,
+        ...this.lstOfTrack1,
+        ...this.lstOfTrack2
       ];
-  
+      
       console.log('🔗 Combined tracks for display:', this.combinedTracks);
     }
   

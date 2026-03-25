@@ -21,11 +21,11 @@ import { LogHeadersService } from '../../services/log-headers.service';
   imports: [CommonModule, GenerateCanvasTracksComponent],
   providers: [LogHeadersService],
   template: `
-    <app-generate-canvas-tracks 
+    <app-dynamic-track-generator 
       [listOfTracks]="combinedTracks"
       [well]="well"
       [wellbore]="wellbore">
-    </app-generate-canvas-tracks>
+    </app-dynamic-track-generator>
   `,
   styles: [`
     .mwd-density-container {

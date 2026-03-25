@@ -1,5 +1,6 @@
 export interface ILogDataQueryParameter {
   wellUid?: string;
+  objectId?:string;
   logUid?: string;
   wellboreUid?: string;
   logName?: string;

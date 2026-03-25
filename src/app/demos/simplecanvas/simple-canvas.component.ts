@@ -9,7 +9,7 @@ import { MwdTimeComponent } from '../../templates/mwd-time/mwd-time.component';
 import { TimeBaseTrackNativeGeoComponent } from '../../components/time-base-track-native-geo/time-base-track-native-geo.component';
 import { SimpleLog2dDemoComponent } from '../../components/simple-log2d-demo/simple-log2d-demo.component';
 import { ITracks } from '../../models/tracks.model';
-import { ITimeTrack, ITimeCurve } from '../../components/time-based-tracks/time-based-tracks.component';
+import { ITimeTrack, ITimeCurve, IWellboreObject } from '../../components/time-based-tracks/time-based-tracks.component';
 
 /**
  * Main demo component for displaying MWD Density well log visualization.
@@ -32,7 +32,7 @@ import { ITimeTrack, ITimeCurve } from '../../components/time-based-tracks/time-
 })
 export class SimpleCanvasComponent implements OnInit, AfterViewInit {
   /** Cached log headers from the service */
-  private logHeaders: LogHeader[] = [];
+  private logHeaders: IWellboreObject[] = [];
   /** MWD track configurations */
   mwdTracks: ITracks[] = [];
   /** Density track configurations */
