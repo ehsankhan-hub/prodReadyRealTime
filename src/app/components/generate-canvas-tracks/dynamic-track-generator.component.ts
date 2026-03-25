@@ -885,14 +885,26 @@ export class DynamicTrackGeneratorComponent
       // Set depth limits, show recent data first, and configure crosshair + scroll listener
       setTimeout(() => {
         try {
+          // Validate we have data before proceeding
+          const loadedMax = this.getMaxDepth();
+          if (loadedMax <= 0 || !isFinite(loadedMax)) {
+            console.warn('⚠️ Invalid depth range detected, skipping scene setup');
+            return;
+          }
+
           // Use actual depth from loaded data if headerMaxDepth is 0 (e.g. time-based logs)
           const fullMaxDepth =
-            this.headerMaxDepth > 0 ? this.headerMaxDepth : this.getMaxDepth();
+            this.headerMaxDepth > 0 ? this.headerMaxDepth : loadedMax;
           console.log('📊 Setting depth limits: 0 to', fullMaxDepth);
-          this.wellLogWidget.setDepthLimits(0, fullMaxDepth);
+          
+          // Only set depth limits if we have a valid range
+          if (fullMaxDepth > 0 && isFinite(fullMaxDepth)) {
+            this.wellLogWidget.setDepthLimits(0, fullMaxDepth);
+          } else {
+            console.warn('⚠️ Invalid max depth, skipping depth limits');
+            return;
+          }
 
-          // Show recent data first: scroll to bottom of loaded data
-          const loadedMax = this.getMaxDepth();
           const isTimeBased = this.detectTimeBasedData();
           
           if (isTimeBased) {
@@ -2269,15 +2281,7 @@ export class DynamicTrackGeneratorComponent
         // Set time-based formatting for the widget (not indexTrack)
         this.wellLogWidget.setIndexType('time', 'ms');
         
-        // Try to set time formatting on index track - this may vary by GeoToolkit version
-        if (typeof (indexTrack as any).setTimeFormat === 'function') {
-          (indexTrack as any).setTimeFormat('yyyy-MM-dd HH:mm:ss');
-        }
-        if (typeof (indexTrack as any).setFormat === 'function') {
-          (indexTrack as any).setFormat('yyyy-MM-dd HH:mm:ss');
-        }
-        
-        console.log('🕐 Configured time-based widget with timestamp formatting');
+        console.log('🕐 Configured time-based widget');
       } catch (e) {
         console.warn('⚠️ Could not set time formatting:', e);
       }
