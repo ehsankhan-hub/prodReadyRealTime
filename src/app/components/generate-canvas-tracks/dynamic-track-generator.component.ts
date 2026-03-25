@@ -12,12 +12,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
-import { BaseWidgetComponent } from '../../basewidget/basewidget.component'; 
-import {
-  RealTimeDisplayService,
-  LogData,
-} from '../../service/real-time-display.service';
-
+import { BaseWidgetComponent } from '../../../basewidget/basewidget.component'; 
 import {
   PrintPropertiesDialogComponent,
   PrintPropertiesData,
@@ -897,8 +892,11 @@ export class DynamicTrackGeneratorComponent
             this.headerMaxDepth > 0 ? this.headerMaxDepth : loadedMax;
           console.log('📊 Setting depth limits: 0 to', fullMaxDepth);
           
-          // Only set depth limits if we have a valid range
-          if (fullMaxDepth > 0 && isFinite(fullMaxDepth)) {
+          // For time-based data, set reasonable limits instead of massive headerMaxDepth
+          if (isTimeBased && this.headerMaxDepth > loadedMax * 100) {
+            console.log('🕐 Time-based: Using actual data range instead of header max for depth limits');
+            this.wellLogWidget.setDepthLimits(loadedMax - (4 * 60 * 60 * 1000), loadedMax + (4 * 60 * 60 * 1000));
+          } else if (fullMaxDepth > 0 && isFinite(fullMaxDepth)) {
             this.wellLogWidget.setDepthLimits(0, fullMaxDepth);
           } else {
             console.warn('⚠️ Invalid max depth, skipping depth limits');
@@ -1267,6 +1265,14 @@ export class DynamicTrackGeneratorComponent
         const geoLogData = new GeoLogData(curve.displayName);
         geoLogData.setValues(mergedDepths, mergedValues);
         entry.logCurve.setData(geoLogData);
+        
+        // Force widget to update with new data
+        this.wellLogWidget.updateLayout();
+        this.wellLogWidget.render();
+        
+        console.log(
+          `🔄 Updated GeoToolkit curve ${curve.mnemonicId} with ${mergedValues.length} points`
+        );
       } catch (e) {
         console.warn(
           '⚠️ Could not update curve data source for',
@@ -1274,6 +1280,8 @@ export class DynamicTrackGeneratorComponent
           e
         );
       }
+    } else {
+      console.warn(`⚠️ No curve entry found for ${curve.mnemonicId}`);
     }
 
     console.log(
