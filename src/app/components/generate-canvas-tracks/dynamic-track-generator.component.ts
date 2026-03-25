@@ -351,13 +351,31 @@ export class DynamicTrackGeneratorComponent
   private async processLogHeaders(headers: IWellboreObject[]): Promise<void> {
     console.log('processLogHeaders ', headers);
 
+    // Detect if this is time-based data
+    const isTimeBased = this.detectTimeBasedData();
+    console.log(`🔍 Data type detected for header processing: ${isTimeBased ? 'TIME-based' : 'DEPTH-based'}`);
+
     // Calculate headerMaxDepth from backend endIndex for proper depth limits
     headers?.forEach((h) => {
       // endIndex can be a string number (depth) or a date string (time)
       const endVal = h.endIndex?.['#text'] || h.endIndex;
-      const end = parseFloat(String(endVal));
-      if (!isNaN(end) && end > this.headerMaxDepth) {
-        this.headerMaxDepth = end;
+      
+      if (isTimeBased) {
+        // For time-based data, convert date to timestamp and use for headerMaxDepth
+        try {
+          const timestamp = new Date(endVal).getTime();
+          if (!isNaN(timestamp) && timestamp > this.headerMaxDepth) {
+            this.headerMaxDepth = timestamp;
+          }
+        } catch (e) {
+          console.warn('⚠️ Invalid date format for endIndex:', endVal);
+        }
+      } else {
+        // For depth-based data, parse as number
+        const end = parseFloat(String(endVal));
+        if (!isNaN(end) && end > this.headerMaxDepth) {
+          this.headerMaxDepth = end;
+        }
       }
     });
     console.log('📏 Header max depth calculated:', this.headerMaxDepth);
@@ -401,26 +419,52 @@ export class DynamicTrackGeneratorComponent
     // On scroll up, checkAndLoadChunks will fetch earlier data in chunks.
     const loadPromises: Promise<void>[] = [];
     logIdGroups.forEach(({ header, curves }, logId) => {
-      const headerEnd = parseFloat(
-        header.endIndex?.['#text'] || header.endIndex || '1000'
-      );
-      const headerStart = parseFloat(
-        header.startIndex?.['#text'] || header.startIndex || '0'
-      );
+      let headerStart: number;
+      let headerEnd: number;
+
+      if (isTimeBased) {
+        // For time-based data, convert dates to timestamps
+        try {
+          const startVal = header.startIndex?.['#text'] || header.startIndex;
+          const endVal = header.endIndex?.['#text'] || header.endIndex;
+          
+          headerStart = new Date(startVal).getTime();
+          headerEnd = new Date(endVal).getTime();
+          
+          if (isNaN(headerStart) || isNaN(headerEnd)) {
+            console.warn('⚠️ Invalid date format in header, using fallback values');
+            headerStart = 0;
+            headerEnd = Date.now();
+          }
+        } catch (e) {
+          console.error('❌ Error parsing dates in header:', e);
+          headerStart = 0;
+          headerEnd = Date.now();
+        }
+      } else {
+        // For depth-based data, parse as numbers
+        headerEnd = parseFloat(
+          header.endIndex?.['#text'] || header.endIndex || '1000'
+        );
+        headerStart = parseFloat(
+          header.startIndex?.['#text'] || header.startIndex || '0'
+        );
+      }
 
       // Load only the last CHUNK_SIZE from the end
       const chunkStart = Math.max(headerStart, headerEnd - this.CHUNK_SIZE);
       const chunkEnd = headerEnd;
 
       console.log(
-        `📦 Loading initial chunk for LogId ${logId}: ${chunkStart}-${chunkEnd} (of full range ${headerStart}-${headerEnd}, ${curves.length} curves)`
+        `📦 Loading initial chunk for LogId ${logId}: ${new Date(chunkStart).toISOString()}-${new Date(chunkEnd).toISOString()} (of full range ${new Date(headerStart).toISOString()}-${new Date(headerEnd).toISOString()}, ${curves.length} curves)`
       );
+      
       loadPromises.push(
         this.loadLogDataForGroup(
           header,
           curves,
-          chunkStart.toString(),
-          chunkEnd.toString()
+          isTimeBased ? new Date(chunkStart).toISOString() : chunkStart.toString(),
+          isTimeBased ? new Date(chunkEnd).toISOString() : chunkEnd.toString()
         )
       );
     });
