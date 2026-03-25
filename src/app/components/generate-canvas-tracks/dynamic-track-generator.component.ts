@@ -421,8 +421,18 @@ export class DynamicTrackGeneratorComponent
       let headerStart: number;
       let headerEnd: number;
 
-      // Check if this is time-based data by looking at the component's detection
-      const isTimeBased = this.detectTimeBasedData();
+      // Use static template configuration to determine data type
+      // If isIndex:true and isDepth:false, it should be time-based
+      let isTimeBased = false;
+      if (curves.length > 0) {
+        // Check the curve's template configuration
+        const curveConfig = this.listOfTracks.find(config => 
+          config.curves.some(curve => curve.mnemonicId === curves[0].mnemonicId)
+        );
+        if (curveConfig && curveConfig.isIndex && !curveConfig.isDepth) {
+          isTimeBased = true;
+        }
+      }
 
       if (isTimeBased) {
         // For time-based data, convert dates to timestamps
@@ -458,7 +468,7 @@ export class DynamicTrackGeneratorComponent
       const chunkEnd = headerEnd;
 
       console.log(
-        `📦 Loading initial chunk for LogId ${logId}: ${isTimeBased ? new Date(chunkStart).toISOString() : chunkStart}-${isTimeBased ? new Date(chunkEnd).toISOString() : chunkEnd} (of full range ${isTimeBased ? new Date(headerStart).toISOString() : headerStart}-${isTimeBased ? new Date(headerEnd).toISOString() : headerEnd}, ${curves.length} curves)`
+        `📦 Loading initial chunk for LogId ${logId}: ${isTimeBased ? new Date(chunkStart).toISOString() : chunkStart}-${isTimeBased ? new Date(chunkEnd).toISOString() : chunkEnd} (of full range ${isTimeBased ? new Date(headerStart).toISOString() : headerStart}-${isTimeBased ? new Date(headerEnd).toISOString() : headerEnd}, ${curves.length} curves) [detected as ${isTimeBased ? 'time-based' : 'depth-based'} from template config]`
       );
       
       loadPromises.push(
@@ -1068,23 +1078,23 @@ export class DynamicTrackGeneratorComponent
       // Mark range as in-flight immediately to prevent duplicates
       this.inFlightRanges.add(key);
       
-      // Check if this is time-based data by looking at actual loaded data, not track configuration
-      // This prevents the 1970 date issue when track config says time-based but data is depth-based
+      // Use static template configuration to determine data type
+      // If isIndex:true and isDepth:false, it should be time-based
       let isTimeBased = false;
-      if (curves.length > 0 && this.curveDepthIndices.has(curves[0].mnemonicId)) {
-        const existingDepths = this.curveDepthIndices.get(curves[0].mnemonicId) || [];
-        if (existingDepths.length > 0) {
-          // If the first depth value is a timestamp (large number), it's time-based
-          // If it's a reasonable depth value (< 50000), it's depth-based
-          const firstDepth = existingDepths[0];
-          isTimeBased = firstDepth > 1000000000000; // Timestamps are > 1 trillion
+      if (curves.length > 0) {
+        // Check the curve's template configuration
+        const curveConfig = this.listOfTracks.find(config => 
+          config.curves.some(curve => curve.mnemonicId === curves[0].mnemonicId)
+        );
+        if (curveConfig && curveConfig.isIndex && !curveConfig.isDepth) {
+          isTimeBased = true;
         }
       }
       
       const startIndex = isTimeBased ? new Date(start).toISOString() : start.toString();
       const endIndex = isTimeBased ? new Date(end).toISOString() : end.toString();
       
-      console.log(`  📥 Chunk: ${startIndex}-${endIndex} for ${header.objectId} (detected as ${isTimeBased ? 'time-based' : 'depth-based'})`);
+      console.log(`  📥 Chunk: ${startIndex}-${endIndex} for ${header.objectId} (detected as ${isTimeBased ? 'time-based' : 'depth-based'} from template config)`);
 
       this.logHeadersService
         .getLogData({

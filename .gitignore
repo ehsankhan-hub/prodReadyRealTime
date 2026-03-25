@@ -36,17 +36,24 @@
 .angular/
 dist/
 
-
-
 # System Files
 .DS_Store
 Thumbs.db
 
-# Database files
+# Database files - EXCLUDE ALL LARGE DATA FILES
 db.json
 db_backup.json
 well-data.csv
 *.json.bak
-
-# Large data files that cause StackBlitz issues
 db-backup.json
+
+# Additional large data files to exclude
+*.csv
+*.sql
+*.bak
+*.backup
+
+# Server data files
+routes.json
+extend-time-data.js
+generate-well-data.js
