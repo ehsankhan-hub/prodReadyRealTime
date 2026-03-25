@@ -893,11 +893,22 @@ export class DynamicTrackGeneratorComponent
 
           // Show recent data first: scroll to bottom of loaded data
           const loadedMax = this.getMaxDepth();
-          if (this.selectedScale > 0 && this.selectedScale < loadedMax) {
+          const isTimeBased = this.detectTimeBasedData();
+          
+          if (isTimeBased) {
+            // For time-based data: show most recent 4 hours at bottom
+            const fourHoursInMs = 4 * 60 * 60 * 1000;
+            const recentStart = loadedMax - fourHoursInMs;
+            console.log(`🕐 Time-based: showing recent 4 hours: ${new Date(recentStart).toISOString()} - ${new Date(loadedMax).toISOString()}`);
+            this.wellLogWidget.setVisibleDepthLimits(recentStart, loadedMax);
+          } else if (this.selectedScale > 0 && this.selectedScale < loadedMax) {
+            // For depth-based data: use selected scale if available
             const visibleRange = this.selectedScale;
             const recentStart = loadedMax - visibleRange;
+            console.log(`📏 Depth-based: showing recent ${visibleRange} units: ${recentStart} - ${loadedMax}`);
             this.wellLogWidget.setVisibleDepthLimits(recentStart, loadedMax);
           } else {
+            // Fallback to scale method
             this.applyScale(this.selectedScale);
           }
 
@@ -2251,6 +2262,27 @@ export class DynamicTrackGeneratorComponent
     const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
     indexTrack.setWidth(120);
     indexTrack.setName(isTimeBased ? 'Time' : 'Depth');
+
+    // Configure time-based index track formatting
+    if (isTimeBased) {
+      try {
+        // Set time-based formatting for the index track
+        indexTrack.setIndexType(IndexType.Time);
+        indexTrack.setIndexUnit('s');
+        
+        // Try to set time formatting - this may vary by GeoToolkit version
+        if (typeof (indexTrack as any).setTimeFormat === 'function') {
+          (indexTrack as any).setTimeFormat('yyyy-MM-dd HH:mm:ss');
+        }
+        if (typeof (indexTrack as any).setFormat === 'function') {
+          (indexTrack as any).setFormat('yyyy-MM-dd HH:mm:ss');
+        }
+        
+        console.log('🕐 Configured time-based index track with timestamp formatting');
+      } catch (e) {
+        console.warn('⚠️ Could not set time formatting on index track:', e);
+      }
+    }
 
     // Configure index track to show full scale instead of just visible range
     // Get the full depth range from ALL loaded data (FIXED: check all tracks, not just first)
