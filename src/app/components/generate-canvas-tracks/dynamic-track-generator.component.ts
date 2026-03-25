@@ -208,8 +208,13 @@ export class DynamicTrackGeneratorComponent
   // --- Chunked loading state ---
   /** Cached log headers for lazy loading */
   private cachedHeaders: IWellboreObject[] = [];
-  /** Number of depth rows per chunk */
-  private readonly CHUNK_SIZE = 2000;
+  /** Number of rows per chunk - dynamic based on data type */
+  private get CHUNK_SIZE(): number {
+    const isTimeBased = this.detectTimeBasedData();
+    // For time-based data: 4 hours in milliseconds (4 * 60 * 60 * 1000)
+    // For depth-based data: 2000 units (original)
+    return isTimeBased ? (4 * 60 * 60 * 1000) : 2000;
+  }
   /** The overall max depth from headers (not from loaded data) */
   private headerMaxDepth = 0;
   /** Tracks which depth ranges have been loaded per curve */
@@ -1093,7 +1098,12 @@ export class DynamicTrackGeneratorComponent
     chunkRequests.forEach(({ header, curves, start, end }, key) => {
       // Mark range as in-flight immediately to prevent duplicates
       this.inFlightRanges.add(key);
-      console.log(`  📥 Chunk: ${start}-${end} for ${header.objectId}`);
+      console.log(`  📥 Chunk: ${new Date(start).toISOString()}-${new Date(end).toISOString()} for ${header.objectId}`);
+
+      // Check if this is time-based data for proper formatting
+      const isTimeBased = this.detectTimeBasedData();
+      const startIndex = isTimeBased ? new Date(start).toISOString() : start.toString();
+      const endIndex = isTimeBased ? new Date(end).toISOString() : end.toString();
 
       this.logHeadersService
         .getLogData({
@@ -1103,8 +1113,8 @@ export class DynamicTrackGeneratorComponent
           logName: header.objectName,
           indexType: header.indexType,
           indexCurve: header.indexCurve,
-          startIndex: start.toString(),
-          endIndex: end.toString(),
+          startIndex: startIndex,
+          endIndex: endIndex,
           isGrowing: header.objectGrowing,
           mnemonicList: '',
         })
@@ -1114,7 +1124,7 @@ export class DynamicTrackGeneratorComponent
             if (
               logDataArray != null &&
               logDataArray.logs &&
-              logDataArray.logs.length > 0 &&
+              logDataArray.length > 0 &&
               logDataArray.logs[0].logData?.data?.length > 0
             ) {
               const convertedLogData = this.convertResponseToLogData(
