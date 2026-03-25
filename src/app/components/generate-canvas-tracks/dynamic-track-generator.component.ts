@@ -847,7 +847,7 @@ export class DynamicTrackGeneratorComponent
       // Create WellLogWidget with dynamic configuration
       this.wellLogWidget = new WellLogWidget({
         indextype: isTimeBased ? IndexType.Time : IndexType.Depth,
-        indexunit: isTimeBased ? 's' : 'ft',
+        indexunit: isTimeBased ? 'ms' : 'ft',
         horizontalscrollable: false,
         verticalscrollable: true,
         header: {
@@ -2275,16 +2275,9 @@ export class DynamicTrackGeneratorComponent
     indexTrack.setWidth(120);
     indexTrack.setName(isTimeBased ? 'Time' : 'Depth');
 
-    // Configure time-based index track formatting
+    // Simple time-based configuration - no complex formatting to avoid errors
     if (isTimeBased) {
-      try {
-        // Set time-based formatting for the widget (not indexTrack)
-        this.wellLogWidget.setIndexType('time', 'ms');
-        
-        console.log('🕐 Configured time-based widget');
-      } catch (e) {
-        console.warn('⚠️ Could not set time formatting:', e);
-      }
+      console.log('🕐 Created time-based index track');
     }
 
     // Configure index track to show full scale instead of just visible range
