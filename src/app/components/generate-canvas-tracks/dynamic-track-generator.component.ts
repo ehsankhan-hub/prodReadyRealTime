@@ -12,11 +12,11 @@ import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
-import { BaseWidgetComponent } from '../../../components/core/basewidget/basewidget.component';
+import { BaseWidgetComponent } from '../../basewidget/basewidget.component'; 
 import {
   RealTimeDisplayService,
   LogData,
-} from '../../../service/real-time-display.service';
+} from '../../service/real-time-display.service';
 
 import {
   PrintPropertiesDialogComponent,
