@@ -1264,10 +1264,21 @@ export class DynamicTrackGeneratorComponent
    * @private
    */
   private appendChunkData(logData: any, curve: TrackCurve): void {
+    console.log(`🔄 Appending chunk data for curve: ${curve.mnemonicId}`);
+    console.log(`  Available mnemonics: ${logData.mnemonicList}`);
+    
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex(
       (m: string) => m.trim() === curve.mnemonicId
     );
+
+    console.log(`  Curve index for ${curve.mnemonicId}: ${curveIndex}`);
+
+    if (curveIndex === -1) {
+      console.warn(`⚠️ Curve ${curve.mnemonicId} not found in chunk data`);
+      console.warn(`  Available mnemonics: ${mnemonics.join(', ')}`);
+      return;
+    }
 
     // Find index column: try depth mnemonics first, then time mnemonics
     const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
@@ -1296,7 +1307,7 @@ export class DynamicTrackGeneratorComponent
       isDepthIdx = true;
     }
 
-    if (curveIndex === -1) return;
+    console.log(`  Index column: ${mnemonics[indexIdx]} (${isDepthIdx ? 'depth' : 'time'})`);
 
     const newDepths: number[] = [];
     const newValues: number[] = [];
@@ -1320,11 +1331,19 @@ export class DynamicTrackGeneratorComponent
       }
     });
 
-    if (newDepths.length === 0) return;
+    if (newDepths.length === 0) {
+      console.warn(`⚠️ No valid data points found for curve ${curve.mnemonicId}`);
+      return;
+    }
+
+    console.log(`📊 Processing ${newDepths.length} new points for ${curve.mnemonicId}`);
+    console.log(`  New data range: ${newDepths[0]} - ${newDepths[newDepths.length - 1]} (${isDepthIdx ? '' : new Date(newDepths[0]).toISOString() + ' - ' + new Date(newDepths[newDepths.length - 1]).toISOString()})`);
 
     // Merge with existing data
     const existingDepths = this.curveDepthIndices.get(curve.mnemonicId) || [];
     const existingValues = curve.data || [];
+
+    console.log(`  Existing data: ${existingDepths.length} points`);
 
     // Create a map for deduplication
     const depthValueMap = new Map<number, number>();
@@ -1341,6 +1360,9 @@ export class DynamicTrackGeneratorComponent
     );
     const mergedDepths = sortedEntries.map((e) => e[0]);
     const mergedValues = sortedEntries.map((e) => e[1]);
+
+    console.log(`✅ Merged data: ${mergedDepths.length} total points`);
+    console.log(`  Final range: ${mergedDepths[0]} - ${mergedDepths[mergedDepths.length - 1]} (${isDepthIdx ? '' : new Date(mergedDepths[0]).toISOString() + ' - ' + new Date(mergedDepths[mergedDepths.length - 1]).toISOString()})`);
 
     curve.data = mergedValues;
     this.curveDepthIndices.set(curve.mnemonicId, mergedDepths);
