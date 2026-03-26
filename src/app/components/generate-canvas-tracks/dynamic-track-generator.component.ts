@@ -1045,7 +1045,7 @@ export class DynamicTrackGeneratorComponent
    * @private
    */
   private configureScrollLazyLoad(): void {
-    // Only start polling once, and only when first called
+    // Only start polling once, and only when first called in
     if (this.scrollPollStarted) {
       return;
     }
