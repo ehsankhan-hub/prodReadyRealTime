@@ -1301,10 +1301,16 @@ export class DynamicTrackGeneratorComponent
     const isTimeBased = (() => {
       // Check if existing depth indices look like timestamps ( > year 2000 )
       const firstCurveDepths = this.curveDepthIndices.values().next().value;
+      console.log(`  🔍 Checking existing data for time-based detection:`);
+      console.log(`    First curve depths: ${firstCurveDepths}`);
       if (firstCurveDepths && firstCurveDepths.length > 0) {
-        return firstCurveDepths[0] > 1000000000000; // Timestamp check
+        const firstDepth = firstCurveDepths[0];
+        const isTimestamp = firstDepth > 1000000000000;
+        console.log(`    First depth value: ${firstDepth} = ${isTimestamp ? 'TIMESTAMP' : 'DEPTH'}`);
+        return isTimestamp;
       }
       // Default to time-based since we know this is time-based data
+      console.log(`    No existing data found, defaulting to time-based`);
       return true;
     })();
 
@@ -1312,8 +1318,10 @@ export class DynamicTrackGeneratorComponent
 
     if (isTimeBased) {
       // For time-based data, prioritize time mnemonics
+      console.log(`  🔍 Searching for time mnemonics: ${timeMnemonics.join(', ')}`);
       for (const tm of timeMnemonics) {
         indexIdx = mnemonics.findIndex((m: string) => m.trim() === tm);
+        console.log(`    Checking ${tm}: found at index ${indexIdx}`);
         if (indexIdx !== -1) {
           isDepthIdx = false;
           break;
@@ -1321,8 +1329,10 @@ export class DynamicTrackGeneratorComponent
       }
       // Fallback to depth if no time mnemonic found
       if (indexIdx === -1) {
+        console.log(`  ⚠️ No time mnemonic found, trying depth mnemonics`);
         for (const dm of depthMnemonics) {
           indexIdx = mnemonics.findIndex((m: string) => m.trim() === dm);
+          console.log(`    Checking ${dm}: found at index ${indexIdx}`);
           if (indexIdx !== -1) {
             isDepthIdx = true;
             break;
@@ -1331,8 +1341,10 @@ export class DynamicTrackGeneratorComponent
       }
     } else {
       // For depth-based data, prioritize depth mnemonics
+      console.log(`  🔍 Searching for depth mnemonics: ${depthMnemonics.join(', ')}`);
       for (const dm of depthMnemonics) {
         indexIdx = mnemonics.findIndex((m: string) => m.trim() === dm);
+        console.log(`    Checking ${dm}: found at index ${indexIdx}`);
         if (indexIdx !== -1) {
           isDepthIdx = true;
           break;
@@ -1340,8 +1352,10 @@ export class DynamicTrackGeneratorComponent
       }
       // Fallback to time if no depth mnemonic found
       if (indexIdx === -1) {
+        console.log(`  ⚠️ No depth mnemonic found, trying time mnemonics`);
         for (const tm of timeMnemonics) {
           indexIdx = mnemonics.findIndex((m: string) => m.trim() === tm);
+          console.log(`    Checking ${tm}: found at index ${indexIdx}`);
           if (indexIdx !== -1) {
             isDepthIdx = false;
             break;
