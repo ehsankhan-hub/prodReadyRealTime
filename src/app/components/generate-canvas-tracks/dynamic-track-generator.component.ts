@@ -366,7 +366,28 @@ export class DynamicTrackGeneratorComponent
     );
 
     // Calculate headerMaxDepth and store full range from backend endIndex for proper depth limits
+    // Only process headers that are actually used by our curves
+    const usedHeaders = new Set<string>();
+    this.listOfTracks.forEach((trackInfo) => {
+      trackInfo.curves.forEach((curve) => {
+        const matchingHeader = headers.find((header) => {
+          return header.objectId.includes(curve.LogId);
+        });
+        if (matchingHeader) {
+          usedHeaders.add(matchingHeader.objectId);
+        }
+      });
+    });
+
+    console.log(`🔍 Only processing ${usedHeaders.size} headers used by curves:`);
+    console.log(`  Used headers:`, Array.from(usedHeaders));
+
     headers?.forEach((h) => {
+      // Skip headers that are not used by our curves
+      if (!usedHeaders.has(h.objectId)) {
+        return;
+      }
+
       // endIndex can be a string number (depth) or a date string (time)
       const endVal = h.endIndex?.['#text'] || h.endIndex;
       const startVal = h.startIndex?.['#text'] || h.startIndex;
@@ -815,9 +836,7 @@ export class DynamicTrackGeneratorComponent
     console.log(
       `✅ Parsed data for curve: ${curve.mnemonicId} ${values.length} points`,
       indexValues.length > 0
-        ? `${isDepthIndex ? 'depth' : 'time'} range: ${indexValues[0]}-${
-            indexValues[indexValues.length - 1]
-          }`
+        ? `${isDepthIndex ? 'depth' : 'time'} range: ${indexValues[0]}-${indexValues[indexValues.length - 1]} (${isDepthIndex ? '' : new Date(indexValues[0]).toISOString() + ' - ' + new Date(indexValues[indexValues.length - 1]).toISOString()})`
         : ''
     );
 
@@ -951,12 +970,12 @@ export class DynamicTrackGeneratorComponent
             return;
           }
 
-          console.log('📊 Full range from headers:', this.fullStartIndex, 'to', this.fullEndIndex);
-          console.log('📊 Loaded data range: 0 to', loadedMax);
+          console.log(`📊 Full range from headers: ${this.fullStartIndex} to ${this.fullEndIndex} (${isTimeBased ? new Date(this.fullStartIndex).toISOString() + ' - ' + new Date(this.fullEndIndex).toISOString() : this.fullStartIndex + ' - ' + this.fullEndIndex})`);
+          console.log(`📊 Loaded data range: 0 to ${loadedMax} (${isTimeBased ? new Date(loadedMax).toISOString() : loadedMax})`);
 
           // Set widget depth limits to show FULL index range from headers
           if (this.fullStartIndex > 0 && this.fullEndIndex > 0 && isFinite(this.fullStartIndex) && isFinite(this.fullEndIndex)) {
-            console.log('🎯 Setting widget depth limits to full header range:', this.fullStartIndex, 'to', this.fullEndIndex);
+            console.log('🎯 Setting widget depth limits to full header range:', `${this.fullStartIndex} to ${this.fullEndIndex} (${isTimeBased ? new Date(this.fullStartIndex).toISOString() + ' - ' + new Date(this.fullEndIndex).toISOString() : this.fullStartIndex + ' - ' + this.fullEndIndex})`);
             this.wellLogWidget.setDepthLimits(this.fullStartIndex, this.fullEndIndex);
           } else {
             console.warn('⚠️ Invalid header range, using loaded data range');
