@@ -1013,7 +1013,10 @@ export class DynamicTrackGeneratorComponent
           this.configureCrossHair();
 
           // Configure scroll-based lazy loading
-          this.configureScrollLazyLoad();
+          // DELAYED until actual user scroll to prevent interfering with initial index track setup
+          // Don't start polling immediately - wait for first user interaction
+          this.scrollPollStarted = false;
+          console.log('🔄 Scroll polling disabled until first user interaction');
 
           console.log('✅ Scene created with data successfully');
         } catch (error) {
@@ -1027,6 +1030,8 @@ export class DynamicTrackGeneratorComponent
 
   /** Handle for the scroll polling interval */
   private scrollPollHandle: any = null;
+  /** Flag to track if scroll polling has started */
+  private scrollPollStarted = false;
   /** Last known visible depth range for change detection */
   private lastVisibleMin = -1;
   private lastVisibleMax = -1;
@@ -1035,10 +1040,19 @@ export class DynamicTrackGeneratorComponent
    * Configures scroll-based lazy loading.
    * Uses polling of visible depth limits instead of wheel events,
    * because GeoToolkit handles scroll internally and may not propagate wheel events.
+   * Only starts polling when first called to prevent interfering with initial setup.
    *
    * @private
    */
   private configureScrollLazyLoad(): void {
+    // Only start polling once, and only when first called
+    if (this.scrollPollStarted) {
+      return;
+    }
+    
+    this.scrollPollStarted = true;
+    console.log('🔄 Starting scroll polling (first user interaction detected)');
+    
     // Poll every 300ms for visible depth changes
     this.scrollPollHandle = setInterval(() => {
       if (!this.wellLogWidget) return;
@@ -1061,6 +1075,18 @@ export class DynamicTrackGeneratorComponent
         /* widget may not be ready */
       }
     }, 300);
+  }
+
+  /**
+   * Starts scroll polling when user actually interacts with the widget.
+   * Call this method when user scrolls or interacts with the widget.
+   *
+   * @public
+   */
+  public startScrollPolling(): void {
+    if (!this.scrollPollStarted) {
+      this.configureScrollLazyLoad();
+    }
   }
 
   /**
