@@ -1237,14 +1237,14 @@ export class DynamicTrackGeneratorComponent
             console.log(`📨 Received chunk response for ${header.objectId}:`, logDataArray);
             console.log(`  logDataArray != null: ${logDataArray != null}`);
             console.log(`  logDataArray.logs: ${!!logDataArray.logs}`);
-            console.log(`  logDataArray.length > 0: ${logDataArray.length > 0}`);
+            console.log(`  logDataArray.logs.length > 0: ${logDataArray.logs?.length > 0}`);
             console.log(`  logDataArray.logs[0].logData?.data?.length > 0: ${logDataArray.logs?.[0]?.logData?.data?.length > 0}`);
             
             // Convert backend response and append chunk data
             if (
               logDataArray != null &&
               logDataArray.logs &&
-              logDataArray.length > 0 &&
+              logDataArray.logs.length > 0 &&
               logDataArray.logs[0].logData?.data?.length > 0
             ) {
               const convertedLogData = this.convertResponseToLogData(
@@ -1259,7 +1259,7 @@ export class DynamicTrackGeneratorComponent
             }
             onDone(key);
           },
-          error: (error) => {
+          error: (error:any) => {
             console.error(`❌ Error fetching chunk for ${header.objectId}:`, error);
             onDone(key);
           },
@@ -1292,20 +1292,21 @@ export class DynamicTrackGeneratorComponent
       return;
     }
 
-    // Find index column: try depth mnemonics first, then time mnemonics
+    // Find index column: use same logic as initial load - check if time-based data first
     const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
     const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP'];
     let indexIdx = -1;
     let isDepthIdx = false;
 
-    for (const dm of depthMnemonics) {
-      indexIdx = mnemonics.findIndex((m: string) => m.trim() === dm);
-      if (indexIdx !== -1) {
-        isDepthIdx = true;
-        break;
-      }
-    }
-    if (indexIdx === -1) {
+    // Check if this is time-based data by looking at the template configuration
+    const isTimeBased = this.template.some(
+      (track: any) => track.isIndex === true && track.isDepth === false
+    );
+
+    console.log(`  Data type detection: isTimeBased=${isTimeBased}`);
+
+    if (isTimeBased) {
+      // For time-based data, prioritize time mnemonics
       for (const tm of timeMnemonics) {
         indexIdx = mnemonics.findIndex((m: string) => m.trim() === tm);
         if (indexIdx !== -1) {
@@ -1313,7 +1314,37 @@ export class DynamicTrackGeneratorComponent
           break;
         }
       }
+      // Fallback to depth if no time mnemonic found
+      if (indexIdx === -1) {
+        for (const dm of depthMnemonics) {
+          indexIdx = mnemonics.findIndex((m: string) => m.trim() === dm);
+          if (indexIdx !== -1) {
+            isDepthIdx = true;
+            break;
+          }
+        }
+      }
+    } else {
+      // For depth-based data, prioritize depth mnemonics
+      for (const dm of depthMnemonics) {
+        indexIdx = mnemonics.findIndex((m: string) => m.trim() === dm);
+        if (indexIdx !== -1) {
+          isDepthIdx = true;
+          break;
+        }
+      }
+      // Fallback to time if no depth mnemonic found
+      if (indexIdx === -1) {
+        for (const tm of timeMnemonics) {
+          indexIdx = mnemonics.findIndex((m: string) => m.trim() === tm);
+          if (indexIdx !== -1) {
+            isDepthIdx = false;
+            break;
+          }
+        }
+      }
     }
+
     if (indexIdx === -1) {
       indexIdx = 0;
       isDepthIdx = true;
