@@ -1244,7 +1244,6 @@ export class DynamicTrackGeneratorComponent
             if (
               logDataArray != null &&
               logDataArray.logs &&
-              logDataArray.logs.length > 0 &&
               logDataArray.logs[0].logData?.data?.length > 0
             ) {
               const convertedLogData = this.convertResponseToLogData(
@@ -1298,10 +1297,22 @@ export class DynamicTrackGeneratorComponent
     let indexIdx = -1;
     let isDepthIdx = false;
 
-    // Check if this is time-based data by looking at the template configuration
-    const isTimeBased = this.template.some(
-      (track: any) => track.isIndex === true && track.isDepth === false
-    );
+    // Check if this is time-based data using the same logic as other methods
+    const isTimeBased = (() => {
+      // Try template-based detection first
+      if (this.template && this.template.some) {
+        return this.template.some(
+          (track: any) => track.isIndex === true && track.isDepth === false
+        );
+      }
+      // Fallback: check if existing depth indices look like timestamps
+      const firstCurveDepths = this.curveDepthIndices.values().next().value;
+      if (firstCurveDepths && firstCurveDepths.length > 0) {
+        return firstCurveDepths[0] > 1000000000000; // Timestamp check
+      }
+      // Default to false if can't determine
+      return false;
+    })();
 
     console.log(`  Data type detection: isTimeBased=${isTimeBased}`);
 
