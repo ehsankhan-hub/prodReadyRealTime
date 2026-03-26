@@ -371,11 +371,20 @@ export class DynamicTrackGeneratorComponent
       const endVal = h.endIndex?.['#text'] || h.endIndex;
       const startVal = h.startIndex?.['#text'] || h.startIndex;
       
+      console.log(`🔍 Processing header ${h.objectName}:`);
+      console.log(`  StartIndex: ${startVal} (${typeof startVal})`);
+      console.log(`  EndIndex: ${endVal} (${typeof endVal})`);
+      
       if (isTimeBased) {
         // For time-based data, convert date to timestamp and use for headerMaxDepth
         try {
           const endTimestamp = new Date(endVal).getTime();
           const startTimestamp = new Date(startVal).getTime();
+          
+          console.log(`  Parsed timestamps:`);
+          console.log(`  Start: ${startTimestamp} = ${new Date(startTimestamp).toISOString()}`);
+          console.log(`  End: ${endTimestamp} = ${new Date(endTimestamp).toISOString()}`);
+          
           if (!isNaN(endTimestamp) && endTimestamp > this.headerMaxDepth) {
             this.headerMaxDepth = endTimestamp;
             this.fullEndIndex = endTimestamp;
@@ -385,12 +394,19 @@ export class DynamicTrackGeneratorComponent
             this.fullStartIndex = startTimestamp;
           }
         } catch (e) {
-          console.warn('⚠️ Invalid date format for endIndex:', endVal);
+          console.warn('⚠️ Invalid date format for header:', e);
+          console.warn(`  Failed to parse startVal: ${startVal}`);
+          console.warn(`  Failed to parse endVal: ${endVal}`);
         }
       } else {
         // For depth-based data, parse as number
         const end = parseFloat(String(endVal));
         const start = parseFloat(String(startVal));
+        
+        console.log(`  Parsed numbers:`);
+        console.log(`  Start: ${start}`);
+        console.log(`  End: ${end}`);
+        
         if (!isNaN(end) && end > this.headerMaxDepth) {
           this.headerMaxDepth = end;
           this.fullEndIndex = end;
@@ -401,7 +417,12 @@ export class DynamicTrackGeneratorComponent
         }
       }
     });
-    console.log('📏 Header range calculated:', this.fullStartIndex, 'to', this.fullEndIndex);
+    
+    console.log('📏 Final header range calculated:');
+    console.log(`  Start: ${this.fullStartIndex} = ${isTimeBased ? new Date(this.fullStartIndex).toISOString() : this.fullStartIndex}`);
+    console.log(`  End: ${this.fullEndIndex} = ${isTimeBased ? new Date(this.fullEndIndex).toISOString() : this.fullEndIndex}`);
+    console.log(`  Min: ${this.headerMinDepth} = ${isTimeBased ? new Date(this.headerMinDepth).toISOString() : this.headerMinDepth}`);
+    console.log(`  Max: ${this.headerMaxDepth} = ${isTimeBased ? new Date(this.headerMaxDepth).toISOString() : this.headerMaxDepth}`);
 
     // Group all curves by LogId to avoid duplicate API calls
     const logIdGroups = new Map<
