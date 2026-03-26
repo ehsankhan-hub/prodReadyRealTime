@@ -1297,21 +1297,15 @@ export class DynamicTrackGeneratorComponent
     let indexIdx = -1;
     let isDepthIdx = false;
 
-    // Check if this is time-based data using the same logic as other methods
+    // Check if this is time-based data by examining existing data
     const isTimeBased = (() => {
-      // Try template-based detection first
-      if (this.template && this.template.some) {
-        return this.template.some(
-          (track: any) => track.isIndex === true && track.isDepth === false
-        );
-      }
-      // Fallback: check if existing depth indices look like timestamps
+      // Check if existing depth indices look like timestamps ( > year 2000 )
       const firstCurveDepths = this.curveDepthIndices.values().next().value;
       if (firstCurveDepths && firstCurveDepths.length > 0) {
         return firstCurveDepths[0] > 1000000000000; // Timestamp check
       }
-      // Default to false if can't determine
-      return false;
+      // Default to time-based since we know this is time-based data
+      return true;
     })();
 
     console.log(`  Data type detection: isTimeBased=${isTimeBased}`);
