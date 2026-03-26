@@ -1652,6 +1652,10 @@ export class DynamicTrackGeneratorComponent
         `📏 Updating index track full scale: ${fullMinDepth} to ${fullMaxDepth}`
       );
       try {
+        // Check if this is time-based data to preserve format
+        const isTimeBased = this.detectTimeBasedData();
+        console.log(`🕐 Preserving time-based format: ${isTimeBased}`);
+        
         // Try different methods for setting depth limits based on GeoToolkit version
         if (
           indexTrack.setDepthLimits &&
@@ -1659,18 +1663,52 @@ export class DynamicTrackGeneratorComponent
         ) {
           // Standard method
           indexTrack.setDepthLimits(fullMinDepth, fullMaxDepth);
+          
+          // IMPORTANT: Re-apply time-based configuration if needed
+          if (isTimeBased) {
+            try {
+              // Ensure the index track maintains time-based display format
+              (indexTrack as any).setIndexType?.('time');
+              (indexTrack as any).setIndexUnit?.('ms');
+              console.log('🕐 Re-applied time-based configuration to index track');
+            } catch (e) {
+              console.warn('⚠️ Could not re-apply time-based config:', e);
+            }
+          }
         } else if (
           (indexTrack as any).setLimits &&
           typeof (indexTrack as any).setLimits === 'function'
         ) {
           // Alternative method
           (indexTrack as any).setLimits(fullMinDepth, fullMaxDepth);
+          
+          // IMPORTANT: Re-apply time-based configuration if needed
+          if (isTimeBased) {
+            try {
+              (indexTrack as any).setIndexType?.('time');
+              (indexTrack as any).setIndexUnit?.('ms');
+              console.log('🕐 Re-applied time-based configuration to index track');
+            } catch (e) {
+              console.warn('⚠️ Could not re-apply time-based config:', e);
+            }
+          }
         } else if (
           (indexTrack as any).setRange &&
           typeof (indexTrack as any).setRange === 'function'
         ) {
           // Another alternative method
           (indexTrack as any).setRange(fullMinDepth, fullMaxDepth);
+          
+          // IMPORTANT: Re-apply time-based configuration if needed
+          if (isTimeBased) {
+            try {
+              (indexTrack as any).setIndexType?.('time');
+              (indexTrack as any).setIndexUnit?.('ms');
+              console.log('🕐 Re-applied time-based configuration to index track');
+            } catch (e) {
+              console.warn('⚠️ Could not re-apply time-based config:', e);
+            }
+          }
         } else {
           console.warn(
             '⚠️ No suitable method found to set depth limits on index track'
