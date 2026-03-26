@@ -356,8 +356,16 @@ export class DynamicTrackGeneratorComponent
       // endIndex can be a string number (depth) or a date string (time)
       const endVal = h.endIndex?.['#text'] || h.endIndex;
       
-      // Check if this is time-based data by looking at the component's detection
-      const isTimeBased = this.detectTimeBasedData();
+      // Use static template configuration to determine data type
+      // If isIndex:true and isDepth:false, it should be time-based
+      let isTimeBased = false;
+      const hasTimeIndexTrack = this.listOfTracks.some((track) => {
+        return track.isIndex && !track.isDepth;
+      });
+      
+      if (hasTimeIndexTrack) {
+        isTimeBased = true;
+      }
       
       if (isTimeBased) {
         // For time-based data, convert date to timestamp and use for headerMaxDepth
@@ -369,7 +377,8 @@ export class DynamicTrackGeneratorComponent
         } catch (e) {
           console.warn('⚠️ Invalid date format for endIndex:', endVal);
         }
-      } else {
+      } 
+      else {
         // For depth-based data, parse as number
         const end = parseFloat(String(endVal));
         if (!isNaN(end) && end > this.headerMaxDepth) {
@@ -815,12 +824,20 @@ export class DynamicTrackGeneratorComponent
       this.curveMap.clear();
 
       // ================================================
-      // AUTO-DETECTION: Determine if data is time-based or depth-based
+      // AUTO-DETECTION: Determine if data is time-based or depth-based using template configuration
       // This allows one component to handle both data types dynamically
       // ================================================
-      const isTimeBased = this.detectTimeBasedData();
+      let isTimeBased = false;
+      const hasTimeIndexTrack = this.listOfTracks.some((track) => {
+        return track.isIndex && !track.isDepth;
+      });
+      
+      if (hasTimeIndexTrack) {
+        isTimeBased = true;
+      }
+      
       console.log(
-        `🔍 Data type detected: ${isTimeBased ? 'TIME-based' : 'DEPTH-based'}`
+        `🔍 Data type detected: ${isTimeBased ? 'TIME-based' : 'DEPTH-based'} (from template config)`
       );
 
       // Create WellLogWidget with dynamic configuration

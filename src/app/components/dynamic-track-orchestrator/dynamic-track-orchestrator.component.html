@@ -1,0 +1,57 @@
+<div class="dynamic-track-container" [ngClass]="{'dark-theme': isDarkTheme}">
+  
+  <!-- Loading Overlay for Initial Load -->
+  <div *ngIf="isLoading" class="loading-overlay main-spinner">
+    <div class="spinner"></div>
+    <div class="loading-text">
+      <h2>Loading Well Log Data</h2>
+      <p>Fetching headers and assembling tracks...</p>
+    </div>
+  </div>
+
+  <!-- Loading Overlay for Chunk Load -->
+  <div *ngIf="isLoadingChunk" class="chunk-loading-indicator">
+    <div class="mini-spinner"></div>
+    <span>Loading more data...</span>
+  </div>
+
+  <div class="header-toolbar">
+    <div class="toolbar-left">
+      <div class="toolbar-actions">
+        <!-- Scale Selector -->
+        <div class="scale-selector">
+          <label>Depth Scale:</label>
+          <select [ngModel]="selectedScale" (ngModelChange)="onScaleChange($event)">
+            <option *ngFor="let option of scaleOptions" [value]="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </div>
+
+        <button mat-button class="toolbar-btn primary" (click)="toggleLivePolling()">
+          <mat-icon>{{ isLivePolling ? 'stop' : 'play_arrow' }}</mat-icon>
+          {{ isLivePolling ? 'Stop Live' : 'Start Live' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="toolbar-right">
+      <button mat-icon-button title="Toggle Theme" (click)="toggleTheme()">
+        <mat-icon>{{ isDarkTheme ? 'light_mode' : 'dark_mode' }}</mat-icon>
+      </button>
+
+      <button mat-icon-button title="Print Settings" (click)="openPrintProperties()">
+        <mat-icon>print</mat-icon>
+      </button>
+
+      <button mat-icon-button title="Refresh" (click)="refreshTracks()">
+        <mat-icon>refresh</mat-icon>
+      </button>
+    </div>
+  </div>
+
+  <!-- GeoToolkit Canvas Widget -->
+  <div class="widget-container">
+    <app-basewidget #canvasWidget></app-basewidget>
+  </div>
+</div>
