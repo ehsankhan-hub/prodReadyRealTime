@@ -1234,6 +1234,12 @@ export class DynamicTrackGeneratorComponent
         })
         .subscribe({
           next: (logDataArray: any) => {
+            console.log(`📨 Received chunk response for ${header.objectId}:`, logDataArray);
+            console.log(`  logDataArray != null: ${logDataArray != null}`);
+            console.log(`  logDataArray.logs: ${!!logDataArray.logs}`);
+            console.log(`  logDataArray.length > 0: ${logDataArray.length > 0}`);
+            console.log(`  logDataArray.logs[0].logData?.data?.length > 0: ${logDataArray.logs?.[0]?.logData?.data?.length > 0}`);
+            
             // Convert backend response and append chunk data
             if (
               logDataArray != null &&
@@ -1244,13 +1250,19 @@ export class DynamicTrackGeneratorComponent
               const convertedLogData = this.convertResponseToLogData(
                 logDataArray.logs[0]
               );
+              console.log(`🔄 Converting chunk data and appending to ${curves.length} curves`);
               curves.forEach((curve) =>
                 this.appendChunkData(convertedLogData, curve)
               );
+            } else {
+              console.warn(`⚠️ Invalid chunk response for ${header.objectId}`);
             }
             onDone(key);
           },
-          error: () => onDone(key),
+          error: (error) => {
+            console.error(`❌ Error fetching chunk for ${header.objectId}:`, error);
+            onDone(key);
+          },
         });
     });
   }
