@@ -4,6 +4,7 @@ import { GenerateCanvasTracksComponent, TrackInfo, TrackCurve } from '../../comp
 import { ITracks, IMnemonic } from '../../models/tracks.model';
 import { LogHeadersService } from '../../services/log-headers.service';
 
+
 /**
  * Component for displaying MWD (Measurements While Drilling) Density data.
  * Combines MWD and Density track configurations and renders them using the GenerateCanvasTracksComponent.
@@ -21,11 +22,11 @@ import { LogHeadersService } from '../../services/log-headers.service';
   imports: [CommonModule, GenerateCanvasTracksComponent],
   providers: [LogHeadersService],
   template: `
-    <app-dynamic-track-generator 
+    <app-generate-canvas-tracks 
       [listOfTracks]="combinedTracks"
       [well]="well"
       [wellbore]="wellbore">
-    </app-dynamic-track-generator>
+    </app-generate-canvas-tracks>
   `,
   styles: [`
     .mwd-density-container {

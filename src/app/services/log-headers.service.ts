@@ -2,7 +2,6 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
 import { map, shareReplay } from 'rxjs/operators';
-import { IWellboreObject } from '../components/time-based-tracks/time-based-tracks.component';
 
 /**
  * Interface representing curve information within a log header.
@@ -114,7 +113,7 @@ export interface LogData {
 })
 export class LogHeadersService {
   /** Base URL for the mock API */
-  private baseUrl = 'http://localhost:3004';
+  private baseUrl = 'http://localhost:3000';
 
   /**
    * Creates an instance of LogHeadersService.
@@ -141,11 +140,10 @@ export class LogHeadersService {
   /**
    * Retrieves log headers for a specific well and wellbore.
    * Fetches all headers and filters client-side by well and wellbore identifiers.
-   * Converts LogHeader objects to IWellboreObject format for compatibility.
    * 
    * @param well - Unique identifier for the well
    * @param wellbore - Unique identifier for the wellbore
-   * @returns Observable emitting an array of filtered IWellboreObject objects
+   * @returns Observable emitting an array of filtered LogHeader objects
    * 
    * @example
    * ```typescript
@@ -153,31 +151,12 @@ export class LogHeadersService {
    *   .subscribe(headers => console.log('Found headers:', headers));
    * ```
    */
-  getLogHeaders(well: string, wellbore: string): Observable<IWellboreObject[]> {
-    return this.http.get<{logHeaders: LogHeader[]}>(`${this.baseUrl}/logHeaders`).pipe(
-      map((response: {logHeaders: LogHeader[]}) => {
-        const headers = response.logHeaders || [];
-        const filteredHeaders = headers.filter(header => 
+  getLogHeaders(well: string, wellbore: string): Observable<LogHeader[]> {
+    return this.http.get<LogHeader[]>(`${this.baseUrl}/logHeaders`).pipe(
+      map((headers: LogHeader[]) => {
+        return headers.filter(header => 
           header['@uidWell'] === well && header['@uidWellbore'] === wellbore
         );
-        
-        // Convert LogHeader[] to IWellboreObject[]
-        return filteredHeaders.map(header => ({
-          uid: header.uid,
-          objectId: header.uid, // Map uid to objectId for compatibility
-          logUid: header.uid,
-          name: header.name,
-          wellId: header['@uidWell'],
-          wellboreId: header['@uidWellbore'],
-          indexType: header.indexType,
-          indexCurve: header.indexCurve,
-          startIndex: header.startIndex,
-          endIndex: header.endIndex,
-          indexUnit: header.startIndex?.['@uom'] || 'm',
-          isGrowing: header.objectGrowing === 'true',
-          mnemonicList: header.logCurveInfo?.map(curve => curve.mnemonic).join(',') || '',
-          objectInfo: [] // Empty array for now since ITimeCurve interface requirements differ
-        }));
       })
     );
   }
@@ -212,11 +191,20 @@ export class LogHeadersService {
   getLogData(well: string, wellbore: string, logId: string, startIndex: number, endIndex: number): Observable<LogData[]> {
     const cacheKey = `${well}|${wellbore}|${logId}`;
 
-    // Serve from cache if available
+    // Serve from cache if available and range matches cached data
     if (this.logDataCache.has(cacheKey)) {
-      console.log(`📋 Cache hit for ${logId}, slicing ${startIndex}-${endIndex}`);
+      console.log(`📋 Cache hit for ${logId}, checking range ${startIndex}-${endIndex}`);
       const cached = this.logDataCache.get(cacheKey)!;
-      return of(this.sliceLogData(cached, startIndex, endIndex));
+      const cachedData = cached[0];
+      
+      // Check if requested range is within cached data
+      if (cachedData && this.isRangeInCache(cachedData, startIndex, endIndex)) {
+        console.log(`✅ Range available in cache, slicing ${startIndex}-${endIndex}`);
+        return of(this.sliceLogData(cached, startIndex, endIndex));
+      } else {
+        console.log(`🔄 Range not in cache, fetching new chunk ${startIndex}-${endIndex}`);
+        return this.fetchChunk(cached, well, wellbore, logId, startIndex, endIndex);
+      }
     }
 
     // If a fetch is already in progress for this key, piggyback on its shared observable
@@ -227,11 +215,11 @@ export class LogHeadersService {
       );
     }
 
-    // First fetch — download full dataset, cache it, share across concurrent subscribers
-    console.log(`🌐 Fetching FULL logData for ${logId} (will cache for future chunk requests)`);
-    const shared$ = this.http.get(`${this.baseUrl}/logData?uidWell=${well}&uidWellbore=${wellbore}&uid=${logId}&startIndex=0&endIndex=10000`).pipe(
+    // First fetch — download initial chunk, cache it, share across concurrent subscribers
+    console.log(`🌐 Fetching initial chunk for ${logId} (will cache for future chunk requests)`);
+    const shared$ = this.http.get(`${this.baseUrl}/logData?uidWell=${well}&uidWellbore=${wellbore}&uid=${logId}&startIndex=${startIndex}&endIndex=${endIndex}`).pipe(
       map((fullData: any) => {
-        // Store full dataset in cache (wrap in array for consistency)
+        // Store initial chunk in cache (wrap in array for consistency)
         const fullDataset = [fullData];
         this.logDataCache.set(cacheKey, fullDataset);
         this.logDataFetchInProgress.delete(cacheKey);
@@ -242,10 +230,8 @@ export class LogHeadersService {
     );
 
     this.logDataFetchInProgress.set(cacheKey, shared$);
-    // Return sliced chunk from the shared observable
-    return shared$.pipe(
-      map((filtered) => this.sliceLogData(filtered, startIndex, endIndex))
-    );
+    // Return initial chunk from the shared observable
+    return shared$;
   }
 
   getTimeLogData(well: string, wellbore: string, logId: string, startIndex: number, endIndex: number): Observable<LogData[]> {
@@ -300,17 +286,54 @@ export class LogHeadersService {
   }
 
   /**
-   * Slices cached logData rows to the requested depth range.
+   * Fetches a specific chunk of log data for the requested range.
    * 
-   * @param logDataArr - Full cached logData array
+   * @param logDataArr - Cached logData array (may not contain the requested range)
    * @param startIndex - Start depth
    * @param endIndex - End depth
-   * @returns LogData array with data rows filtered to the requested range
+   * @returns Observable that fetches the specific chunk
    */
+  private fetchChunk(logDataArr: LogData[], well: string, wellbore: string, logId: string, startIndex: number, endIndex: number): Observable<LogData[]> {
+    console.log(`🔄 Fetching new chunk for ${logId}: ${startIndex}-${endIndex}`);
+    
+    return this.http.get(`${this.baseUrl}/logData?uidWell=${well}&uidWellbore=${wellbore}&uid=${logId}&startIndex=${startIndex}&endIndex=${endIndex}`).pipe(
+      map((chunkData: any) => {
+        console.log(`✅ Fetched chunk for ${logId}: ${chunkData?.data?.length || 0} rows`);
+        return [chunkData];
+      })
+    );
+  }
+
+  /**
+   * Checks if the requested depth range is available in the cached data.
+   * 
+   * @param cachedData - Cached log data
+   * @param startIndex - Requested start depth
+   * @param endIndex - Requested end depth
+   * @returns True if range is available in cache
+   */
+  private isRangeInCache(cachedData: LogData, startIndex: number, endIndex: number): boolean {
+    if (!cachedData || !cachedData.data || cachedData.data.length === 0) {
+      return false;
+    }
+
+    // Get the depth range from cached data
+    const mnemonics = cachedData.mnemonicList?.split(',').map(m => m.trim());
+    const depthIndex = mnemonics?.indexOf('DEPTH') ?? 0;
+    
+    const firstRow = cachedData.data[0].split(',');
+    const lastRow = cachedData.data[cachedData.data.length - 1].split(',');
+    
+    const firstDepth = parseFloat(firstRow[depthIndex]?.trim());
+    const lastDepth = parseFloat(lastRow[depthIndex]?.trim());
+    
+    return startIndex >= firstDepth && endIndex <= lastDepth;
+  }
+
   private sliceLogData(logDataArr: LogData[], startIndex: number, endIndex: number): LogData[] {
     return logDataArr.map(logData => {
       // Detect if time-based by checking mnemonicList for time columns
-      const mnemonics = logData.mnemonicList.split(',').map(m => m.trim());
+      const mnemonics = logData.mnemonicList?.split(',').map(m => m.trim());
       const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP', 'Time'];
       const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
       
@@ -319,7 +342,7 @@ export class LogHeadersService {
       
       // Try depth mnemonics first
       for (const dm of depthMnemonics) {
-        indexCol = mnemonics.indexOf(dm);
+        indexCol = mnemonics?.indexOf(dm);
         if (indexCol !== -1) { isTimeBased = false; break; }
       }
       // If no depth, try time mnemonics
@@ -336,9 +359,9 @@ export class LogHeadersService {
       let startTs: number = 0, endTs: number = 0;
       
       // Debug: Show the range being requested vs available data
-      if (!isTimeBased && logData.data.length > 0) {
+      if (!isTimeBased && logData.data?.length > 0) {
         const firstRow = logData.data[0].split(',');
-        const lastRow = logData.data[logData.data.length - 1].split(',');
+        const lastRow = logData.data[logData.data?.length - 1].split(',');
         const firstDepth = parseFloat(firstRow[indexCol]?.trim());
         const lastDepth = parseFloat(lastRow[indexCol]?.trim());
         console.log(`📏 Depth slicing for ${logData.uid}:`);
@@ -378,7 +401,7 @@ export class LogHeadersService {
         }
       }
       
-      const slicedRows = logData.data.filter(row => {
+      const slicedRows = logData.data?.filter(row => {
         const cols = row.split(',');
         const colStr = cols[indexCol]?.trim();
         if (!colStr) return false;
@@ -402,9 +425,9 @@ export class LogHeadersService {
       });
       
       if (isTimeBased) {
-        console.log(`🕐 Time slicing result: ${slicedRows.length} rows from ${logData.data.length} total`);
+        console.log(`🕐 Time slicing result: ${slicedRows?.length} rows from ${logData.data?.length} total`);
       } else {
-        console.log(`📏 Depth slicing result: ${slicedRows.length} rows from ${logData.data.length} total`);
+        console.log(`📏 Depth slicing result: ${slicedRows?.length} rows from ${logData.data?.length} total`);
       }
       
       // Handle office system data format - create startIndex/endIndex if they don't exist
