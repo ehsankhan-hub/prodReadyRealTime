@@ -261,11 +261,21 @@ const handleTimeLogData = (req, res) => {
 
 // Custom route for getLogHeaders
 const handleGetLogHeaders = (req, res) => {
-  const pathParts = req.url.split('/');
-  const well = pathParts[3];
-  const wellbore = pathParts[4];
+  let well, wellbore;
   
-  console.log(`🔍 API Call: getLogHeaders for ${well}/${wellbore}`);
+  // Check if it's the old format with path parameters
+  if (req.url.startsWith('/api/getLogHeaders/')) {
+    const pathParts = req.url.split('/');
+    well = pathParts[3];
+    wellbore = pathParts[4];
+    console.log(`🔍 API Call: getLogHeaders for ${well}/${wellbore}`);
+  } else {
+    // For /logHeaders, return all headers and let Angular filter them
+    console.log(`🔍 API Call: getLogHeaders (returning all headers)`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(db.logHeaders));
+    return;
+  }
   
   const filteredHeaders = db.logHeaders.filter(header => 
     header['@uidWell'] === well && header['@uidWellbore'] === wellbore
@@ -336,6 +346,8 @@ const server = http.createServer((req, res) => {
     // Route handling
     if (req.url.startsWith('/api/getLogHeaders/')) {
       handleGetLogHeaders(req, res);
+    } else if (req.url.startsWith('/logHeaders')) {
+      handleGetLogHeaders(req, res);
     } else if (req.url.startsWith('/api/getImageData')) {
       handleGetImageData(req, res);
     } else if (req.url.startsWith('/timeLogHeaders')) {
@@ -361,7 +373,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const port = 3004;
+const port = 3000;
 server.listen(port, () => {
   console.log(`🚀 Custom API Server running on http://localhost:${port}`);
   console.log(`📡 API Endpoints:`);

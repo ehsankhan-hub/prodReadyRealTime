@@ -32,7 +32,7 @@ import { ITimeTrack, ITimeCurve, IWellboreObject } from '../../components/time-b
 })
 export class SimpleCanvasComponent implements OnInit, AfterViewInit {
   /** Cached log headers from the service */
-  private logHeaders: IWellboreObject[] = [];
+  private logHeaders: LogHeader[] = [];
   /** MWD track configurations */
   mwdTracks: ITracks[] = [];
   /** Density track configurations */
@@ -88,7 +88,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 150,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'MWD_Depth_SLB',
             data: [],
             mnemonicLst: []
           }
@@ -112,7 +112,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 100,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'MWD_Depth_SLB',
             data: [],
             mnemonicLst: []
           }
@@ -149,7 +149,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 3.0,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'MWD_Depth_SLB',
             data: [],
             mnemonicLst: []
           }
@@ -173,7 +173,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 10,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'MWD_Depth_SLB',
             data: [],
             mnemonicLst: []
           }
