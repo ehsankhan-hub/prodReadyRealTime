@@ -304,17 +304,49 @@ const handleLogData = (req, res) => {
   console.log(`📈 Generating ${numPoints} data points`);
   
   const data = [];
-  for (let i = 0; i < numPoints; i++) {
-    const depth = start + (i / 2); // 0.5 depth increments
-    const gr = 50 + Math.sin(depth / 100) * 20 + Math.random() * 5;
-    const rt = 10 + Math.cos(depth / 150) * 5 + Math.random() * 2;
-    const nphi = 0.2 + Math.sin(depth / 200) * 0.1 + Math.random() * 0.02;
-    const rhob = 2.5 + Math.cos(depth / 180) * 0.3 + Math.random() * 0.05;
-    const pef = 1.5 + Math.sin(depth / 120) * 0.5 + Math.random() * 0.1;
+  
+  // Check if this is a MudLog request
+  if (uid && uid.toLowerCase().includes('mudlog')) {
+    console.log(`🪨 Generating MudLog data for range ${start}-${end}`);
     
-    data.push(`${depth.toFixed(1)},${gr.toFixed(1)},${rt.toFixed(1)},${nphi.toFixed(2)},${rhob.toFixed(2)},${pef.toFixed(2)}`);
+    // Generate MudLog lithology data
+    const lithologyTypes = ['SAND', 'SHALE', 'LIMESTONE', 'CLAY', 'SILT', 'MUD', 'COAL'];
+    const numPoints = Math.floor((end - start) * 1); // 1 point per depth unit for MudLog
+    
+    for (let i = 0; i < numPoints; i++) {
+      const depth = start + i;
+      const lithology = lithologyTypes[Math.floor(Math.random() * lithologyTypes.length)];
+      data.push(`${depth.toFixed(1)},${lithology}`);
+    }
+    
+    console.log(`🪨 Generated ${data.length} MudLog data points`);
+  } else {
+    // Generate regular well log data
+    const numPoints = Math.floor((end - start) * 2); // 2 points per depth unit
+    console.log(`📈 Generating ${numPoints} regular data points`);
+    
+    for (let i = 0; i < numPoints; i++) {
+      const depth = start + (i / 2); // 0.5 depth increments
+      const gr = 50 + Math.sin(depth / 100) * 20 + Math.random() * 5;
+      const rt = 10 + Math.cos(depth / 150) * 5 + Math.random() * 2;
+      const nphi = 0.2 + Math.sin(depth / 200) * 0.1 + Math.random() * 0.02;
+      const rhob = 2.5 + Math.cos(depth / 180) * 0.3 + Math.random() * 0.05;
+      const pef = 1.5 + Math.sin(depth / 120) * 0.5 + Math.random() * 0.1;
+      
+      data.push(`${depth.toFixed(1)},${gr.toFixed(1)},${rt.toFixed(1)},${nphi.toFixed(2)},${rhob.toFixed(2)},${pef.toFixed(2)}`);
+    }
   }
   
+  // Set appropriate mnemonic and unit lists based on data type
+  let mnemonicList, unitList;
+  if (uid && uid.toLowerCase().includes('mudlog')) {
+    mnemonicList = 'DEPTH,LITHOLOGY';
+    unitList = 'm,lithology';
+  } else {
+    mnemonicList = 'DEPTH,GR,RT,NPHI,RHOB,PEF';
+    unitList = 'm,API,ohm.m,v/v,gAPI,PE';
+  }
+
   const mockLogData = {
     uidWell,
     uidWellbore,
@@ -327,8 +359,8 @@ const handleLogData = (req, res) => {
       '@uom': 'm', 
       '#text': end.toString()
     },
-    mnemonicList: 'DEPTH,GR,RT,NPHI,RHOB,PEF',
-    unitList: 'm,API,ohm.m,v/v,gAPI,PE',
+    mnemonicList,
+    unitList,
     data
   };
   

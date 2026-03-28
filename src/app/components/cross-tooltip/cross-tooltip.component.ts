@@ -10,7 +10,7 @@ export interface TooltipCurveValue {
   /** Curve display name */
   displayName: string;
   /** Current value at crosshair depth */
-  value: number | null;
+  value: number | string | null;
   /** Unit of measurement */
   unit: string;
   /** Curve color for visual matching */
@@ -57,8 +57,12 @@ export interface CrossTooltipData {
         <div class="curve-row" *ngFor="let cv of data?.curveValues">
           <span class="curve-color" [style.background]="cv.color"></span>
           <span class="curve-name">{{ cv.mnemonic }}</span>
-          <span class="curve-value" *ngIf="cv.value !== null">{{ cv.value | number:'1.2-2' }}</span>
-          <span class="curve-value no-data" *ngIf="cv.value === null">---</span>
+          
+          <!-- Handle both numeric and string values -->
+          <span class="curve-value" *ngIf="cv.value === null">---</span>
+          <span class="curve-value" *ngIf="isNumber(cv.value)">{{ asNumber(cv.value) | number:'1.2-2' }}</span>
+          <span class="curve-value" *ngIf="cv.value !== null && !isNumber(cv.value)">{{ cv.value }}</span>
+          
           <span class="curve-unit">{{ cv.unit }}</span>
         </div>
       </div>
@@ -141,6 +145,14 @@ export class CrossTooltipComponent implements OnChanges {
 
   panelTop: number = 0;
   private hostHeight: number = 0;
+
+  isNumber(val: any): boolean {
+    return typeof val === 'number';
+  }
+
+  asNumber(val: any): number {
+    return val as number;
+  }
 
   constructor(private el: ElementRef) {}
 

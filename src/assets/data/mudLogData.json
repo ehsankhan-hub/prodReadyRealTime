@@ -1,0 +1,86 @@
+[
+  {
+    "depth": 1000,
+    "value": "SANDSTONE"
+  },
+  {
+    "depth": 1010,
+    "value": "SANDSTONE"
+  },
+  {
+    "depth": 1020,
+    "value": "SHALE"
+  },
+  {
+    "depth": 1030,
+    "value": "SHALE"
+  },
+  {
+    "depth": 1040,
+    "value": "LIMESTONE"
+  },
+  {
+    "depth": 1050,
+    "value": "LIMESTONE"
+  },
+  {
+    "depth": 1060,
+    "value": "SANDSTONE"
+  },
+  {
+    "depth": 1070,
+    "value": "SANDSTONE"
+  },
+  {
+    "depth": 1080,
+    "value": "SHALE"
+  },
+  {
+    "depth": 1090,
+    "value": "SHALE"
+  },
+  {
+    "depth": 1100,
+    "value": "DOLOMITE"
+  },
+  {
+    "depth": 1110,
+    "value": "DOLOMITE"
+  },
+  {
+    "depth": 1120,
+    "value": "SANDSTONE"
+  },
+  {
+    "depth": 1130,
+    "value": "SANDSTONE"
+  },
+  {
+    "depth": 1140,
+    "value": "SHALE"
+  },
+  {
+    "depth": 1150,
+    "value": "SHALE"
+  },
+  {
+    "depth": 1160,
+    "value": "LIMESTONE"
+  },
+  {
+    "depth": 1170,
+    "value": "LIMESTONE"
+  },
+  {
+    "depth": 1180,
+    "value": "SANDSTONE"
+  },
+  {
+    "depth": 1190,
+    "value": "SANDSTONE"
+  },
+  {
+    "depth": 1200,
+    "value": "SHALE"
+  }
+]
