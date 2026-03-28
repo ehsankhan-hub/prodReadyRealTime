@@ -12,13 +12,23 @@
     </mat-tab>
     <mat-tab label="MWD_Time">
       <div class="canvas-container" *ngIf="activeTab === 1">
-        <app-mwd-time
-          [well]="'HWYH_1389'"
-          [wellbore]="'HWYH_1389_0'"
-          [lstOfTrack]="mwdTracks"
-          [lstOfTrack1]="densityTracks"
-          [lstOfTrack2]="surfaceTimeTracks">
-        </app-mwd-time>
+        <!-- 
+        <div class="canvas-half">
+          <app-mwd-time 
+            [well]="'HWYH_1389'"
+            [wellbore]="'HWYH_1389_0'"
+            [lstOfTrack]="mwdTracks"
+            [lstOfTrack1]="densityTracks"
+            [lstOfTrack2]="surfaceTimeTracks">
+          </app-mwd-time>
+        </div> 
+        -->
+        <div class="canvas-full">
+          <app-mud-log
+            [well]="'HWYH_1389'"
+            [wellbore]="'HWYH_1389_0'">
+          </app-mud-log>
+        </div>
       </div>
     </mat-tab>
     <mat-tab label="MWD_Time Native">

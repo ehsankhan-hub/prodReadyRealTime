@@ -35,6 +35,22 @@
   min-height: 0;
 }
 
+.canvas-container.flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-half, .canvas-full {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  position: relative;
+}
+
+.border-top {
+  border-top: 2px solid #ccc;
+}
+
 .footer-bar {
   height: 50px;
   flex-shrink: 0;

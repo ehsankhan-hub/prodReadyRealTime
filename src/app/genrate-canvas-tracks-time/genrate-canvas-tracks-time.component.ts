@@ -12,32 +12,22 @@ import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
-import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
+import { BaseWidgetComponent } from '../basewidget/basewidget.component';
 import {
   LogHeadersService,
   LogHeader,
   LogData,
-} from '../../services/log-headers.service';
-import {
-  PrintPropertiesDialogComponent,
-  PrintPropertiesData,
-  PrintPropertiesResult,
-} from '../print-properties-dialog/print-properties-dialog.component';
+} from '../services/log-headers.service';
+
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
-import { LogMudLogSection } from '@int/geotoolkit/welllog/LogMudLogSection';
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
-import { HttpClient } from '@angular/common/http';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
 import { Events as CrossHairEvents } from '@int/geotoolkit/controls/tools/CrossHair';
 import { Subscription } from 'rxjs';
-import {
-  CrossTooltipComponent,
-  CrossTooltipData,
-  TooltipCurveValue,
-} from '../cross-tooltip/cross-tooltip.component';
+
 
 /**
  * Interface representing a single curve within a track.
@@ -64,8 +54,8 @@ export interface TrackCurve {
   show: boolean;
   /** Log ID this curve belongs to */
   LogId: string;
-  /** Array of numerical data values for the curve OR MudLog lithology data */
-  data: number[] | Array<{ depth: number, value: string }> | string[];
+  /** Array of numerical data values for the curve */
+  data: number[];
   /** List of mnemonic information (legacy, not used) */
   mnemonicLst: any[];
 }
@@ -107,7 +97,7 @@ export interface TrackInfo {
  * before creating the widget scene to prevent empty curves.
  */
 @Component({
-  selector: 'app-generate-canvas-tracks',
+  selector: 'app-genrate-canvas-tracks-time',
   standalone: true,
   imports: [
     CommonModule,
@@ -116,7 +106,7 @@ export interface TrackInfo {
     MatDialogModule,
     MatButtonModule,
     BaseWidgetComponent,
-    CrossTooltipComponent,
+
   ],
   providers: [LogHeadersService],
   template: `
@@ -166,7 +156,7 @@ export interface TrackInfo {
   `,
   ],
 })
-export class GenerateCanvasTracksComponent
+export class GenrateCanvasTracksTimeComponent
   implements OnInit, AfterViewInit, OnDestroy {
   /** Array of track configurations to display */
   @Input() listOfTracks: TrackInfo[] = [];
@@ -213,12 +203,12 @@ export class GenerateCanvasTracksComponent
   selectedScale: number = 1000;
 
   /** Tooltip data for the cross-tooltip component */
-  tooltipData: CrossTooltipData | null = null;
+  //tooltipData: CrossTooltipData | null = null;
 
   /** Map of curve mnemonic to GeoToolkit LogCurve reference for crosshair lookup */
   private curveMap: Map<
     string,
-    { logCurve: LogCurve | LogMudLogSection; info: TrackCurve; trackName: string }
+    { logCurve: LogCurve; info: TrackCurve; trackName: string }
   > = new Map();
 
   // --- Chunked loading state ---
@@ -242,8 +232,7 @@ export class GenerateCanvasTracksComponent
   constructor(
     private logHeadersService: LogHeadersService,
     private dialog: MatDialog,
-    private ngZone: NgZone,
-    private http: HttpClient
+    private ngZone: NgZone
   ) { }
 
   /**
@@ -324,43 +313,25 @@ export class GenerateCanvasTracksComponent
       string,
       { header: LogHeader; curves: TrackCurve[] }
     >();
-
-    // Handle MudLog tracks separately
-    let mudLogTrackCount = 0;
     this.listOfTracks.forEach((trackInfo) => {
-      if (trackInfo.trackType === 'MudLog') {
-        mudLogTrackCount++;
-        trackInfo.curves.forEach((curve) => {
-          this.loadMudLogData(curve);
-        });
-      } else {
-        trackInfo.curves.forEach((curve) => {
-          const matchingHeader = headers.find(
-            (header) => header.uid === curve.LogId
-          );
-          if (matchingHeader) {
-            if (!logIdGroups.has(curve.LogId)) {
-              logIdGroups.set(curve.LogId, {
-                header: matchingHeader,
-                curves: [],
-              });
-            }
-            logIdGroups.get(curve.LogId)!.curves.push(curve);
+      trackInfo.curves.forEach((curve) => {
+        const matchingHeader = headers.find(
+          (header) => header.uid === curve.LogId
+        );
+        if (matchingHeader) {
+          if (!logIdGroups.has(curve.LogId)) {
+            logIdGroups.set(curve.LogId, {
+              header: matchingHeader,
+              curves: [],
+            });
           }
-        });
-      }
+          logIdGroups.get(curve.LogId)!.curves.push(curve);
+        }
+      });
     });
 
     // One pending load per unique LogId (not per curve)
     this.pendingLoads = logIdGroups.size;
-
-    // Add delay for MudLog data to load
-    if (mudLogTrackCount > 0) {
-      console.log(`🪨 Waiting ${mudLogTrackCount} MudLog track(s) to load data...`);
-      setTimeout(() => {
-        this.createSceneWithData();
-      }, 1000); // Wait 1 second for MudLog data to load
-    }
     console.log(
       `🔄 ${this.pendingLoads} unique LogId(s) to fetch (chunk size: ${this.CHUNK_SIZE})`
     );
@@ -373,54 +344,6 @@ export class GenerateCanvasTracksComponent
         `📦 Loading initial chunk for LogId ${logId}: ${startIndex}-${endIndex} (${curves.length} curves)`
       );
       this.loadLogDataForGroup(header, curves, startIndex, endIndex);
-    });
-  }
-
-  /**
-   * Loads MudLog lithology data from the sample data file.
-   * 
-   * @param curve - The MudLog curve to load data for
-   * @private
-   */
-  private loadMudLogData(curve: TrackCurve): void {
-    console.log(`🪨 Loading MudLog data for curve: ${curve.displayName}`);
-
-    this.http.get<Array<{ depth: number, value: string }>>('/assets/data/mudLogData.json').subscribe({
-      next: (mudLogData) => {
-        console.log(`✅ MudLog data loaded for ${curve.displayName}:`, mudLogData.length, 'entries');
-
-        // SHIFT DEPTHS to match well range for demo visibility
-        // Well is around 98000-99999, sample data is around 1000-1200
-        if (mudLogData.length > 0 && this.headerMaxDepth > 5000) {
-          const sampleMin = mudLogData[0].depth;
-          // Shift to end at headerMaxDepth
-          const shift = this.headerMaxDepth - mudLogData[mudLogData.length - 1].depth;
-
-          console.log(`🔄 Shifting MudLog depths by ${shift.toFixed(1)}m (from ${sampleMin} to ${sampleMin + shift})`);
-
-          const shiftedData = mudLogData.map(item => ({
-            ...item,
-            depth: item.depth + shift
-          }));
-          curve.data = shiftedData;
-        } else {
-          curve.data = mudLogData;
-        }
-
-        // Reactively update visual section if it already exists in the scene
-        const entry = this.curveMap.get(curve.mnemonicId);
-        if (entry && entry.logCurve instanceof LogMudLogSection) {
-          console.log(`🔄 Reactively updating MudLog visual for ${curve.displayName}`);
-          const parsed = this.parseMudLogData(curve);
-          entry.logCurve.setDepthsAndValues(parsed.depths, parsed.lithology);
-          this.wellLogWidget?.updateLayout();
-        }
-      },
-      error: (err) => {
-        console.error(`❌ Error loading MudLog data for ${curve.displayName}:`, err);
-        // Set empty data to prevent errors
-        curve.data = [];
-      }
     });
   }
 
@@ -617,7 +540,7 @@ export class GenerateCanvasTracksComponent
           this.wellLogWidget.updateLayout();
 
           // Configure crosshair for tooltip
-          this.configureCrossHair();
+          // this.configureCrossHair();
 
           // Configure scroll-based lazy loading
           this.configureScrollLazyLoad();
@@ -816,28 +739,15 @@ export class GenerateCanvasTracksComponent
     if (curveIndex === -1 || depthIdx === -1) return;
 
     const newDepths: number[] = [];
-    const newValues: any[] = []; // Use any to support both number and string
-
-    const entry = this.curveMap.get(curve.mnemonicId);
-    const isMudLog = entry?.logCurve instanceof LogMudLogSection;
+    const newValues: number[] = [];
 
     logData.data.forEach((row) => {
       const cols = row.split(',');
       const depth = parseFloat(cols[depthIdx]);
-      if (isNaN(depth)) return;
-
-      if (isMudLog) {
-        // Handle lithology string for MudLog
-        const value = cols[curveIndex]?.trim() || 'UNKNOWN';
+      const value = parseFloat(cols[curveIndex]);
+      if (!isNaN(depth) && !isNaN(value)) {
         newDepths.push(depth);
         newValues.push(value);
-      } else {
-        // Handle numeric value for regular curve
-        const value = parseFloat(cols[curveIndex]);
-        if (!isNaN(value)) {
-          newDepths.push(depth);
-          newValues.push(value);
-        }
       }
     });
 
@@ -847,8 +757,8 @@ export class GenerateCanvasTracksComponent
     const existingDepths = this.curveDepthIndices.get(curve.mnemonicId) || [];
     const existingValues = curve.data || [];
 
-    // Create a map for deduplication to resolve the TS error with union types
-    const depthValueMap = new Map<number, any>();
+    // Create a map for deduplication
+    const depthValueMap = new Map<number, number>();
     for (let i = 0; i < existingDepths.length; i++) {
       depthValueMap.set(existingDepths[i], existingValues[i]);
     }
@@ -873,15 +783,12 @@ export class GenerateCanvasTracksComponent
     });
 
     // Update the GeoToolkit curve data source
+    const entry = this.curveMap.get(curve.mnemonicId);
     if (entry) {
       try {
-        if (entry.logCurve instanceof LogCurve) {
-          const geoLogData = new GeoLogData(curve.displayName);
-          geoLogData.setValues(mergedDepths, mergedValues);
-          entry.logCurve.setData(geoLogData);
-        } else if (entry.logCurve instanceof LogMudLogSection) {
-          entry.logCurve.setDepthsAndValues(mergedDepths, mergedValues);
-        }
+        const geoLogData = new GeoLogData(curve.displayName);
+        geoLogData.setValues(mergedDepths, mergedValues);
+        entry.logCurve.setData(geoLogData);
       } catch (e) {
         console.warn(
           '⚠️ Could not update curve data source for',
@@ -898,114 +805,7 @@ export class GenerateCanvasTracksComponent
     );
   }
 
-  /**
-   * Configures the built-in GeoToolkit crosshair tool to emit tooltip data.
-   * Collects all curve values at the crosshair depth and updates the tooltip panel.
-   *
-   * @private
-   */
-  private configureCrossHair(): void {
-    try {
-      const crossHair: any = this.wellLogWidget.getToolByName('cross-hair');
-      if (!crossHair) {
-        console.warn('⚠️ CrossHair tool not found on WellLogWidget');
-        return;
-      }
 
-      crossHair.on(
-        CrossHairEvents.onPositionChanged,
-        (evt: any, sender: any, eventArgs: any) => {
-          // Run inside Angular zone so change detection picks up tooltipData updates
-          this.ngZone.run(() => {
-            try {
-              const position = eventArgs.getPosition();
-              if (!position) {
-                this.tooltipData = {
-                  depth: 0,
-                  curveValues: [],
-                  screenY: 0,
-                  visible: false,
-                };
-                return;
-              }
-
-              // Transform position to model coordinates to get depth
-              const trackContainer = this.wellLogWidget.getTrackContainer();
-              if (!trackContainer) return;
-              const sceneTransform = trackContainer.getSceneTransform();
-              if (!sceneTransform) return;
-              const pt = sceneTransform.transformPoint(position);
-              const depth = pt.getY ? pt.getY() : pt.y;
-
-              // Get device Y for tooltip vertical position
-              const posY = position.getY ? position.getY() : position.y;
-
-              // Build flat list of all curve values at this depth
-              const curveValues: TooltipCurveValue[] = [];
-
-              this.curveMap.forEach((entry) => {
-                const { logCurve, info, trackName } = entry;
-                let value: number | string | null = null;
-                try {
-                  if (logCurve instanceof LogCurve) {
-                    const dataSource = logCurve.getDataSource();
-                    if (dataSource) {
-                      const rawValue = dataSource.getValueAt(
-                        depth,
-                        0,
-                        dataSource.getSize(),
-                        logCurve.getInterpolationType()
-                      );
-                      if (
-                        rawValue != null &&
-                        !isNaN(rawValue) &&
-                        isFinite(rawValue)
-                      ) {
-                        value = rawValue;
-                      }
-                    }
-                  } else if (logCurve instanceof LogMudLogSection) {
-                    // For MudLog, we might want to get the lithology string at this depth
-                    const depths = logCurve.getDepths();
-                    const values: any = logCurve.getValues();
-                    // Basic binary search or find for closest depth
-                    const idx = depths.findIndex(d => Math.abs(d - depth) < 0.5);
-                    if (idx !== -1) {
-                      value = (values as string[])[idx];
-                    }
-                  }
-                } catch (_) {
-                  // Data not available at this depth
-                }
-
-                curveValues.push({
-                  mnemonic: info.mnemonicId,
-                  displayName: info.displayName,
-                  value: value,
-                  unit: '',
-                  color: info.color,
-                  trackName: trackName,
-                });
-              });
-
-              this.tooltipData = {
-                depth: depth,
-                curveValues: curveValues,
-                screenY: posY,
-                visible: curveValues.length > 0,
-              };
-            } catch (e) {
-              // Silently handle tooltip errors to not break scrolling
-            }
-          });
-        }
-      );
-
-      console.log('✅ CrossHair configured for tooltip');
-    } catch (error) {
-      console.warn('⚠️ Could not configure CrossHair:', error);
-    }
-  }
 
   /**
    * Applies the selected depth scale to the widget.
@@ -1054,154 +854,6 @@ export class GenerateCanvasTracksComponent
     this.applyScale(this.selectedScale);
   }
 
-  /**
-   * Opens the Print Properties dialog.
-   * Passes current widget state and handles the result.
-   */
-  openPrintProperties(): void {
-    const maxDepth =
-      this.headerMaxDepth > 0 ? this.headerMaxDepth : this.getMaxDepth();
-    const visibleLimits: any = this.wellLogWidget?.getVisibleDepthLimits();
-    const vMin = visibleLimits
-      ? visibleLimits.getLow
-        ? visibleLimits.getLow()
-        : 0
-      : 0;
-    const vMax = visibleLimits
-      ? visibleLimits.getHigh
-        ? visibleLimits.getHigh()
-        : maxDepth
-      : maxDepth;
-
-    const dialogData: PrintPropertiesData = {
-      indexType: this.indexType,
-      dataMin: 0,
-      dataMax: maxDepth,
-      visibleMin: vMin,
-      visibleMax: vMax,
-      currentScale: this.selectedScale,
-      scaleOptions: this.scaleOptions,
-    };
-
-    const dialogRef = this.dialog.open(PrintPropertiesDialogComponent, {
-      width: '520px',
-      data: dialogData,
-      disableClose: false,
-    });
-
-    dialogRef
-      .afterClosed()
-      .subscribe((result: PrintPropertiesResult | null) => {
-        if (!result) return;
-        console.log('🖨️ Print Properties result:', result);
-
-        // Apply scale from dialog
-        if (result.scale !== this.selectedScale) {
-          this.selectedScale = result.scale;
-          this.applyScale(this.selectedScale);
-        }
-
-        // Apply range
-        if (result.printRange === 'all') {
-          this.wellLogWidget.setVisibleDepthLimits(0, this.getMaxDepth());
-          this.wellLogWidget.fitToHeight();
-          this.wellLogWidget.updateLayout();
-        } else if (
-          result.printRange === 'range' &&
-          typeof result.rangeFrom === 'number' &&
-          typeof result.rangeTo === 'number'
-        ) {
-          this.wellLogWidget.setVisibleDepthLimits(
-            result.rangeFrom,
-            result.rangeTo
-          );
-          this.wellLogWidget.updateLayout();
-        }
-        // 'visible' means keep current visible range - no change needed
-
-        // Handle print
-        if (result.print) {
-          this.printCanvas(result);
-        }
-      });
-  }
-
-  /**
-   * Prints the canvas based on the dialog result.
-   *
-   * @param result - Print properties from the dialog
-   * @private
-   */
-  private printCanvas(result: PrintPropertiesResult): void {
-    try {
-      const canvas = this.widgetComponent.Canvas
-        ?.nativeElement as HTMLCanvasElement;
-      if (!canvas) {
-        console.error('❌ Canvas element not found for printing');
-        return;
-      }
-
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        console.error('❌ Could not open print window');
-        return;
-      }
-
-      const dataUrl = canvas.toDataURL('image/png');
-      let headerHtml = '';
-      if (result.headerOption !== 'none') {
-        headerHtml = `<div style="text-align:center;margin-bottom:10px;font-family:Arial,sans-serif;">
-          <h2 style="margin:0;">Well Log Print</h2>
-          <p style="margin:4px 0;color:#666;">Well: ${this.well} | Wellbore: ${this.wellbore
-          }</p>
-          <p style="margin:4px 0;color:#666;">Scale: 1:${this.selectedScale
-          } | Range: ${result.printRange === 'all'
-            ? 'All'
-            : result.printRange === 'visible'
-              ? 'Visible Range'
-              : `${result.rangeFrom} - ${result.rangeTo}`
-          }</p>
-        </div>`;
-      }
-
-      let pageNumberHtml = '';
-      if (result.showPageNumber) {
-        pageNumberHtml = `<div style="text-align:center;margin-top:10px;font-family:Arial;font-size:11px;color:#999;">Page 1</div>`;
-      }
-
-      let printRangeHtml = '';
-      if (result.showPrintRange) {
-        printRangeHtml = `<div style="text-align:center;margin-top:5px;font-family:Arial;font-size:11px;color:#999;">
-          Print Range: ${result.rangeFrom} - ${result.rangeTo}
-        </div>`;
-      }
-
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html><head><title>Well Log Print</title></head>
-        <body style="margin:20px;">
-          ${result.headerOption === 'topAndBottom' ||
-          result.headerOption === 'top'
-          ? headerHtml
-          : ''
-        }
-          <img src="${dataUrl}" style="max-width:100%;" />
-          ${result.headerOption === 'topAndBottom' ||
-          result.headerOption === 'bottom'
-          ? headerHtml
-          : ''
-        }
-          ${pageNumberHtml}
-          ${printRangeHtml}
-        </body></html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => printWindow.print(), 500);
-    } catch (error) {
-      console.error('❌ Error printing canvas:', error);
-    }
-  }
 
   /**
    * Creates all tracks based on the input track configurations.
@@ -1224,9 +876,6 @@ export class GenerateCanvasTracksComponent
             '⚠️ Skipping index track creation - already created in createScene'
           );
           return;
-        } else if (trackInfo.trackType === 'MudLog') {
-          // Create MudLog track using dedicated method
-          track = this.createMudLogTrack(trackInfo);
         } else {
           // Create regular track
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
@@ -1235,11 +884,7 @@ export class GenerateCanvasTracksComponent
         }
 
         // Create curves for this track
-        if (trackInfo.trackType === 'MudLog') {
-          this.createMudLogCurves(track, trackInfo);
-        } else {
-          this.createCurves(track, trackInfo);
-        }
+        this.createCurves(track, trackInfo);
 
         console.log(`✅ Track ${trackInfo.trackName} created successfully`);
       } catch (error) {
@@ -1275,21 +920,7 @@ export class GenerateCanvasTracksComponent
 
         // Create GeoLogData
         const geoLogData = new GeoLogData(curveInfo.displayName);
-
-        // Handle different data types for setValues
-        let valuesData: number[];
-        if (Array.isArray(curveInfo.data) && curveInfo.data.length > 0 && typeof curveInfo.data[0] === 'object' && 'depth' in curveInfo.data[0]) {
-          // Extract numeric values from object array (for MudLog-style data)
-          valuesData = (curveInfo.data as Array<{ depth: number, value: string }>).map(item => parseFloat(item.value.toString()) || 0);
-        } else if (Array.isArray(curveInfo.data) && curveInfo.data.every(item => typeof item === 'number')) {
-          // Already numeric array
-          valuesData = curveInfo.data as number[];
-        } else {
-          // Convert string array to numbers or use empty array
-          valuesData = (curveInfo.data as string[]).map(item => parseFloat(item.toString()) || 0);
-        }
-
-        geoLogData.setValues(indexData, valuesData);
+        geoLogData.setValues(indexData, curveInfo.data);
 
         // Create LogCurve
         const curve = new LogCurve(geoLogData);
@@ -1386,198 +1017,5 @@ export class GenerateCanvasTracksComponent
   public getWidget(): WellLogWidget {
     return this.wellLogWidget;
   }
-
-  /**
-   * Creates a MudLog track with lithology display capabilities.
-   * Follows GeoToolkit MudLog track patterns for clean separation.
-   *
-   * @param trackInfo - Track configuration for MudLog
-   * @returns Created MudLog track
-   * @private
-   */
-  private createMudLogTrack(trackInfo: TrackInfo): LogTrack {
-    console.log(`🪨 Creating MudLog track: ${trackInfo.trackName}`);
-
-    // Create MudLog track using TrackType.LogTrack
-    const mudLogTrack = this.wellLogWidget.addTrack(TrackType.LogTrack);
-    mudLogTrack.setName(trackInfo.trackName);
-    mudLogTrack.setWidth(trackInfo.trackWidth || 150);
-
-    // Configure MudLog-specific properties
-    mudLogTrack.setProperty('show-grid', false);
-    mudLogTrack.setProperty('show-title', true);
-
-    console.log(`✅ MudLog track ${trackInfo.trackName} created successfully`);
-    return mudLogTrack;
-  }
-
-  /**
-   * Creates MudLog curves with lithology data and color mapping.
-   * Parses MudLog-specific data and creates lithology curves.
-   *
-   * @param track - The MudLog track to add curves to
-   * @param trackInfo - Track configuration containing MudLog curve definitions
-   * @private
-   */
-  private createMudLogCurves(track: LogTrack, trackInfo: TrackInfo): void {
-    console.log(`🎨 Creating MudLog curves for track: ${trackInfo.trackName}`);
-
-    trackInfo.curves.forEach((curveInfo, curveIndex) => {
-      try {
-        if (!curveInfo.show || !curveInfo.data || curveInfo.data.length === 0) {
-          console.warn(`⚠️ MudLog curve ${curveInfo.displayName} has no data or is hidden`);
-          return;
-        }
-
-        console.log(`🪨 Creating MudLog curve: ${curveInfo.displayName}`);
-
-        // Parse MudLog data using dedicated method
-        const mudLogData = this.parseMudLogData(curveInfo);
-
-        if (mudLogData.depths.length === 0) {
-          console.warn(`⚠️ No valid MudLog data parsed for ${curveInfo.displayName}`);
-          return;
-        }
-
-        // Create MudLog lithology child using GeoToolkit pattern
-        const mudLogSection = new LogMudLogSection();
-        mudLogSection.setName(curveInfo.displayName);
-
-        // Set MudLog data with depth and lithology information directly on the section
-        mudLogSection.setDepthsAndValues(mudLogData.depths, mudLogData.lithology);
-
-        // Add the MudLog section to the track
-        track.addChild(mudLogSection);
-
-        // Configure MudLog curve appearance
-        this.configureMudLogCurveAppearance(mudLogSection, curveInfo);
-
-        // Register MudLog curve in the map for lazy loading and lookup
-        this.curveMap.set(curveInfo.mnemonicId, {
-          logCurve: mudLogSection as any, // Cast to any because curveMap is typed for LogCurve | LogMudLogSection but TS might be picky
-          info: curveInfo,
-          trackName: trackInfo.trackName,
-        });
-
-        // Track loaded range for MudLog too
-        this.loadedRanges.set(curveInfo.mnemonicId, {
-          min: mudLogData.depths[0],
-          max: mudLogData.depths[mudLogData.depths.length - 1],
-        });
-        this.curveDepthIndices.set(curveInfo.mnemonicId, mudLogData.depths);
-
-        console.log(`✅ MudLog curve ${curveInfo.displayName} created successfully with ${mudLogData.depths.length} points`);
-
-      } catch (error) {
-        console.error(`❌ Error creating MudLog curve ${curveInfo.displayName}:`, error);
-      }
-    });
-  }
-
-  /**
-   * Parses MudLog data from curve information.
-   * Extracts depth and lithology data following GeoToolkit patterns.
-   *
-   * @param curveInfo - Curve configuration containing raw MudLog data
-   * @returns Parsed MudLog data with depths and lithology arrays
-   * @private
-   */
-  private parseMudLogData(curveInfo: TrackCurve): { depths: number[], lithology: string[] } {
-    const depths: number[] = [];
-    const lithology: string[] = [];
-
-    try {
-      // Parse data similar to regular curves but for lithology
-      if (Array.isArray(curveInfo.data)) {
-        curveInfo.data.forEach((dataPoint) => {
-          if (dataPoint && typeof dataPoint === 'object' && 'depth' in dataPoint && 'value' in dataPoint) {
-            const depth = parseFloat((dataPoint as any).depth?.toString() || '0');
-            const lith = (dataPoint as any).value?.toString() || 'UNKNOWN';
-
-            if (!isNaN(depth) && lith) {
-              depths.push(depth);
-              lithology.push(lith);
-            }
-          } else if (typeof dataPoint === 'string') {
-            // Handle string format: "depth,lithology"
-            const parts = dataPoint.split(',');
-            if (parts.length >= 2) {
-              const depth = parseFloat(parts[0]?.trim());
-              const lith = parts[1]?.trim();
-
-              if (!isNaN(depth) && lith) {
-                depths.push(depth);
-                lithology.push(lith);
-              }
-            }
-          }
-        });
-      }
-
-      console.log(`📊 Parsed MudLog data: ${depths.length} points, depth range: ${depths.length > 0 ? Math.min(...depths) : 0}-${depths.length > 0 ? Math.max(...depths) : 0}`);
-
-    } catch (error) {
-      console.error('❌ Error parsing MudLog data:', error);
-    }
-
-    return { depths, lithology };
-  }
-
-  /**
-   * Configures MudLog curve appearance with lithology colors and patterns.
-   * Applies GeoToolkit MudLog styling patterns.
-   *
-   * @param mudLogChild - The MudLog child to configure
-   * @param curveInfo - Curve configuration for styling
-   * @private
-   */
-  private configureMudLogCurveAppearance(mudLogChild: LogMudLogSection, curveInfo: TrackCurve): void {
-    // Set lithology color mapping (following GeoToolkit example patterns)
-    const lithologyColors = this.getLithologyColorMap();
-    mudLogChild.setProperty('lithology-colors', lithologyColors);
-
-    // Configure MudLog-specific properties
-    mudLogChild.setProperty('show-boundaries', true);
-    mudLogChild.setProperty('boundary-color', '#333333');
-    mudLogChild.setProperty('boundary-width', 1);
-
-    // Set visibility and title
-    mudLogChild.setVisible(curveInfo.show !== false);
-    mudLogChild.setName(curveInfo.displayName);
-
-    // Apply custom styling if provided
-    if (curveInfo.color) {
-      mudLogChild.setProperty('default-color', curveInfo.color);
-    }
-
-    console.log(`🎨 Configured MudLog curve appearance for ${curveInfo.displayName}`);
-  }
-
-  /**
-   * Returns lithology color mapping following GeoToolkit standards.
-   * Provides consistent colors for different rock types.
-   *
-   * @returns Object mapping lithology types to colors
-   * @private
-   */
-  private getLithologyColorMap(): { [key: string]: string } {
-    return {
-      'SAND': '#F4E4C1',      // Light tan
-      'SANDSTONE': '#F4E4C1', // Light tan
-      'SHALE': '#696969',      // Gray
-      'CLAY': '#8B4513',       // Brown
-      'LIMESTONE': '#87CEEB',  // Sky blue
-      'DOLOMITE': '#DDA0DD',   // Plum
-      'SILT': '#DEB887',       // Burlywood
-      'SILTSTONE': '#DEB887',  // Burlywood
-      'MUD': '#A0522D',        // Sienna
-      'MUDSTONE': '#A0522D',   // Sienna
-      'COAL': '#2F4F4F',       // Dark slate gray
-      'ANHYDRITE': '#F0F8FF',  // Alice blue
-      'SALT': '#FFFAFA',       // Snow
-      'GYPSUM': '#FAFAD2',     // Light goldenrod
-      'UNKNOWN': '#E0E0E0',    // Light gray
-      'DEFAULT': '#E0E0E0'     // Default light gray
-    };
-  }
 }
+

@@ -1,0 +1,8 @@
+<div class="well-log-container">
+  <div class="canvas-wrapper">
+    <app-basewidget #canvasWidget></app-basewidget>
+  </div>
+  <div *ngIf="isLoading" class="loading-overlay">
+    <span>Loading time-based tracks...</span>
+  </div>
+</div>

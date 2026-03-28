@@ -10,6 +10,7 @@ import { TimeBaseTrackNativeGeoComponent } from '../../components/time-base-trac
 import { SimpleLog2dDemoComponent } from '../../components/simple-log2d-demo/simple-log2d-demo.component';
 import { ITracks } from '../../models/tracks.model';
 import { ITimeTrack, ITimeCurve, IWellboreObject } from '../../components/time-based-tracks/time-based-tracks.component';
+import { MudLogComponent } from '../../components/mud-log/mud-log.component';
 
 /**
  * Main demo component for displaying MWD Density well log visualization.
@@ -25,7 +26,7 @@ import { ITimeTrack, ITimeCurve, IWellboreObject } from '../../components/time-b
 @Component({
   selector: 'app-simple-canvas',
   standalone: true,
-  imports: [CommonModule, HttpClientModule, MatTabsModule, MwdDensityComponent, MwdTimeComponent, TimeBaseTrackNativeGeoComponent, SimpleLog2dDemoComponent],
+  imports: [CommonModule, HttpClientModule, MatTabsModule, MwdDensityComponent, MwdTimeComponent, TimeBaseTrackNativeGeoComponent, SimpleLog2dDemoComponent, MudLogComponent],
   providers: [LogHeadersService],
   templateUrl: './simple-canvas.component.html',
   styleUrls: ['./simple-canvas.component.css']
@@ -178,13 +179,37 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             mnemonicLst: []
           }
         ]
+      },
+      {
+        trackNo: 6,
+        trackName: 'Mud Log',
+        trackType: 'MudLog',
+        trackWidth: 150,
+        isIndex: false,
+        isDepth: true,
+        curves: [
+          {
+            mnemonicId: 'LITHOLOGY',
+            displayName: 'Lithology',
+            color: '#8B4513',
+            lineStyle: 'solid',
+            lineWidth: 1,
+            min: 0,
+            max: 100,
+            autoScale: false,
+            show: true,
+            LogId: 'MWD_MudLog_SLB',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
       }
     ];
 
     // Add Surface_Time tracks for comparison
     this.surfaceTimeTracks = [
       {
-        trackNo: 6,
+        trackNo: 7,
         trackName: 'Surface Gamma Ray',
         trackType: 'Linear',
         trackWidth: 100,

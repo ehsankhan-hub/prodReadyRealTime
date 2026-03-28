@@ -1,0 +1,45 @@
+<div class="mud-log-container">
+  <!-- Premium Toolbar -->
+  <div class="mud-log-toolbar">
+    <div class="toolbar-group">
+      <button class="tool-btn" title="Zoom In"><i class="fa fa-search-plus"></i></button>
+      <button class="tool-btn" title="Zoom Out"><i class="fa fa-search-minus"></i></button>
+      <button class="tool-btn" title="Fit to Height" (click)="onScaleChange(0)"><i class="fa fa-arrows-v"></i></button>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-group">
+      <label class="toolbar-label">Vertical Scale</label>
+      <select class="toolbar-select" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
+        <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
+      </select>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <div class="toolbar-group">
+      <span class="depth-range">Depth Range: 11,400 - 13,395 ft</span>
+    </div>
+
+    <div class="toolbar-spacer"></div>
+
+    <div class="toolbar-group" *ngIf="isLoading">
+      <span class="loading-pulse"></span>
+      <span class="loading-text">Loading MudLog Data...</span>
+    </div>
+  </div>
+  
+  <div class="main-content-layout">
+    <!-- Navigation Widget (Left side mini-map) -->
+    <div class="navigation-pane">
+        <app-basewidget #navWidget></app-basewidget>
+    </div>
+
+    <!-- Main WellLog Widget (Right side expanded) -->
+    <div class="well-log-pane">
+        <app-basewidget #mainWidget></app-basewidget>
+        <app-cross-tooltip [data]="tooltipData"></app-cross-tooltip>
+    </div>
+  </div>
+</div>
