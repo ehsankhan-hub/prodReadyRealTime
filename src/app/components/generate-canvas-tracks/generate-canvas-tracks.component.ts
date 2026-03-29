@@ -26,11 +26,17 @@ import {
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
-import { LogMudLogSection } from '@int/geotoolkit/welllog/LogMudLogSection';
+
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
+import { StackedLogFill } from '@int/geotoolkit/welllog/StackedLogFill';
+import { InterpolationType } from '@int/geotoolkit/data/DataStepInterpolation';
+import { BoxVisibility, DiscreteStackedFillVisualHeader } from '@int/geotoolkit/welllog/header/DiscreteStackedFillVisualHeader';
+import { DiscreteFillDisplayType } from '@int/geotoolkit/welllog/header/AdaptiveDiscreteFillVisualHeader';
 import { HttpClient } from '@angular/common/http';
-import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
+import { TrackType } from '@int/geotoolkit/welllog/TrackType';
+
+import { PatternFactory } from '@int/geotoolkit/attributes/PatternFactory';
 import { Events as CrossHairEvents } from '@int/geotoolkit/controls/tools/CrossHair';
 import { Subscription } from 'rxjs';
 import {
@@ -215,10 +221,10 @@ export class GenerateCanvasTracksComponent
   /** Tooltip data for the cross-tooltip component */
   tooltipData: CrossTooltipData | null = null;
 
-  /** Map of curve mnemonic to GeoToolkit LogCurve reference for crosshair lookup */
+  /** Map of curve instances keyed by mnemonicId */
   private curveMap: Map<
     string,
-    { logCurve: LogCurve | LogMudLogSection; info: TrackCurve; trackName: string }
+    { logCurve: LogCurve | StackedLogFill | any; info: TrackCurve; trackName: string }
   > = new Map();
 
   // --- Chunked loading state ---
@@ -253,6 +259,7 @@ export class GenerateCanvasTracksComponent
   ngOnInit(): void {
     console.log('🎨 Generate Canvas Tracks Component initialized');
     console.log('📊 Input tracks:', this.listOfTracks);
+    this.registerLithologyPatterns();
     this.loadLogHeadersAndCreateTracks();
   }
 
@@ -275,6 +282,45 @@ export class GenerateCanvasTracksComponent
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
     }
+  }
+
+  /**
+   * Registers lithology patterns globally in GeoToolkit's PatternFactory.
+   * Loads pattern definitions and images from the lithologyPatterns.json file.
+   *
+   * @private
+   */
+  private registerLithologyPatterns(): void {
+    console.log('🧱 Registering lithology patterns from assets/data/lithologyPatterns.json...');
+    this.http.get<any>('assets/data/lithologyPatterns.json').subscribe({
+      next: (patternsObj) => {
+        if (!patternsObj) {
+          console.error('❌ Lithology patterns JSON is empty or undefined');
+          return;
+        }
+        const factory = PatternFactory.getInstance();
+        let count = 0;
+        
+        Object.keys(patternsObj).forEach((name) => {
+          const base64Data = patternsObj[name];
+          if (!base64Data || !base64Data.startsWith('data:image')) {
+            console.warn(`⚠️ Skipping pattern "${name}": invalid base64 data`);
+            return;
+          }
+
+          const img = new Image();
+          img.onload = () => {
+            // Correct signature is addPattern(image, name)
+            factory.addPattern(img, name.toLowerCase());
+          };
+          img.onerror = () => console.error(`❌ Failed to load image for pattern: ${name}`);
+          img.src = base64Data;
+          count++;
+        });
+        console.log(`✅ ${count} lithology patterns registration initiated`);
+      },
+      error: (err) => console.error('❌ Failed to load lithology patterns:', err)
+    });
   }
 
   /**
@@ -409,10 +455,9 @@ export class GenerateCanvasTracksComponent
 
         // Reactively update visual section if it already exists in the scene
         const entry = this.curveMap.get(curve.mnemonicId);
-        if (entry && entry.logCurve instanceof LogMudLogSection) {
+        if (entry && entry.logCurve instanceof StackedLogFill) {
           console.log(`🔄 Reactively updating MudLog visual for ${curve.displayName}`);
-          const parsed = this.parseMudLogData(curve);
-          entry.logCurve.setDepthsAndValues(parsed.depths, parsed.lithology);
+          // Reactive updates for StackedLogFill should be implemented here if needed in the future
           this.wellLogWidget?.updateLayout();
         }
       },
@@ -502,16 +547,34 @@ export class GenerateCanvasTracksComponent
     }
 
     const depths: number[] = [];
-    const values: number[] = [];
-    console.log('logData.data', logData.data)
+    const values: any[] = []; // Use any to support both number and string
+
+    // Better way to check if this curve belongs to a MudLog track
+    const isMudLog = this.listOfTracks.some(
+      (t) =>
+        t.trackType === 'MudLog' &&
+        t.curves.some((c) => c.mnemonicId === curve.mnemonicId)
+    );
+
+    console.log('logData.data', logData.data);
     logData.data.forEach((dataRow) => {
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
-        const value = parseFloat(cols[curveIndex]);
         const depth = depthIndex >= 0 ? parseFloat(cols[depthIndex]) : NaN;
-        if (!isNaN(value) && !isNaN(depth)) {
+        if (isNaN(depth)) return;
+
+        if (isMudLog) {
+          // Handle lithology string for MudLog
+          const value = cols[curveIndex]?.trim() || 'UNKNOWN';
           depths.push(depth);
           values.push(value);
+        } else {
+          // Handle numeric value for regular curve
+          const value = parseFloat(cols[curveIndex]);
+          if (!isNaN(value)) {
+            depths.push(depth);
+            values.push(value);
+          }
         }
       }
     });
@@ -591,6 +654,14 @@ export class GenerateCanvasTracksComponent
       // Assign widget to BaseWidgetComponent
       this.widgetComponent.Widget = this.wellLogWidget;
       console.log('✅ Widget assigned to BaseWidgetComponent');
+
+      const headerProvider = this.wellLogWidget.getHeaderContainer().getHeaderProvider();
+      headerProvider.registerHeaderProvider(
+        StackedLogFill.getClassName(),
+        new DiscreteStackedFillVisualHeader()
+          .setDiscreteDisplayType(DiscreteFillDisplayType.FlexBox)
+          .setBoxVisibility(BoxVisibility.Visible)
+      );
 
       // Create data tracks
       this.createTracks();
@@ -819,7 +890,14 @@ export class GenerateCanvasTracksComponent
     const newValues: any[] = []; // Use any to support both number and string
 
     const entry = this.curveMap.get(curve.mnemonicId);
-    const isMudLog = entry?.logCurve instanceof LogMudLogSection;
+    // Use the more reliable way to check for MudLog
+    const isMudLog =
+      entry?.logCurve instanceof StackedLogFill ||
+      this.listOfTracks.some(
+        (t) =>
+          t.trackType === 'MudLog' &&
+          t.curves.some((c) => c.mnemonicId === curve.mnemonicId)
+      );
 
     logData.data.forEach((row) => {
       const cols = row.split(',');
@@ -879,8 +957,62 @@ export class GenerateCanvasTracksComponent
           const geoLogData = new GeoLogData(curve.displayName);
           geoLogData.setValues(mergedDepths, mergedValues);
           entry.logCurve.setData(geoLogData);
-        } else if (entry.logCurve instanceof LogMudLogSection) {
-          entry.logCurve.setDepthsAndValues(mergedDepths, mergedValues);
+        } else if (entry.logCurve instanceof StackedLogFill) {
+            // Rebuild the individual log data arrays for StackedLogFill
+            const patternsList = [
+              {pattern: 'chert', color: 'crimson'},
+              {pattern: 'lime', color: 'lightgreen'},
+              {pattern: 'lime', color: '#0099FF'},
+              {pattern: 'salt', color: '#afeeee'},
+              {pattern: 'sand', color: '#cf33e1'},
+              {pattern: 'shale', color: 'yellow'},
+              {pattern: 'volc', color: 'gray'},
+              {pattern: 'dolomite', color: '#DDA0DD'},
+              {pattern: 'siltstone', color: '#DEB887'},
+              {pattern: 'pattern', color: '#E0E0E0'}
+            ];
+            const lithMap = this.getLithologyPatternMap();
+            const valuesArrays = patternsList.map(() => [] as number[]);
+            
+            mergedValues.forEach((lith: string) => {
+                const mappedPattern = lithMap[lith] || 'pattern';
+                for (let i = 0; i < patternsList.length; i++) {
+                     if (patternsList[i].pattern === mappedPattern) {
+                         valuesArrays[i].push(1);
+                     } else {
+                         valuesArrays[i].push(0);
+                     }
+                }
+            });
+            
+            const geoLogDatas: GeoLogData[] = [];
+            patternsList.forEach((p, i) => {
+               const gld = new GeoLogData(p.pattern);
+               gld.setValues(mergedDepths, valuesArrays[i]);
+               geoLogDatas.push(gld);
+            });
+            
+            const newStackedFill = new StackedLogFill(geoLogDatas)
+                .setName(curve.displayName)
+                .setInterpolationType(InterpolationType.EndStep);
+                
+            geoLogDatas.forEach((src, i) => {
+                newStackedFill.setCurveOptions(i, {
+                    'fillstyle': {
+                        'pattern': PatternFactory.getInstance().getPattern(patternsList[i].pattern) || undefined,
+                        'color': patternsList[i].color
+                    },
+                    'linestyle': patternsList[i].color,
+                    'displaymode': ['line']
+                });
+            });
+            
+            const track = entry.logCurve.getParent();
+            if (track) {
+                (track as any).removeChild(entry.logCurve);
+                (track as any).addChild(newStackedFill);
+                entry.logCurve = newStackedFill as any;
+            }
         }
       } catch (e) {
         console.warn(
@@ -964,14 +1096,21 @@ export class GenerateCanvasTracksComponent
                         value = rawValue;
                       }
                     }
-                  } else if (logCurve instanceof LogMudLogSection) {
-                    // For MudLog, we might want to get the lithology string at this depth
-                    const depths = logCurve.getDepths();
-                    const values: any = logCurve.getValues();
-                    // Basic binary search or find for closest depth
-                    const idx = depths.findIndex(d => Math.abs(d - depth) < 0.5);
-                    if (idx !== -1) {
-                      value = (values as string[])[idx];
+                  } else if (logCurve instanceof StackedLogFill) {
+                    // Raw string array from info.data
+                    if (Array.isArray(info.data)) {
+                        const depthsObj = this.curveDepthIndices.get(info.mnemonicId) || [];
+                        const idx = depthsObj.findIndex((d: number) => Math.abs(d - depth) < 0.5);
+                        if (idx !== -1 && info.data[idx]) {
+                            value = (info.data[idx] as any).value || info.data[idx] as string;
+                        } else {
+                            // Alternatively, look at original parsed data or curveMap entry data
+                            // Actually, curve.data was updated in appendChunkData!
+                            const curveData: any = info.data;
+                            if (curveData[idx]) {
+                                value = curveData[idx];
+                            }
+                        }
                     }
                   }
                 } catch (_) {
@@ -1398,8 +1537,8 @@ export class GenerateCanvasTracksComponent
   private createMudLogTrack(trackInfo: TrackInfo): LogTrack {
     console.log(`🪨 Creating MudLog track: ${trackInfo.trackName}`);
 
-    // Create MudLog track using TrackType.LogTrack
-    const mudLogTrack = this.wellLogWidget.addTrack(TrackType.LogTrack);
+    // Create MudLog track using TrackType.LinearTrack
+    const mudLogTrack = this.wellLogWidget.addTrack(TrackType.LinearTrack);
     mudLogTrack.setName(trackInfo.trackName);
     mudLogTrack.setWidth(trackInfo.trackWidth || 150);
 
@@ -1439,22 +1578,66 @@ export class GenerateCanvasTracksComponent
           return;
         }
 
-        // Create MudLog lithology child using GeoToolkit pattern
-        const mudLogSection = new LogMudLogSection();
-        mudLogSection.setName(curveInfo.displayName);
+        const patternsList = [
+          {pattern: 'chert', color: 'crimson'},
+          {pattern: 'lime', color: 'lightgreen'},
+          {pattern: 'lime', color: '#0099FF'},
+          {pattern: 'salt', color: '#afeeee'},
+          {pattern: 'sand', color: '#cf33e1'},
+          {pattern: 'shale', color: 'yellow'},
+          {pattern: 'volc', color: 'gray'},
+          {pattern: 'dolomite', color: '#DDA0DD'},
+          {pattern: 'siltstone', color: '#DEB887'},
+          {pattern: 'pattern', color: '#E0E0E0'}
+        ];
+        
+        // Map lithology values to pattern names via our previous helper
+        const lithMap = this.getLithologyPatternMap();
+        
+        // Create GeoLogData for each pattern
+        const geoLogDatas: GeoLogData[] = [];
+        patternsList.forEach(p => {
+           geoLogDatas.push(new GeoLogData(p.pattern));
+        });
 
-        // Set MudLog data with depth and lithology information directly on the section
-        mudLogSection.setDepthsAndValues(mudLogData.depths, mudLogData.lithology);
+        // Populate binary values arrays (1 or 0)
+        const valuesArrays = geoLogDatas.map(() => [] as number[]);
+        mudLogData.lithology.forEach(lith => {
+            const mappedPattern = lithMap[lith] || 'pattern';
+            for (let i = 0; i < patternsList.length; i++) {
+                 if (patternsList[i].pattern === mappedPattern) {
+                     valuesArrays[i].push(1);
+                 } else {
+                     valuesArrays[i].push(0);
+                 }
+            }
+        });
 
-        // Add the MudLog section to the track
-        track.addChild(mudLogSection);
+        geoLogDatas.forEach((gld, i) => {
+            gld.setValues(mudLogData.depths, valuesArrays[i]);
+        });
 
-        // Configure MudLog curve appearance
-        this.configureMudLogCurveAppearance(mudLogSection, curveInfo);
+        const stackedFill = new StackedLogFill(geoLogDatas)
+            .setName(curveInfo.displayName)
+            .setInterpolationType(InterpolationType.EndStep);
+
+        geoLogDatas.forEach((src, i) => {
+            stackedFill.setCurveOptions(i, {
+                'fillstyle': {
+                    'pattern': PatternFactory.getInstance().getPattern(patternsList[i].pattern) || undefined,
+                    'color': patternsList[i].color
+                },
+                'linestyle': patternsList[i].color,
+                'displaymode': ['line']
+            });
+        });
+
+        // Add the StackedLogFill to the track
+        track.addChild(stackedFill);
 
         // Register MudLog curve in the map for lazy loading and lookup
         this.curveMap.set(curveInfo.mnemonicId, {
-          logCurve: mudLogSection as any, // Cast to any because curveMap is typed for LogCurve | LogMudLogSection but TS might be picky
+          logCurve: stackedFill as any, // Cast to any because curveMap is typed for LogCurve | LogMudLogSection
           info: curveInfo,
           trackName: trackInfo.trackName,
         });
@@ -1523,61 +1706,32 @@ export class GenerateCanvasTracksComponent
     return { depths, lithology };
   }
 
-  /**
-   * Configures MudLog curve appearance with lithology colors and patterns.
-   * Applies GeoToolkit MudLog styling patterns.
-   *
-   * @param mudLogChild - The MudLog child to configure
-   * @param curveInfo - Curve configuration for styling
-   * @private
-   */
-  private configureMudLogCurveAppearance(mudLogChild: LogMudLogSection, curveInfo: TrackCurve): void {
-    // Set lithology color mapping (following GeoToolkit example patterns)
-    const lithologyColors = this.getLithologyColorMap();
-    mudLogChild.setProperty('lithology-colors', lithologyColors);
-
-    // Configure MudLog-specific properties
-    mudLogChild.setProperty('show-boundaries', true);
-    mudLogChild.setProperty('boundary-color', '#333333');
-    mudLogChild.setProperty('boundary-width', 1);
-
-    // Set visibility and title
-    mudLogChild.setVisible(curveInfo.show !== false);
-    mudLogChild.setName(curveInfo.displayName);
-
-    // Apply custom styling if provided
-    if (curveInfo.color) {
-      mudLogChild.setProperty('default-color', curveInfo.color);
-    }
-
-    console.log(`🎨 Configured MudLog curve appearance for ${curveInfo.displayName}`);
-  }
 
   /**
-   * Returns lithology color mapping following GeoToolkit standards.
-   * Provides consistent colors for different rock types.
+   * Returns lithology pattern mapping for rock types.
+   * Maps rock names to pattern names registered in PatternFactory.
    *
-   * @returns Object mapping lithology types to colors
+   * @returns Object mapping lithology types to pattern names
    * @private
    */
-  private getLithologyColorMap(): { [key: string]: string } {
+  private getLithologyPatternMap(): { [key: string]: string } {
     return {
-      'SAND': '#F4E4C1',      // Light tan
-      'SANDSTONE': '#F4E4C1', // Light tan
-      'SHALE': '#696969',      // Gray
-      'CLAY': '#8B4513',       // Brown
-      'LIMESTONE': '#87CEEB',  // Sky blue
-      'DOLOMITE': '#DDA0DD',   // Plum
-      'SILT': '#DEB887',       // Burlywood
-      'SILTSTONE': '#DEB887',  // Burlywood
-      'MUD': '#A0522D',        // Sienna
-      'MUDSTONE': '#A0522D',   // Sienna
-      'COAL': '#2F4F4F',       // Dark slate gray
-      'ANHYDRITE': '#F0F8FF',  // Alice blue
-      'SALT': '#FFFAFA',       // Snow
-      'GYPSUM': '#FAFAD2',     // Light goldenrod
-      'UNKNOWN': '#E0E0E0',    // Light gray
-      'DEFAULT': '#E0E0E0'     // Default light gray
+      'SAND': 'sand',
+      'SANDSTONE': 'sand',
+      'SHALE': 'shale',
+      'CLAY': 'shale',
+      'LIMESTONE': 'lime',
+      'DOLOMITE': 'dolomite',
+      'SILT': 'siltstone',
+      'SILTSTONE': 'siltstone',
+      'MUD': 'shale',
+      'MUDSTONE': 'shale',
+      'COAL': 'pattern',
+      'ANHYDRITE': 'pattern',
+      'SALT': 'salt',
+      'GYPSUM': 'pattern',
+      'UNKNOWN': 'pattern',
+      'DEFAULT': 'pattern'
     };
   }
 }

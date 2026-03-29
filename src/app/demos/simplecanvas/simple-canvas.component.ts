@@ -199,7 +199,13 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             autoScale: false,
             show: true,
             LogId: 'MWD_MudLog_SLB',
-            data: [],
+            data: [
+              { depth: 0, value: 'Sand' },
+              { depth: 5, value: 'Shale' },
+              { depth: 10, value: 'Sandstone' },
+              { depth: 15, value: 'Limestone' },
+              { depth: 20, value: 'Coal' }
+            ],
             mnemonicLst: []
           }
         ]

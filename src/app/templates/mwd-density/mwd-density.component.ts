@@ -278,6 +278,35 @@ export class MwdDensityComponent implements OnInit {
             mnemonicLst: []
           }
         ]
+      },
+      {
+
+        trackNo: 5,
+        trackName: 'Mud Log',
+        trackType: 'MudLog',
+        trackWidth: 150,
+        isIndex: false,
+        isDepth: true,
+        curves: [
+          {
+            mnemonicId: 'LITHOLOGY',
+            displayName: 'Lithology',
+            color: '#8B4513',
+            lineStyle: 'solid',
+            lineWidth: 1,
+            min: 0,
+            max: 100,
+            autoScale: false,
+            show: true,
+            LogId: 'MWD_MudLog_SLB',
+            data: [
+              { depth: 0, value: 'Sand' },
+              { depth: 10, value: 'Shale' },
+              { depth: 20, value: 'Sandstone' }
+            ],
+            mnemonicLst: []
+          }
+        ]
       }
     ];
   }
