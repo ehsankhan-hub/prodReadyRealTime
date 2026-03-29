@@ -116,12 +116,12 @@ export interface TrackInfo {
         <select id="scaleSelect" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
           <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
         </select>
-        <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">&#9881;</button>
+        <button class="settings-btn"  title="Print Properties">&#9881;</button>
         <span class="loading-indicator" *ngIf="isLoadingChunk">Loading...</span>
       </div>
       <div class="canvas-wrapper">
         <app-basewidget #canvasWidget></app-basewidget>
-        <app-cross-tooltip [data]="tooltipData"></app-cross-tooltip>
+
       </div>
     </div>
   `,

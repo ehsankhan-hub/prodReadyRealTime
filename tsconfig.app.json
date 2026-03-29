@@ -13,6 +13,8 @@
     "src/**/*.ts"
   ],
   "exclude": [
-    "src/app/components/generate-canvas-tracks/dynamic-track-generator.component.ts"
+    "src/app/components/generate-canvas-tracks/dynamic-track-generator.component.ts",
+    "src/**/*.spec.ts"
   ]
+
 }

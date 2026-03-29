@@ -24,6 +24,6 @@ export interface ICurve {
   autoScale: boolean;
   show: boolean;
   LogId: string;
-  data: number[];
+  data: any[];
   mnemonicLst: IMnemonic[];
 }
