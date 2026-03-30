@@ -1564,6 +1564,7 @@ export class DynamicTrackGeneratorComponent
    */
   private applyGeoToolkitTheme(): void {
     if (!this.wellLogWidget) {
+
       console.warn('⚠️ WellLogWidget not available for theme application');
       return;
     }
