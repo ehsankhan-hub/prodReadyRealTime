@@ -568,52 +568,11 @@ export class DynamicTrackGeneratorComponent
     const curveIndex = mnemonics.findIndex(
       (m: any) => m.trim() === curve.mnemonicId
     );
+    const depthIdx = mnemonics.findIndex((m: any) => m.trim() === 'DEPTH');
 
-    // Determine if index is depth-based or time-based
-    const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
-    const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP'];
-
-    let indexColIdx = -1;
-    let isDepthIndex = false;
-
-    // First try depth mnemonics
-    for (const dm of depthMnemonics) {
-      indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
-      if (indexColIdx !== -1) {
-        isDepthIndex = true;
-        console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
-        break;
-      }
-    }
-
-    // If no depth index found, try time mnemonics
-    if (indexColIdx === -1) {
-      for (const tm of timeMnemonics) {
-        indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
-        if (indexColIdx !== -1) {
-          isDepthIndex = false;
-          console.log(`🕐 Found time index: ${tm} at position ${indexColIdx}`);
-          break;
-        }
-      }
-    }
-
-    // Fallback: use first column
-    if (indexColIdx === -1) {
-      indexColIdx = 0;
-      isDepthIndex = true;
+    if (curveIndex === -1 || depthIdx === -1) {
       console.warn(
-        '⚠️ No index column found, defaulting to first column as depth'
-      );
-    }
-
-    console.log(
-      `🔍 Parsing ${curve.mnemonicId}: curveIndex=${curveIndex}, indexCol=${indexColIdx}, isDepth=${isDepthIndex}, dataRows=${innerLogData.data.length}`
-    );
-
-    if (curveIndex === -1) {
-      console.warn(
-        '⚠️ Mnemonic not found:',
+        '⚠️ Mnemonic or DEPTH not found:',
         curve.mnemonicId,
         '| Available:',
         mnemonics
@@ -627,53 +586,36 @@ export class DynamicTrackGeneratorComponent
       return;
     }
 
-    const indexValues: number[] = [];
+    const depths: number[] = [];
     const values: number[] = [];
 
     innerLogData.data.forEach((dataRow: any) => {
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
         const value = parseFloat(cols[curveIndex]);
-        const indexStr = indexColIdx >= 0 ? cols[indexColIdx] : null;
-
-        let indexValue = NaN;
-        if (indexStr) {
-          if (isDepthIndex) {
-            // Depth-based: parse as a plain number
-            indexValue = parseFloat(indexStr);
-          } else {
-            // Time-based: convert ISO string to timestamp
-            try {
-              indexValue = new Date(indexStr).getTime();
-            } catch (e) {
-              console.warn('⚠️ Invalid time format:', indexStr);
-            }
-          }
-        }
-
-        if (!isNaN(value) && !isNaN(indexValue)) {
-          indexValues.push(indexValue);
+        const depth = parseFloat(cols[depthIdx]);
+        if (!isNaN(value) && !isNaN(depth)) {
+          depths.push(depth);
           values.push(value);
         }
       }
     });
 
     curve.data = values;
-    this.curveDepthIndices.set(curve.mnemonicId, indexValues);
+    this.curveDepthIndices.set(curve.mnemonicId, depths);
 
-    // Track loaded range using actual index values (depth or time)
-    if (indexValues.length > 0) {
+    // Track loaded range
+    if (depths.length > 0) {
       this.loadedRanges.set(curve.mnemonicId, {
-        min: indexValues[0],
-        max: indexValues[indexValues.length - 1],
+        min: depths[0],
+        max: depths[depths.length - 1],
       });
     }
 
     console.log(
       `✅ Parsed data for curve: ${curve.mnemonicId} ${values.length} points`,
-      indexValues.length > 0
-        ? `${isDepthIndex ? 'depth' : 'time'} range: ${indexValues[0]}-${indexValues[indexValues.length - 1]
-        }`
+      depths.length > 0
+        ? `depth range: ${depths[0]}-${depths[depths.length - 1]}`
         : ''
     );
 
@@ -859,8 +801,8 @@ export class DynamicTrackGeneratorComponent
           logIdCurves.get(curve.LogId)!.curves.push(curve);
           return;
         }
-        const matchingHeader = this.cachedHeaders.find(
-          (h) => h.objectId.includes(curve.LogId)
+        const matchingHeader = this.cachedHeaders.find((h) =>
+          h.objectId.includes(curve.LogId)
         );
         const range = this.loadedRanges.get(curve.mnemonicId);
         if (!matchingHeader) {
@@ -868,7 +810,9 @@ export class DynamicTrackGeneratorComponent
           return;
         }
         if (!range) {
-          console.warn(`⚠️ No loaded range for curve mnemonic: ${curve.mnemonicId}`);
+          console.warn(
+            `⚠️ No loaded range for curve mnemonic: ${curve.mnemonicId}`
+          );
           return;
         }
         logIdCurves.set(curve.LogId, {
@@ -915,9 +859,19 @@ export class DynamicTrackGeneratorComponent
     });
 
     if (chunkRequests.size === 0) {
-      console.log(`❌ No chunks needed. needMin=${needMin.toFixed(0)}, needMax=${needMax.toFixed(0)}, headerMax=${this.headerMaxDepth.toFixed(0)}`);
+      console.log(
+        `❌ No chunks needed. needMin=${needMin.toFixed(
+          0
+        )}, needMax=${needMax.toFixed(
+          0
+        )}, headerMax=${this.headerMaxDepth.toFixed(0)}`
+      );
       logIdCurves.forEach((data, logId) => {
-        console.log(`   - LogId: ${logId}, loaded range: ${data.range.min.toFixed(0)}-${data.range.max.toFixed(0)}`);
+        console.log(
+          `   - LogId: ${logId}, loaded range: ${data.range.min.toFixed(
+            0
+          )}-${data.range.max.toFixed(0)}`
+        );
       });
       return;
     }
@@ -1564,7 +1518,6 @@ export class DynamicTrackGeneratorComponent
    */
   private applyGeoToolkitTheme(): void {
     if (!this.wellLogWidget) {
-
       console.warn('⚠️ WellLogWidget not available for theme application');
       return;
     }
