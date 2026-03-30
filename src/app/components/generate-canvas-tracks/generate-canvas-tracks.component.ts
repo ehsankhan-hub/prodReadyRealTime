@@ -435,23 +435,9 @@ export class GenerateCanvasTracksComponent
       next: (mudLogData) => {
         console.log(`✅ MudLog data loaded for ${curve.displayName}:`, mudLogData.length, 'entries');
 
-        // SHIFT DEPTHS to match well range for demo visibility
-        // Well is around 98000-99999, sample data is around 1000-1200
-        if (mudLogData.length > 0 && this.headerMaxDepth > 5000) {
-          const sampleMin = mudLogData[0].depth;
-          // Shift to end at headerMaxDepth
-          const shift = this.headerMaxDepth - mudLogData[mudLogData.length - 1].depth;
-
-          console.log(`🔄 Shifting MudLog depths by ${shift.toFixed(1)}m (from ${sampleMin} to ${sampleMin + shift})`);
-
-          const shiftedData = mudLogData.map(item => ({
-            ...item,
-            depth: item.depth + shift
-          }));
-          curve.data = shiftedData;
-        } else {
-          curve.data = mudLogData;
-        }
+        // Removing depth shift logic for production usage: 
+        // using raw absolute depths as determined by the downloaded JSON.
+        curve.data = mudLogData;
 
         // Reactively update visual section if it already exists in the scene
         const entry = this.curveMap.get(curve.mnemonicId);
