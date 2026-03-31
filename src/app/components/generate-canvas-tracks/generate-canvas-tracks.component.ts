@@ -18,6 +18,12 @@ import {
   LogHeader,
   LogData,
 } from '../../services/log-headers.service';
+import { Log2DVisual, PlotTypes } from '@int/geotoolkit/welllog/Log2DVisual';
+import { Log2DVisualData } from '@int/geotoolkit/welllog/data/Log2DVisualData';
+import { Log2DDataRow } from '@int/geotoolkit/welllog/data/Log2DDataRow';
+import { CompositeLog2DVisualHeader } from '@int/geotoolkit/welllog/header/CompositeLog2DVisualHeader';
+import { DefaultColorProvider } from '@int/geotoolkit/util/DefaultColorProvider';
+
 import {
   PrintPropertiesDialogComponent,
   PrintPropertiesData,
@@ -28,7 +34,28 @@ import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
 
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
-import { StackedLogFill } from '@int/geotoolkit/welllog/StackedLogFill';
+
+// Interface for image data response
+interface ImageDataResponse {
+  wellId: string;
+  wellboreId: string;
+  objectId: string;
+  startIndex: number;
+  endIndex: number;
+  imageData: Array<{
+    depth: number;
+    values: number[];
+    angles: number[];
+  }>;
+}
+
+// Interface for log data item
+interface LogDataItem {
+  depth: number;
+  values: number[];
+  angles: number[];
+}
+
 import { InterpolationType } from '@int/geotoolkit/data/DataStepInterpolation';
 import { BoxVisibility, DiscreteStackedFillVisualHeader } from '@int/geotoolkit/welllog/header/DiscreteStackedFillVisualHeader';
 import { DiscreteFillDisplayType } from '@int/geotoolkit/welllog/header/AdaptiveDiscreteFillVisualHeader';
@@ -44,6 +71,7 @@ import {
   CrossTooltipData,
   TooltipCurveValue,
 } from '../cross-tooltip/cross-tooltip.component';
+import { StackedLogFill } from '@int/geotoolkit/welllog/StackedLogFill';
 
 /**
  * Interface representing a single curve within a track.
@@ -85,7 +113,7 @@ export interface TrackInfo {
   trackNo: number;
   /** Display name for the track */
   trackName: string;
-  /** Type of track (e.g., 'Linear', 'Log') */
+  /** Type of track (e.g., 'Linear', 'Log', 'Log2D', 'MudLog') */
   trackType: string;
   /** Width of the track in pixels */
   trackWidth: number;
@@ -371,14 +399,19 @@ export class GenerateCanvasTracksComponent
       { header: LogHeader; curves: TrackCurve[] }
     >();
 
-    // Handle MudLog tracks separately
+    // Handle MudLog and Log2D tracks separately
     let mudLogTrackCount = 0;
+    let log2DTrackCount = 0;
     this.listOfTracks.forEach((trackInfo) => {
       if (trackInfo.trackType === 'MudLog') {
         mudLogTrackCount++;
         trackInfo.curves.forEach((curve) => {
           this.loadMudLogData(curve);
         });
+      } else if (trackInfo.trackType === 'Log2D') {
+        // Log2D tracks load data separately via loadLog2DData - skip from regular log data loading
+        log2DTrackCount++;
+        console.log(`🖼️ Skipping Log2D track curves from regular data loading: ${trackInfo.trackName}`);
       } else {
         trackInfo.curves.forEach((curve) => {
           const matchingHeader = headers.find(
@@ -406,6 +439,11 @@ export class GenerateCanvasTracksComponent
       setTimeout(() => {
         this.createSceneWithData();
       }, 1000); // Wait 1 second for MudLog data to load
+    }
+    
+    // Log Log2D tracks
+    if (log2DTrackCount > 0) {
+      console.log(`🖼️ ${log2DTrackCount} Log2D track(s) will load data separately via createLog2DCurves`);
     }
     console.log(
       `🔄 ${this.pendingLoads} unique LogId(s) to fetch (chunk size: ${this.CHUNK_SIZE})`
@@ -765,6 +803,10 @@ export class GenerateCanvasTracksComponent
       }
     >();
     this.listOfTracks.forEach((trackInfo) => {
+      // Skip MudLog and Log2D tracks - they handle data loading separately
+      if (trackInfo.trackType === 'MudLog' || trackInfo.trackType === 'Log2D') {
+        return;
+      }
       trackInfo.curves.forEach((curve) => {
         if (logIdCurves.has(curve.LogId)) {
           logIdCurves.get(curve.LogId)!.curves.push(curve);
@@ -1352,6 +1394,9 @@ export class GenerateCanvasTracksComponent
         } else if (trackInfo.trackType === 'MudLog') {
           // Create MudLog track using dedicated method
           track = this.createMudLogTrack(trackInfo);
+        } else if (trackInfo.trackType === 'Log2D') {
+          // Create Log2D track using dedicated method
+          track = this.createLog2DTrack(trackInfo);
         } else {
           // Create regular track
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
@@ -1362,6 +1407,8 @@ export class GenerateCanvasTracksComponent
         // Create curves for this track
         if (trackInfo.trackType === 'MudLog') {
           this.createMudLogCurves(track, trackInfo);
+        } else if (trackInfo.trackType === 'Log2D') {
+          this.createLog2DCurves(track, trackInfo);
         } else {
           this.createCurves(track, trackInfo);
         }
@@ -1719,5 +1766,169 @@ export class GenerateCanvasTracksComponent
       'UNKNOWN': 'pattern',
       'DEFAULT': 'pattern'
     };
+  }
+
+  /**
+   * Creates Log2D track for depth-based image visualization.
+   * Sets up track with Log2D-specific configuration.
+   *
+   * @param trackInfo - Track configuration for Log2D display
+   * @returns Created Log2D track
+   * @private
+   */
+  private createLog2DTrack(trackInfo: TrackInfo): LogTrack {
+    console.log(`🖼️ Creating Log2D track: ${trackInfo.trackName}`);
+
+    // Create Log2D track using TrackType.LinearTrack
+    const log2DTrack = this.wellLogWidget.addTrack(TrackType.LinearTrack);
+    log2DTrack.setName(trackInfo.trackName);
+    log2DTrack.setWidth(trackInfo.trackWidth || 150);
+
+    // Configure Log2D-specific properties
+    log2DTrack.setProperty('show-grid', false);
+    log2DTrack.setProperty('show-title', true);
+
+    // Register Log2D header provider
+    const headerProvider = this.wellLogWidget.getHeaderContainer().getHeaderProvider();
+    headerProvider.registerHeaderProvider(Log2DVisual.getClassName(), new CompositeLog2DVisualHeader());
+
+    console.log(`✅ Log2D track ${trackInfo.trackName} created successfully`);
+    return log2DTrack;
+  }
+
+  /**
+   * Creates Log2D curves with image data visualization.
+   * Loads image data from backend and creates Log2D visual elements.
+   *
+   * @param track - The Log2D track to add curves to
+   * @param trackInfo - Track configuration containing Log2D curve definitions
+   * @private
+   */
+  private createLog2DCurves(track: LogTrack, trackInfo: TrackInfo): void {
+    console.log(`🎨 Creating Log2D curves for track: ${trackInfo.trackName}`);
+
+    trackInfo.curves.forEach((curveInfo, curveIndex) => {
+      try {
+        if (!curveInfo.show) {
+          console.warn(`⚠️ Log2D curve ${curveInfo.displayName} is hidden`);
+          return;
+        }
+
+        console.log(`🖼️ Creating Log2D curve: ${curveInfo.displayName}`);
+
+        // Load Log2D data from backend
+        this.loadLog2DData(curveInfo).then(log2DData => {
+          if (!log2DData || log2DData.getRows().length === 0) {
+            console.warn(`⚠️ No valid Log2D data loaded for ${curveInfo.displayName}`);
+            return;
+          }
+
+          // Create Log2D visual
+          const log2DVisual = this.create2DVisual(log2DData, curveInfo.displayName, 0, curveInfo.color || '#7cb342');
+          log2DVisual.setPlotType(PlotTypes.Linear);
+
+          // Add to track
+          track.addChild([log2DVisual]);
+
+          console.log(`✅ Log2D curve ${curveInfo.displayName} created successfully with ${log2DData.getRows().length} rows`);
+        }).catch(error => {
+          console.error(`❌ Error loading Log2D data for ${curveInfo.displayName}:`, error);
+        });
+
+      } catch (error) {
+        console.error(`❌ Error creating Log2D curve ${curveInfo.displayName}:`, error);
+      }
+    });
+  }
+
+  /**
+   * Loads Log2D image data from backend service.
+   * Fetches image data and converts to Log2DVisualData format.
+   *
+   * @param curveInfo - Curve configuration containing LogId for data fetching
+   * @returns Promise resolving to Log2DVisualData
+   * @private
+   */
+  private loadLog2DData(curveInfo: TrackCurve): Promise<Log2DVisualData> {
+    console.log(`📡 Loading Log2D data for curve: ${curveInfo.displayName}`);
+
+    // Load image data from backend service (same endpoint as simple-log2d-demo)
+    return this.http.get<ImageDataResponse>('http://localhost:3000/api/getImageData').toPromise()
+      .then(response => {
+        if (!response || !response.imageData) {
+          throw new Error('Failed to load Log2D data: No data received from backend');
+        }
+
+        const log2dData = new Log2DVisualData();
+
+        // Get depth range from image data (may be timestamps or depths)
+        const rawMinDepth = response.imageData[0]?.depth || 0;
+        const rawMaxDepth = response.imageData[response.imageData.length - 1]?.depth || rawMinDepth + 1;
+        
+        // Target depth range to match the well log (use headerMaxDepth or reasonable default)
+        const targetMinDepth = 0;
+        const targetMaxDepth = this.headerMaxDepth > 0 ? this.headerMaxDepth : 100000;
+        
+        // Calculate scaling factors to normalize depths to well's range
+        const rawRange = rawMaxDepth - rawMinDepth;
+        const targetRange = targetMaxDepth - targetMinDepth;
+        const scaleFactor = rawRange > 0 ? targetRange / rawRange : 1;
+        
+        console.log(`📐 Scaling image depths: raw(${rawMinDepth}-${rawMaxDepth}) → target(${targetMinDepth}-${targetMaxDepth}), factor: ${scaleFactor}`);
+
+        // Parse image data and create Log2DDataRow objects with scaled depths
+        response.imageData.forEach((item: LogDataItem) => {
+          // Scale depth proportionally to fit within well's depth range
+          const scaledDepth = targetMinDepth + ((item.depth - rawMinDepth) * scaleFactor);
+          const row = new Log2DDataRow(scaledDepth, item.values, item.angles);
+          log2dData.getRows().push(row);
+        });
+
+        log2dData.updateLimits();
+        console.log(`✅ Loaded Log2D image data: ${log2dData.getRows().length} rows from depth ${log2dData.getMinDepth()} to ${log2dData.getMaxDepth()}`);
+
+        return log2dData;
+      })
+      .catch(error => {
+        console.error('Error fetching Log2D data from backend:', error);
+        throw error;
+      });
+  }
+
+  /**
+   * Creates Log2D visual element with color provider.
+   * Configures colors and visual properties for Log2D display.
+   *
+   * @param log2dData - Log2DVisualData containing image data
+   * @param name - Display name for the visual
+   * @param offset - Offset position for the visual
+   * @param zeroColor - Base color for the color provider
+   * @returns Configured Log2DVisual
+   * @private
+   */
+  private create2DVisual(
+    log2dData: Log2DVisualData,
+    name: string,
+    offset: number,
+    zeroColor: string
+  ): Log2DVisual {
+    const min = log2dData.getMinValue();
+    const max = log2dData.getMaxValue();
+    const delta = (max - min) / 3;
+
+    // Create color provider
+    const colors = new DefaultColorProvider()
+      .addColor(min, zeroColor)
+      .addColor(min + delta, 'yellow')
+      .addColor(min + 2 * delta, 'orange')
+      .addColor(max, 'red');
+
+    // Create Log2DVisual
+    return new Log2DVisual()
+      .setName(name)
+      .setData(log2dData)
+      .setColorProvider(colors)
+      .setOffsets(offset)
+      .setMicroPosition(0, 1);
   }
 }

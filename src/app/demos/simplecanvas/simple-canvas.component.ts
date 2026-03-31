@@ -209,6 +209,30 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             mnemonicLst: []
           }
         ]
+      },
+      {
+        trackNo: 7,
+        trackName: 'Core Image',
+        trackType: 'Log2D',
+        trackWidth: 200,
+        isIndex: false,
+        isDepth: true,
+        curves: [
+          {
+            mnemonicId: 'COREIMG',
+            displayName: 'Core Image',
+            color: '#333333',
+            lineStyle: 'solid',
+            lineWidth: 1,
+            min: 0,
+            max: 100,
+            autoScale: false,
+            show: true,
+            LogId: 'MWD_Depth_SLB',
+            data: [],
+            mnemonicLst: []
+          }
+        ]
       }
     ];
 
