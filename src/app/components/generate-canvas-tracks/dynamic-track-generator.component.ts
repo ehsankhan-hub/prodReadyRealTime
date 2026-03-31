@@ -667,19 +667,12 @@ console.log('header---------',header)
    * @private
    */
   private configureScrollLazyLoad(): void {
-    console.log('🚀 Scroll polling STARTED');
     // Poll every 300ms for visible depth changes
     this.scrollPollHandle = setInterval(() => {
-      if (!this.wellLogWidget) {
-        console.log('❌ No widget yet');
-        return;
-      }
+      if (!this.wellLogWidget) return;
       try {
         const visibleLimits: any = this.wellLogWidget.getVisibleDepthLimits();
-        if (!visibleLimits) {
-          console.log('❌ No visible limits');
-          return;
-        }
+        if (!visibleLimits) return;
         const vMin = visibleLimits.getLow ? visibleLimits.getLow() : 0;
         const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
 
@@ -688,19 +681,14 @@ console.log('header---------',header)
           Math.abs(vMin - this.lastVisibleMin) > 1 ||
           Math.abs(vMax - this.lastVisibleMax) > 1
         ) {
-          console.log(`🔄 SCROLL DETECTED! Calling checkAndLoadChunks from ${this.lastVisibleMin}-${this.lastVisibleMax} to ${vMin}-${vMax}`);
           this.lastVisibleMin = vMin;
           this.lastVisibleMax = vMax;
-          this.ngZone.run(() => {
-            console.log('🎯 Inside ngZone.run - about to call checkAndLoadChunks');
-            this.checkAndLoadChunks();
-          });
+          this.ngZone.run(() => this.checkAndLoadChunks());
         }
-      } catch (error) {
-        console.log('❌ Error getting visible limits:', error);
+      } catch (_) {
+        /* widget may not be ready */
       }
     }, 300);
-    console.log('✅ Scroll polling configured');
   }
 
   /**
@@ -710,11 +698,7 @@ console.log('header---------',header)
    * @private
    */
   private checkAndLoadChunks(): void {
-    console.log('🎯 checkAndLoadChunks CALLED!');
-    if (!this.wellLogWidget) {
-      console.log('❌ checkAndLoadChunks: No widget');
-      return;
-    }
+    if (!this.wellLogWidget) return;
     // Limit concurrent in-flight requests
     if (this.inFlightRanges.size >= 2) return;
 
@@ -750,8 +734,8 @@ console.log('header---------',header)
           logIdCurves.get(curve.LogId)!.curves.push(curve);
           return;
         }
-        const matchingHeader = this.cachedHeaders.find(
-          (h) => h.objectId === curve.LogId
+        const matchingHeader = this.cachedHeaders.find((h) =>
+          h.objectId.includes(curve.LogId)
         );
         const range = this.loadedRanges.get(curve.mnemonicId);
         if (!matchingHeader || !range) return;
