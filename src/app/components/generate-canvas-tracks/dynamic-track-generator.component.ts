@@ -574,7 +574,7 @@ export class DynamicTrackGeneratorComponent
     }
     const mnemonics = innerLogData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex(
-      (m: any) => m.trim() === curve.mnemonicId
+      (m: any) => m.trim().toUpperCase() === curve.mnemonicId.toUpperCase()
     );
 
     // Determine if index is depth-based or time-based
@@ -586,7 +586,9 @@ export class DynamicTrackGeneratorComponent
 
     // First try depth mnemonics
     for (const dm of depthMnemonics) {
-      indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
+      indexColIdx = mnemonics.findIndex(
+        (m: any) => m.trim().toUpperCase() === dm.toUpperCase()
+      );
       if (indexColIdx !== -1) {
         isDepthIndex = true;
         console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
@@ -597,7 +599,9 @@ export class DynamicTrackGeneratorComponent
     // If no depth index found, try time mnemonics
     if (indexColIdx === -1) {
       for (const tm of timeMnemonics) {
-        indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
+        indexColIdx = mnemonics.findIndex(
+          (m: any) => m.trim().toUpperCase() === tm.toUpperCase()
+        );
         if (indexColIdx !== -1) {
           isDepthIndex = false;
           console.log(`🕐 Found time index: ${tm} at position ${indexColIdx}`);
@@ -681,14 +685,21 @@ export class DynamicTrackGeneratorComponent
       }
     });
 
-    curve.data = values;
-    this.curveDepthIndices.set(curve.mnemonicId, indexValues);
+    // Ensure initial data is sorted by index (depth/time)
+    const initialEntries = indexValues.map((iv, i) => ({ iv, v: values[i] }));
+    initialEntries.sort((a, b) => a.iv - b.iv);
+    
+    const sortedIndexValues = initialEntries.map(e => e.iv);
+    const sortedValues = initialEntries.map(e => e.v);
+
+    curve.data = sortedValues;
+    this.curveDepthIndices.set(curve.mnemonicId, sortedIndexValues);
 
     // Track loaded range using actual index values (depth or time)
-    if (indexValues.length > 0) {
+    if (sortedIndexValues.length > 0) {
       this.loadedRanges.set(curve.mnemonicId, {
-        min: indexValues[0],
-        max: indexValues[indexValues.length - 1],
+        min: sortedIndexValues[0],
+        max: sortedIndexValues[sortedIndexValues.length - 1],
       });
     }
 
@@ -1054,10 +1065,29 @@ export class DynamicTrackGeneratorComponent
   private appendChunkData(logData: LogData, curve: TrackCurve): void {
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex(
-      (m: string) => m.trim() === curve.mnemonicId
+      (m: string) => m.trim().toUpperCase() === curve.mnemonicId.toUpperCase()
     );
-    const depthIdx = mnemonics.findIndex((m: string) => m.trim() === 'DEPTH');
-    if (curveIndex === -1 || depthIdx === -1) return;
+
+    // Robust depth index lookup (mirrors parseCurveData)
+    const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
+    let depthIdx = -1;
+    for (const dm of depthMnemonics) {
+      depthIdx = mnemonics.findIndex(
+        (m: string) => m.trim().toUpperCase() === dm.toUpperCase()
+      );
+      if (depthIdx !== -1) break;
+    }
+
+    if (curveIndex === -1 || depthIdx === -1) {
+      console.warn(
+        `⚠️ appendChunkData: Mnemonic ${curve.mnemonicId} or index not found.`,
+        'curveIndex:',
+        curveIndex,
+        'depthIdx:',
+        depthIdx
+      );
+      return;
+    }
 
     const newDepths: number[] = [];
     const newValues: (number | number[])[] = [];
