@@ -758,9 +758,18 @@ export class DynamicTrackGeneratorComponent
 
       // Register Header Provider for Log2DVisual
       const headerProvider = this.wellLogWidget.getHeaderContainer().getHeaderProvider();
+      const log2DHeader = new CompositeLog2DVisualHeader();
+      // Explicitly set text styles for composite header components
+      (log2DHeader as any).setProperties({
+        'title': { 'textstyle': { 'color': 'white' } },
+        'colorbar': {
+          'axis': { 'textstyle': { 'color': 'white' } },
+          'title': { 'textstyle': { 'color': 'white' } }
+        }
+      });
       headerProvider.registerHeaderProvider(
         Log2DVisual.getClassName(),
-        new CompositeLog2DVisualHeader()
+        log2DHeader
       );
 
       // Create index track first to ensure it's always visible
@@ -1803,7 +1812,7 @@ export class DynamicTrackGeneratorComponent
           `  linestyle-color: ${theme.headerBorder};`,
           '  linestyle-width: 1;',
           '}',
-          
+
           /* Log2D image headers */
           '.geotoolkit.welllog.header.CompositeLog2DVisualHeader {',
           '  textstyle-color: #ffffff;',
