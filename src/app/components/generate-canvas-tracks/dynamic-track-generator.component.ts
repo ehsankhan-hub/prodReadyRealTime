@@ -1497,7 +1497,7 @@ export class DynamicTrackGeneratorComponent
           // Create regular track
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
-          track.setWidth(trackInfo.trackWidth || 257);
+          track.setWidth(trackInfo.trackWidth || 205);
         }
 
         // Create curves for this track
