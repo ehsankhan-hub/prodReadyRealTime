@@ -140,7 +140,7 @@ export class MwdDensityComponent implements OnInit {
     console.log('🔧 MWD Density Component initialized');
     console.log('📊 Input tracks:', this.lstOfTrack);
     console.log('📊 Input tracks1:', this.lstOfTrack1);
-    
+
     this.initializeTracks();
     this.combineTracks();
   }
@@ -156,7 +156,7 @@ export class MwdDensityComponent implements OnInit {
     if (this.lstOfTrack.length === 0) {
       this.lstOfTrack = this.getDefaultMWDTracks();
     }
-    
+
     if (this.lstOfTrack1.length === 0) {
       this.lstOfTrack1 = this.getDefaultDensityTracks();
     }
@@ -235,7 +235,7 @@ export class MwdDensityComponent implements OnInit {
         trackNo: 3,
         trackName: 'Bulk Density',
         trackType: 'Linear',
-        trackWidth: 100,
+        trackWidth: 50,
         isIndex: false,
         isDepth: true,
         curves: [
@@ -259,7 +259,7 @@ export class MwdDensityComponent implements OnInit {
         trackNo: 4,
         trackName: 'Photoelectric Factor',
         trackType: 'Linear',
-        trackWidth: 100,
+        trackWidth: 50,
         isIndex: false,
         isDepth: true,
         curves: [
@@ -295,7 +295,7 @@ export class MwdDensityComponent implements OnInit {
             lineStyle: 'solid',
             lineWidth: 1,
             min: 0,
-            max: 100,
+            max: 50,
             autoScale: false,
             show: true,
             LogId: 'MWD_MudLog_SLB',
