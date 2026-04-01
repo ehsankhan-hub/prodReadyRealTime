@@ -75,7 +75,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
         trackNo: 1,
         trackName: 'MWD Gamma Ray',
         trackType: 'Linear',
-        trackWidth: 100,
+        trackWidth: 50,
         isIndex: false,
         isDepth: true,
         curves: [
@@ -99,7 +99,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
         trackNo: 2,
         trackName: 'MWD Resistivity',
         trackType: 'Linear',
-        trackWidth: 100,
+        trackWidth: 50,
         isIndex: false,
         isDepth: true,
         curves: [
@@ -110,7 +110,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             lineStyle: 'solid',
             lineWidth: 2,
             min: 0.1,
-            max: 100,
+            max: 50,
             autoScale: false,
             show: true,
             LogId: 'MWD_Depth_SLB',
@@ -338,7 +338,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
         trackNo: 10,
         trackName: 'Surface Photoelectric Factor',
         trackType: 'Linear',
-        trackWidth: 100,
+        trackWidth: 50,
         isIndex: false,
         isDepth: false,
         curves: [
@@ -389,7 +389,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
       width: track.trackWidth,
       isIndex: track.isIndex
     }));
-    
+
     // Add an image track for testing
     this.timeTracks.push({
       trackNo: 99,
@@ -400,7 +400,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
       width: 200,
       isIndex: false
     });
-    
+
     console.log(' Converted to time tracks:', this.timeTracks);
   }
 
@@ -413,7 +413,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
   private loadLogHeaders(): void {
     const well = 'HWYH_1389';
     const wellbore = 'HWYH_1389_0';
-    
+
     this.logHeadersService.getLogHeaders(well, wellbore).subscribe({
       next: (headers) => {
         this.logHeaders = headers;

@@ -326,8 +326,12 @@ export class GenerateCanvasTracksComponent
    * @private
    */
   private setupResizeHandler(): void {
-    const container = document.querySelector('.canvas-wrapper');
-    if (!container) return;
+    // Look for the specific container for this component
+    const container = document.querySelector('.track-generator-container');
+    if (!container) {
+      console.warn('⚠️ Could not find .track-generator-container for ResizeObserver');
+      return;
+    }
 
     this.resizeObserver = new ResizeObserver(() => {
       this.ngZone.run(() => {
@@ -1431,7 +1435,7 @@ export class GenerateCanvasTracksComponent
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
           // Converting pixel width to factor (weight) for proportional scaling
-          (track as any).setLayoutStyle({ factor: trackInfo.trackWidth || 205 });
+          (track as any).setLayoutStyle({ factor: trackInfo.trackWidth || 130 });
         }
 
         // Create curves for this track
@@ -1461,11 +1465,15 @@ export class GenerateCanvasTracksComponent
   private createCurves(track: LogTrack, trackInfo: TrackInfo): void {
     trackInfo.curves.forEach((curveInfo, curveIndex) => {
       try {
-        if (!curveInfo.show || !curveInfo.data || curveInfo.data.length === 0) {
+        if (!curveInfo.show) {
           console.warn(
-            `⚠️ Skipping curve ${curveInfo.mnemonicId} - no data or hidden`
+            `⚠️ Skipping curve ${curveInfo.mnemonicId} - curve hidden`
           );
           return;
+        }
+
+        if (!curveInfo.data || curveInfo.data.length === 0) {
+          console.log(`ℹ️ Creating empty curve header for ${curveInfo.mnemonicId} (no data)`);
         }
 
         console.log(`📈 Creating curve: ${curveInfo.mnemonicId}`);
@@ -1627,9 +1635,13 @@ export class GenerateCanvasTracksComponent
 
     trackInfo.curves.forEach((curveInfo, curveIndex) => {
       try {
-        if (!curveInfo.show || !curveInfo.data || curveInfo.data.length === 0) {
-          console.warn(`⚠️ MudLog curve ${curveInfo.displayName} has no data or is hidden`);
+        if (!curveInfo.show) {
+          console.warn(`⚠️ MudLog curve ${curveInfo.displayName} is hidden`);
           return;
+        }
+
+        if (!curveInfo.data || curveInfo.data.length === 0) {
+          console.log(`ℹ️ Creating empty MudLog header for ${curveInfo.displayName} (no data)`);
         }
 
         console.log(`🪨 Creating MudLog curve: ${curveInfo.displayName}`);

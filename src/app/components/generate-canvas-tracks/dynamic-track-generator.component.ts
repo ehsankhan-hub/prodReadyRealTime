@@ -1564,11 +1564,15 @@ export class DynamicTrackGeneratorComponent
   private createCurves(track: LogTrack, trackInfo: ITracks): void {
     trackInfo.curves.forEach((curveInfo: any, curveIndex: any) => {
       try {
-        if (!curveInfo.show || !curveInfo.data || curveInfo.data.length === 0) {
+        if (!curveInfo.show) {
           console.warn(
-            `⚠️ Skipping curve ${curveInfo.mnemonicId} - no data or hidden`
+            `⚠️ Skipping curve ${curveInfo.mnemonicId} - curve hidden`
           );
           return;
+        }
+
+        if (!curveInfo.data || curveInfo.data.length === 0) {
+          console.log(`ℹ️ Creating empty curve header for ${curveInfo.mnemonicId} (no data)`);
         }
 
         console.log(`📈 Creating curve: ${curveInfo.mnemonicId}`);
