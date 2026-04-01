@@ -12,7 +12,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
-import { BaseWidgetComponent } from '../../../components/core/basewidget/basewidget.component'; 
+import { BaseWidgetComponent } from '../../../components/core/basewidget/basewidget.component';
 
 import {
   RealTimeDisplayService,
@@ -26,7 +26,6 @@ import {
   PrintPropertiesResult,
 } from '../../../components/core/basewidget/print-properties-dialog/print-properties-dialog.component';
 
-
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
@@ -39,19 +38,23 @@ import {
   CrossTooltipComponent,
   CrossTooltipData,
   TooltipCurveValue,
+  ImageRowData
 } from '../cross-tooltip/cross-tooltip.component';
 import { WellDataService } from '../../../service/well-service/well.service';
-import { IWellboreLogData, IWellboreObject } from '../../../models/wellbore/wellbore-object';
+import {
+  IWellboreLogData,
+  IWellboreObject,
+} from '../../../models/wellbore/wellbore-object';
 import { ILogDataQueryParameter } from '../time-base-track-native-geo/time-base-track-native-geo.component';
 import { ITracks } from '../../../models/chart/tracks';
 import { MatIconModule } from '@angular/material/icon';
 import { CssStyle } from '@int/geotoolkit/css/CssStyle';
-
-import { Log2DVisual, PlotTypes } from "@int/geotoolkit/welllog/Log2DVisual";
-import { CompositeLog2DVisualHeader } from "@int/geotoolkit/welllog/header/CompositeLog2DVisualHeader";
-import { Log2DVisualData } from "@int/geotoolkit/welllog/data/Log2DVisualData";
-import { Log2DDataRow } from "@int/geotoolkit/welllog/data/Log2DDataRow";
-import { DefaultColorProvider } from "@int/geotoolkit/util/DefaultColorProvider";
+import { Log2DVisual } from '@int/geotoolkit/welllog/Log2DVisual';
+import { Log2DVisualData } from '@int/geotoolkit/welllog/data/Log2DVisualData';
+import { Log2DDataRow } from '@int/geotoolkit/welllog/data/Log2DDataRow';
+import { DefaultColorProvider } from '@int/geotoolkit/util/DefaultColorProvider';
+import { CompositeLog2DVisualHeader } from '@int/geotoolkit/welllog/header/CompositeLog2DVisualHeader';
+import { InterpolationType } from '@int/geotoolkit/data/DataStepInterpolation';
 
 /**
  * Interface representing a single curve within a track.
@@ -78,8 +81,8 @@ export interface TrackCurve {
   show: boolean;
   /** Log ID this curve belongs to */
   LogId: string;
-  /** Array of numerical data values for the curve */
-  data: number[];
+  /** Array of numerical data values for the curve OR arrays of numbers for image sectors */
+  data: (number | number[])[];
   /** List of mnemonic information (legacy, not used) */
   mnemonicLst: any[];
 }
@@ -131,9 +134,9 @@ export interface TrackInfo {
     MatButtonModule,
     BaseWidgetComponent,
     CrossTooltipComponent,
-    MatIconModule
+    MatIconModule,
   ],
- templateUrl: './dynamic-track-generator.component.html',
+  templateUrl: './dynamic-track-generator.component.html',
   styleUrl: './dynamic-track-generator.component.scss',
 })
 export class DynamicTrackGeneratorComponent
@@ -167,15 +170,15 @@ export class DynamicTrackGeneratorComponent
 
   private wellboreObjects: IWellboreObject[] = [];
 
-    /** Live polling state for real-time data appending */
+  /** Live polling state for real-time data appending */
   /** Handle for live data polling interval */
   private livePollHandle: any = null;
   /** Live polling interval in milliseconds */
   private readonly LIVE_POLL_INTERVAL = 5000;
   /** Flag to enable/disable live data polling */
   public isLivePolling = false;
-  
-    /** Canvas theme flag  */
+
+  /** Canvas theme flag  */
   public isDarkTheme = false;
   /** Available depth scale options (meters per screen height) */
   scaleOptions = [
@@ -201,7 +204,7 @@ export class DynamicTrackGeneratorComponent
   /** Map of curve mnemonic to GeoToolkit LogCurve reference for crosshair lookup */
   private curveMap: Map<
     string,
-    { logCurve: LogCurve; info: TrackCurve; trackName: string }
+    { logCurve: LogCurve | any; info: TrackCurve; trackName: string }
   > = new Map();
 
   // --- Chunked loading state ---
@@ -217,7 +220,7 @@ export class DynamicTrackGeneratorComponent
   private curveDepthIndices: Map<string, number[]> = new Map();
   /** Tracks in-flight chunk ranges to prevent duplicate requests */
   private inFlightRanges: Set<string> = new Set();
-  isFirstTimeLoading: boolean;
+  isFirstTimeLoading!: boolean;
 
   /**
    * Creates an instance of GenerateCanvasTracksComponent.
@@ -253,7 +256,7 @@ export class DynamicTrackGeneratorComponent
    * Cleans up all subscriptions to prevent memory leaks.
    */
   ngOnDestroy(): void {
-    this.subscriptions.forEach((sub) => sub.unsubscribe());
+    this.subscriptions.forEach((sub: Subscription) => sub.unsubscribe());
     if (this.scrollPollHandle) {
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
@@ -267,7 +270,7 @@ export class DynamicTrackGeneratorComponent
    * @private
    */
 
-   private loadLogHeadersAndCreateTracks(): void {
+  private loadLogHeadersAndCreateTracks(): void {
     if (!this.well || !this.wellbore) {
       console.error('❌ Well and wellbore parameters are required');
       return;
@@ -291,7 +294,7 @@ export class DynamicTrackGeneratorComponent
     })();
   }
 
-/**
+  /**
    * Processes loaded log headers and initiates data loading.
    * Groups curves by LogId to avoid duplicate API calls — one call per unique LogId.
    *
@@ -302,7 +305,7 @@ export class DynamicTrackGeneratorComponent
     console.log('processLogHeaders ', headers);
 
     // Calculate headerMaxDepth from backend endIndex for proper depth limits
-    headers?.forEach((h) => {
+    headers?.forEach((h: IWellboreObject) => {
       // endIndex can be a string number (depth) or a date string (time)
       const endVal = h.endIndex?.['#text'] || h.endIndex;
       const end = parseFloat(String(endVal));
@@ -318,10 +321,10 @@ export class DynamicTrackGeneratorComponent
       { header: IWellboreObject; curves: TrackCurve[] }
     >();
 
-    this.listOfTracks.forEach((trackInfo) => {
-      trackInfo.curves.forEach((curve) => {
+    this.listOfTracks.forEach((trackInfo: any) => {
+      trackInfo.curves.forEach((curve: any) => {
         console.log('curve.LogId ', curve.LogId);
-        const matchingHeader = headers.find((header) => {
+        const matchingHeader = headers.find((header: IWellboreObject) => {
           console.log(
             'header.objectId.includes ',
             header.objectId.includes(curve.LogId)
@@ -342,23 +345,31 @@ export class DynamicTrackGeneratorComponent
     });
     // One pending load per unique LogId (not per curve)
     this.pendingLoads = logIdGroups.size;
-    console.log(`🔄 ${this.pendingLoads} unique LogId(s) to fetch (chunk size: ${this.CHUNK_SIZE})`);
+    console.log(
+      `🔄 ${this.pendingLoads} unique LogId(s) to fetch (chunk size: ${this.CHUNK_SIZE})`
+    );
 
     // Load initial chunk per LogId: most recent data
     logIdGroups.forEach(({ header, curves }, logId) => {
-console.log('header---------',header)
-       const endIndex =parseFloat(
+      console.log('header---------', header);
+      const endIndex = parseFloat(
         header.endIndex?.['#text'] || header.endIndex || '1000'
       );
-      console.log('endIndex---------',endIndex)
+      console.log('endIndex---------', endIndex);
       const startIndex = Math.max(0, endIndex - this.CHUNK_SIZE);
-      console.log(`📦 Loading initial chunk for LogId ${logId}: ${startIndex}-${endIndex} (${curves.length} curves)`);
-      this.loadLogDataForGroup(header, curves, startIndex.toString(), endIndex.toString());
+      console.log(
+        `📦 Loading initial chunk for LogId ${logId}: ${startIndex}-${endIndex} (${curves.length} curves)`
+      );
+      this.loadLogDataForGroup(
+        header,
+        curves,
+        startIndex.toString(),
+        endIndex.toString()
+      );
     });
   }
 
-
-/**
+  /**
    * Loads log data for a group of curves that share the same LogId.
    * Makes one API call and distributes data to all curves in the group.
    *
@@ -469,7 +480,6 @@ console.log('header---------',header)
     });
   }
 
-
   /**
    * Parses raw log data and extracts values for a specific curve.
    * Also stores depth indices for each curve for correct mapping.
@@ -479,7 +489,68 @@ console.log('header---------',header)
    * @param decrementPending - Whether to decrement pendingLoads counter (false when called from group loader)
    * @private
    */
+  // private parseCurveData(
+  //   logData: any,
+  //   curve: TrackCurve,
+  //   decrementPending: boolean = true
+  // ): void {
+  //   const mnemonics = logData.mnemonicList?.split(',');
+  //   const curveIndex = mnemonics?.findIndex(
+  //     (m:any) => m.trim() === curve.mnemonicId
+  //   );
+  //   const depthIndex = mnemonics?.findIndex((m:any) => m.trim() === 'DEPTH');
 
+  //   if (curveIndex === -1) {
+  //     console.warn('⚠️ Mnemonic not found:', curve.mnemonicId);
+  //     return;
+  //   }
+
+  //   const depths: number[] = [];
+  //   const values: number[] = [];
+
+  //   logData.data?.forEach((dataRow:any) => {
+  //     const cols = dataRow.split(',');
+  //     if (cols.length > curveIndex && cols[curveIndex]) {
+  //       const value = parseFloat(cols[curveIndex]);
+  //       const depth = depthIndex >= 0 ? parseFloat(cols[depthIndex]) : NaN;
+  //       if (!isNaN(value) && !isNaN(depth)) {
+  //         depths.push(depth);
+  //         values.push(value);
+  //       }
+  //     }
+  //   });
+
+  //   curve.data = values;
+  //   this.curveDepthIndices.set(curve.mnemonicId, depths);
+
+  //   // Track loaded range
+  //   if (depths.length > 0) {
+  //     this.loadedRanges.set(curve.mnemonicId, {
+  //       min: depths[0],
+  //       max: depths[depths.length - 1],
+  //     });
+  //   }
+
+  //   console.log(
+  //     '✅ Parsed data for curve:',
+  //     curve.mnemonicId,
+  //     values.length,
+  //     'points',
+  //     depths.length > 0
+  //       ? `depth range: ${depths[0]}-${depths[depths.length - 1]}`
+  //       : ''
+  //   );
+
+  //   // Only decrement pending loads when called directly (not from group loader)
+  //   if (decrementPending) {
+  //     this.pendingLoads--;
+  //     console.log(`⏳ Pending loads remaining: ${this.pendingLoads}`);
+  //     if (this.pendingLoads <= 0 && this.sceneReady) {
+  //       console.log('🎯 All data loaded - updating scene');
+  //       this.createSceneWithData();
+  //     }
+  //   }
+  // }
   private parseCurveData(
     logData: any,
     curve: TrackCurve,
@@ -505,11 +576,52 @@ console.log('header---------',header)
     const curveIndex = mnemonics.findIndex(
       (m: any) => m.trim() === curve.mnemonicId
     );
-    const depthIdx = mnemonics.findIndex((m: any) => m.trim() === 'DEPTH');
 
-    if (curveIndex === -1 || depthIdx === -1) {
+    // Determine if index is depth-based or time-based
+    const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
+    const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP'];
+
+    let indexColIdx = -1;
+    let isDepthIndex = false;
+
+    // First try depth mnemonics
+    for (const dm of depthMnemonics) {
+      indexColIdx = mnemonics.findIndex((m: any) => m.trim() === dm);
+      if (indexColIdx !== -1) {
+        isDepthIndex = true;
+        console.log(`📏 Found depth index: ${dm} at position ${indexColIdx}`);
+        break;
+      }
+    }
+
+    // If no depth index found, try time mnemonics
+    if (indexColIdx === -1) {
+      for (const tm of timeMnemonics) {
+        indexColIdx = mnemonics.findIndex((m: any) => m.trim() === tm);
+        if (indexColIdx !== -1) {
+          isDepthIndex = false;
+          console.log(`🕐 Found time index: ${tm} at position ${indexColIdx}`);
+          break;
+        }
+      }
+    }
+
+    // Fallback: use first column
+    if (indexColIdx === -1) {
+      indexColIdx = 0;
+      isDepthIndex = true;
       console.warn(
-        '⚠️ Mnemonic or DEPTH not found:',
+        '⚠️ No index column found, defaulting to first column as depth'
+      );
+    }
+
+    console.log(
+      `🔍 Parsing ${curve.mnemonicId}: curveIndex=${curveIndex}, indexCol=${indexColIdx}, isDepth=${isDepthIndex}, dataRows=${innerLogData.data.length}`
+    );
+
+    if (curveIndex === -1) {
+      console.warn(
+        '⚠️ Mnemonic not found:',
         curve.mnemonicId,
         '| Available:',
         mnemonics
@@ -523,36 +635,69 @@ console.log('header---------',header)
       return;
     }
 
-    const depths: number[] = [];
-    const values: number[] = [];
+    const indexValues: number[] = [];
+    const values: (number | number[])[] = [];
 
     innerLogData.data.forEach((dataRow: any) => {
       const cols = dataRow.split(',');
       if (cols.length > curveIndex && cols[curveIndex]) {
-        const value = parseFloat(cols[curveIndex]);
-        const depth = parseFloat(cols[depthIdx]);
-        if (!isNaN(value) && !isNaN(depth)) {
-          depths.push(depth);
+        const rawValue = cols[curveIndex].trim();
+        let value: number | number[];
+
+        if (rawValue.includes(' ')) {
+          // It's image data: space-separated numbers
+          value = rawValue
+            .split(/\s+/)
+            .map((v: string) => parseFloat(v))
+            .filter((v: number) => !isNaN(v));
+        } else {
+          // It's a standard curve value
+          value = parseFloat(rawValue);
+        }
+
+        const indexStr = indexColIdx >= 0 ? cols[indexColIdx] : null;
+
+        let indexValue = NaN;
+        if (indexStr) {
+          if (isDepthIndex) {
+            // Depth-based: parse as a plain number
+            indexValue = parseFloat(indexStr);
+          } else {
+            // Time-based: convert ISO string to timestamp
+            try {
+              indexValue = new Date(indexStr).getTime();
+            } catch (e) {
+              console.warn('⚠️ Invalid time format:', indexStr);
+            }
+          }
+        }
+
+        const isValidValue = Array.isArray(value) ? value.length > 0 : !isNaN(value);
+
+        if (isValidValue && !isNaN(indexValue)) {
+          indexValues.push(indexValue);
           values.push(value);
         }
       }
     });
 
     curve.data = values;
-    this.curveDepthIndices.set(curve.mnemonicId, depths);
+    this.curveDepthIndices.set(curve.mnemonicId, indexValues);
 
-    // Track loaded range
-    if (depths.length > 0) {
+    // Track loaded range using actual index values (depth or time)
+    if (indexValues.length > 0) {
       this.loadedRanges.set(curve.mnemonicId, {
-        min: depths[0],
-        max: depths[depths.length - 1],
+        min: indexValues[0],
+        max: indexValues[indexValues.length - 1],
       });
     }
 
     console.log(
       `✅ Parsed data for curve: ${curve.mnemonicId} ${values.length} points`,
-      depths.length > 0
-        ? `depth range: ${depths[0]}-${depths[depths.length - 1]}`
+      indexValues.length > 0
+        ? `${isDepthIndex ? 'depth' : 'time'} range: ${indexValues[0]}-${
+            indexValues[indexValues.length - 1]
+          }`
         : ''
     );
 
@@ -566,7 +711,6 @@ console.log('header---------',header)
       }
     }
   }
-
 
   /**
    * Creates the scene with loaded data and sets proper depth limits.
@@ -603,6 +747,13 @@ console.log('header---------',header)
         bottom: 0,
       });
 
+      // Register Header Provider for Log2DVisual
+      const headerProvider = this.wellLogWidget.getHeaderContainer().getHeaderProvider();
+      headerProvider.registerHeaderProvider(
+        Log2DVisual.getClassName(),
+        new CompositeLog2DVisualHeader()
+      );
+
       // Create index track first to ensure it's always visible
       const indexTrack = this.wellLogWidget.addTrack(TrackType.IndexTrack);
       indexTrack.setWidth(120);
@@ -611,8 +762,8 @@ console.log('header---------',header)
       // Assign widget to BaseWidgetComponent
       this.widgetComponent.Widget = this.wellLogWidget;
       console.log('✅ Widget assigned to BaseWidgetComponent');
-       // Apply track styling following GeoToolkit demo pattern
-      this.applyGeoToolkitTheme()
+      // Apply track styling following GeoToolkit demo pattern
+      this.applyGeoToolkitTheme();
       // Create data tracks
       this.createTracks();
 
@@ -716,7 +867,12 @@ console.log('header---------',header)
     // Build chunk requests grouped by LogId+direction, using ONE reference range per LogId
     const chunkRequests = new Map<
       string,
-      { header: IWellboreObject; curves: TrackCurve[]; start: number; end: number }
+      {
+        header: IWellboreObject;
+        curves: TrackCurve[];
+        start: number;
+        end: number;
+      }
     >();
 
     // Group curves by LogId and find the loaded range (all curves of same LogId share the same range)
@@ -728,17 +884,26 @@ console.log('header---------',header)
         range: { min: number; max: number };
       }
     >();
-    this.listOfTracks.forEach((trackInfo) => {
-      trackInfo.curves.forEach((curve) => {
+    this.listOfTracks.forEach((trackInfo: ITracks) => {
+      trackInfo.curves.forEach((curve: TrackCurve) => {
         if (logIdCurves.has(curve.LogId)) {
           logIdCurves.get(curve.LogId)!.curves.push(curve);
           return;
         }
-        const matchingHeader = this.cachedHeaders.find((h) =>
+        const matchingHeader = this.cachedHeaders.find((h: IWellboreObject) =>
           h.objectId.includes(curve.LogId)
         );
         const range = this.loadedRanges.get(curve.mnemonicId);
-        if (!matchingHeader || !range) return;
+        if (!matchingHeader) {
+          console.warn(`⚠️ No matching header for curve LogId: ${curve.LogId}`);
+          return;
+        }
+        if (!range) {
+          console.warn(
+            `⚠️ No loaded range for curve mnemonic: ${curve.mnemonicId}`
+          );
+          return;
+        }
         logIdCurves.set(curve.LogId, {
           header: matchingHeader,
           curves: [curve],
@@ -747,7 +912,7 @@ console.log('header---------',header)
       });
     });
 
-    logIdCurves.forEach(({ header, curves, range }, logId) => {
+    logIdCurves.forEach(({ header, curves, range }: { header: IWellboreObject; curves: TrackCurve[]; range: { min: number; max: number } }, logId: string) => {
       // Check if we need data below loaded range (user scrolled up)
       if (needMin < range.min && range.min > 0) {
         const chunkEnd = range.min;
@@ -782,10 +947,27 @@ console.log('header---------',header)
       }
     });
 
-    if (chunkRequests.size === 0) return;
+    if (chunkRequests.size === 0) {
+      console.log(
+        `❌ No chunks needed. needMin=${needMin.toFixed(
+          0
+        )}, needMax=${needMax.toFixed(
+          0
+        )}, headerMax=${this.headerMaxDepth.toFixed(0)}`
+      );
+      logIdCurves.forEach((data, logId) => {
+        console.log(
+          `   - LogId: ${logId}, loaded range: ${data.range.min.toFixed(
+            0
+          )}-${data.range.max.toFixed(0)}`
+        );
+      });
+      return;
+    }
 
     console.log(
-      `📦 Scroll chunk: ${chunkRequests.size
+      `📦 Scroll chunk: ${
+        chunkRequests.size
       } request(s) for visible ${vMin.toFixed(0)}-${vMax.toFixed(0)}`
     );
     this.isLoadingChunk = true;
@@ -798,7 +980,6 @@ console.log('header---------',header)
         this.isLoadingChunk = false;
       }
     };
-
 
     // chunkRequests.forEach(({ header, curves, start, end }, key) => {
     //   // Mark range as in-flight immediately to prevent duplicates
@@ -819,9 +1000,9 @@ console.log('header---------',header)
     //       error: () => onDone(key),
     //     });
     // });
-  //}
+    //}
 
-   chunkRequests.forEach(({ header, curves, start, end }, key) => {
+    chunkRequests.forEach(({ header, curves, start, end }, key) => {
       // Mark range as in-flight immediately to prevent duplicates
       this.inFlightRanges.add(key);
       console.log(`  📥 Chunk: ${start}-${end} for ${header.objectId}`);
@@ -873,21 +1054,32 @@ console.log('header---------',header)
   private appendChunkData(logData: LogData, curve: TrackCurve): void {
     const mnemonics = logData.mnemonicList.split(',');
     const curveIndex = mnemonics.findIndex(
-      (m) => m.trim() === curve.mnemonicId
+      (m: string) => m.trim() === curve.mnemonicId
     );
-    const depthIdx = mnemonics.findIndex((m) => m.trim() === 'DEPTH');
+    const depthIdx = mnemonics.findIndex((m: string) => m.trim() === 'DEPTH');
     if (curveIndex === -1 || depthIdx === -1) return;
 
     const newDepths: number[] = [];
-    const newValues: number[] = [];
+    const newValues: (number | number[])[] = [];
 
-    logData.data.forEach((row) => {
+    logData.data.forEach((row: any) => {
       const cols = row.split(',');
       const depth = parseFloat(cols[depthIdx]);
-      const value = parseFloat(cols[curveIndex]);
-      if (!isNaN(depth) && !isNaN(value)) {
-        newDepths.push(depth);
-        newValues.push(value);
+      const rawValue = cols[curveIndex]?.trim();
+      
+      if (!isNaN(depth) && rawValue) {
+        let value: number | number[];
+        if (rawValue.includes(' ')) {
+          value = rawValue.split(/\s+/).map((v: string) => parseFloat(v)).filter((v: number) => !isNaN(v));
+        } else {
+          value = parseFloat(rawValue);
+        }
+
+        const isValidValue = Array.isArray(value) ? value.length > 0 : !isNaN(value);
+        if (isValidValue) {
+          newDepths.push(depth);
+          newValues.push(value);
+        }
       }
     });
 
@@ -898,7 +1090,7 @@ console.log('header---------',header)
     const existingValues = curve.data || [];
 
     // Create a map for deduplication
-    const depthValueMap = new Map<number, number>();
+    const depthValueMap = new Map<number, number | number[]>();
     for (let i = 0; i < existingDepths.length; i++) {
       depthValueMap.set(existingDepths[i], existingValues[i]);
     }
@@ -908,10 +1100,10 @@ console.log('header---------',header)
 
     // Sort by depth
     const sortedEntries = Array.from(depthValueMap.entries()).sort(
-      (a, b) => a[0] - b[0]
+      (a: [number, number | number[]], b: [number, number | number[]]) => a[0] - b[0]
     );
-    const mergedDepths = sortedEntries.map((e) => e[0]);
-    const mergedValues = sortedEntries.map((e) => e[1]);
+    const mergedDepths = sortedEntries.map((e: [number, number | number[]]) => e[0]);
+    const mergedValues = sortedEntries.map((e: [number, number | number[]]) => e[1]);
 
     curve.data = mergedValues;
     this.curveDepthIndices.set(curve.mnemonicId, mergedDepths);
@@ -926,9 +1118,23 @@ console.log('header---------',header)
     const entry = this.curveMap.get(curve.mnemonicId);
     if (entry) {
       try {
-        const geoLogData = new GeoLogData(curve.displayName);
-        geoLogData.setValues(mergedDepths, mergedValues);
-        entry.logCurve.setData(geoLogData);
+        if (entry.logCurve instanceof LogCurve) {
+          const geoLogData = new GeoLogData(curve.displayName);
+          geoLogData.setValues(mergedDepths, mergedValues as number[]);
+          entry.logCurve.setData(geoLogData);
+        } else if (entry.logCurve instanceof Log2DVisual) {
+          const log2DData = new Log2DVisualData();
+          mergedDepths.forEach((depth: number, idx: number) => {
+            const rowValues = mergedValues[idx];
+            if (Array.isArray(rowValues)) {
+               const angles = rowValues.map((_: number, i: number) => (i * 360) / rowValues.length);
+               log2DData.getRows().push(new Log2DDataRow(depth, rowValues, angles));
+            }
+          });
+          log2DData.updateLimits();
+          // Use explicit type casting to avoid availability errors if typed as LogCurve
+          (entry.logCurve as any).setData(log2DData);
+        }
       } catch (e) {
         console.warn(
           '⚠️ Could not update curve data source for',
@@ -1260,9 +1466,7 @@ console.log('header---------',header)
         );
 
         let track: LogTrack;
-        if(trackInfo.trackType == "Image"){
-          this.createSceneImage(trackInfo);
-        }
+
         if (trackInfo.isIndex) {
           // Skip index track creation - it's already created in createScene
           console.log(
@@ -1273,7 +1477,7 @@ console.log('header---------',header)
           // Create regular track
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
-         track.setWidth(trackInfo.trackWidth || 100);
+          track.setWidth(trackInfo.trackWidth || 257);
         }
 
         // Create curves for this track
@@ -1295,7 +1499,7 @@ console.log('header---------',header)
    * @private
    */
   private createCurves(track: LogTrack, trackInfo: ITracks): void {
-    trackInfo.curves.forEach((curveInfo, curveIndex) => {
+    trackInfo.curves.forEach((curveInfo: any, curveIndex: any) => {
       try {
         if (!curveInfo.show || !curveInfo.data || curveInfo.data.length === 0) {
           console.warn(
@@ -1311,35 +1515,77 @@ console.log('header---------',header)
           this.curveDepthIndices.get(curveInfo.mnemonicId) ||
           this.generateIndexData(curveInfo.data.length);
 
-        // Create GeoLogData
-        const geoLogData = new GeoLogData(curveInfo.displayName);
-        geoLogData.setValues(indexData, curveInfo.data);
+        const isImageData = curveInfo.data.length > 0 && Array.isArray(curveInfo.data[0]);
 
-        // Create LogCurve
-        const curve = new LogCurve(geoLogData);
-        curve.setLineStyle({
-          color: curveInfo.color,
-          width: curveInfo.lineWidth,
-        });
-        curve.setName(curveInfo.displayName);
+        if (isImageData) {
+          // Create Log2DVisual for image data
+          console.log(`🖼️ Creating Log2DVisual for ${curveInfo.mnemonicId}`);
+          const log2dData = new Log2DVisualData();
+          indexData.forEach((depth: number, idx: number) => {
+            const rowValues = curveInfo.data[idx];
+            if (Array.isArray(rowValues)) {
+               const angles = rowValues.map((_: number, i: number) => (i * 360) / rowValues.length);
+               log2dData.getRows().push(new Log2DDataRow(depth, rowValues, angles));
+            }
+          });
+          log2dData.updateLimits();
 
-        // Set normalization limits if not auto scale
-        if (
-          !curveInfo.autoScale &&
-          curveInfo.min !== undefined &&
-          curveInfo.max !== undefined
-        ) {
-          curve.setNormalizationLimits(curveInfo.min, curveInfo.max);
+          const minVal = log2dData.getMinValue();
+          const maxVal = log2dData.getMaxValue();
+          const delta = (maxVal - minVal) / 4;
+
+          const colorProvider = new DefaultColorProvider()
+            .addColor(minVal, 'blue')
+            .addColor(minVal + delta, 'cyan')
+            .addColor(minVal + 2 * delta, 'green')
+            .addColor(minVal + 3 * delta, 'yellow')
+            .addColor(maxVal, 'red');
+
+          const visual = new Log2DVisual();
+          visual.setName(curveInfo.displayName);
+          (visual as any).setData(log2dData);
+          visual.setColorProvider(colorProvider);
+          visual.setMicroPosition(0, 1);
+
+          track.addChild(visual);
+
+          // Register in map
+          this.curveMap.set(curveInfo.mnemonicId, {
+            logCurve: visual as any,
+            info: curveInfo,
+            trackName: trackInfo.trackName,
+          });
+        } else {
+          // Create standard LogCurve
+          const geoLogData = new GeoLogData(curveInfo.displayName);
+          geoLogData.setValues(indexData, curveInfo.data as number[]);
+
+          // Create LogCurve
+          const curve = new LogCurve(geoLogData);
+          curve.setLineStyle({
+            color: curveInfo.color,
+            width: curveInfo.lineWidth,
+          });
+          curve.setName(curveInfo.displayName);
+
+          // Set normalization limits if not auto scale
+          if (
+            !curveInfo.autoScale &&
+            curveInfo.min !== undefined &&
+            curveInfo.max !== undefined
+          ) {
+            curve.setNormalizationLimits(curveInfo.min, curveInfo.max);
+          }
+
+          track.addChild(curve);
+
+          // Register curve in the map for crosshair tooltip lookup
+          this.curveMap.set(curveInfo.mnemonicId, {
+            logCurve: curve,
+            info: curveInfo,
+            trackName: trackInfo.trackName,
+          });
         }
-
-        track.addChild(curve);
-
-        // Register curve in the map for crosshair tooltip lookup
-        this.curveMap.set(curveInfo.mnemonicId, {
-          logCurve: curve,
-          info: curveInfo,
-          trackName: trackInfo.trackName,
-        });
 
         console.log(`✅ Curve ${curveInfo.mnemonicId} created successfully`);
       } catch (error) {
@@ -1368,8 +1614,8 @@ console.log('header---------',header)
     });
     // Fallback to data length if no depth indices
     if (maxDepth === 0) {
-      this.listOfTracks.forEach((trackInfo) => {
-        trackInfo.curves.forEach((curve) => {
+      this.listOfTracks.forEach((trackInfo: any) => {
+        trackInfo.curves.forEach((curve: any) => {
           if (curve.data && curve.data.length > maxDepth) {
             maxDepth = curve.data.length;
           }
@@ -1428,114 +1674,6 @@ console.log('header---------',header)
       uid: response.uid || response.logUid,
     };
   }
-
-  // Image Track creation 
-
-   createSceneImage(trackInfo: ITracks) {
-    if (trackInfo.curves.length > 0) {
-      let trackX: any = [];
-      trackInfo.curves.forEach((curve) => {
-        if (curve.show && curve.data.length > 0) {
-          trackX.push(
-            this.createImageCurve(curve).setPlotType(PlotTypes.Linear),
-          );
-        }
-
-        const headerProvider = this.wellLogWidget
-          .getHeaderContainer()
-          .getHeaderProvider();
-        headerProvider.registerHeaderProvider(
-          Log2DVisual.getClassName(),
-          new CompositeLog2DVisualHeader(),
-        );
-
-        this.wellLogWidget
-          .addTrack(TrackType.LinearTrack)
-          .setName(trackInfo.trackName)
-          .addChild(trackX);
-      });
-    }
-  }
-
-  
-  createImageCurve(curveInfo: IWellboreLogData) {
-    const values = curveInfo.data;
-    const depths = values.map(
-      (_val, i) =>
-       0 +
-        (i * (100 - 0)) / (values.length - 1),
-    );
-    const log2dData = new Log2DVisualData();
-
-    let min = Number.MAX_VALUE;
-    let max = Number.MIN_VALUE;
-
-    for (let index = 0; index < values.length; index++) {
-      let value: any = [];
-      if (Number.isNaN(values[index])) {
-        // Let's just build dummy data.
-        value = [
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-        ];
-      } else if (typeof values[index] === "string") {
-        // Split the array if value is !NaN.
-        value = values[index].split(" ").map(Number);
-        let localMax = Math.max(...value);
-        max = max < localMax ? localMax : max;
-        let localMin = Math.min(...value);
-        min = min > localMin ? localMin : min;
-      }
-
-      let piDistance = (2 * Math.PI) / (value.length - 1);
-
-      let angles = [];
-      let angle = 0;
-
-      for (let j = 0; j < value.length; j++) {
-        angles.push(angle);
-        angle += piDistance;
-      }
-
-      log2dData.getRows().push(new Log2DDataRow(depths[index], value, angles));
-    }
-    log2dData.updateLimits();
-
-    // Set options
-    let colors, delta;
-    delta = (max - min) / 3;
-    colors = new DefaultColorProvider()
-      .setNamedColor("NegativeInfinity", "blue")
-      .setNamedColor("PositiveInfinity", "green")
-      .addColor(min, "#7cb342") // 0 is the minimum value on this color provider
-      .addColor(min + delta, "yellow")
-      .addColor(min + 2 * delta, "orange")
-      .addColor(max, "red");
-
-    // Create Visual
-    return new Log2DVisual()
-      .setName(curveInfo.displayName + "(" + curveInfo.unit + ")")
-      .setData(log2dData)
-      .setColorProvider(colors)
-      .setOffsets(0)
-      .setMicroPosition(0, 1); // DEFAULT: Visual model limits are from 0,1
-  }
-
-
   /**
    * Applies comprehensive theme styling to GeoToolkit elements.
    * Uses a single, clean CSS approach for both light and dark themes.
@@ -1549,8 +1687,6 @@ console.log('header---------',header)
     }
 
     try {
-    
-
       // Define theme colors
       const theme = this.isDarkTheme
         ? {
@@ -1664,5 +1800,4 @@ console.log('header---------',header)
       console.error('❌ Error applying GeoToolkit theme:', error);
     }
   }
-
 }

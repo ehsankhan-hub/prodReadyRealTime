@@ -10,13 +10,25 @@ export interface TooltipCurveValue {
   /** Curve display name */
   displayName: string;
   /** Current value at crosshair depth */
-  value: number | string | null;
+  value: number | string | number[] | null;
   /** Unit of measurement */
   unit: string;
   /** Curve color for visual matching */
   color: string;
   /** Track name this curve belongs to */
   trackName: string;
+}
+
+/**
+ * Represents a row of image data with its sectors.
+ */
+export interface ImageRowData {
+  /** Current depth */
+  depth: number;
+  /** Sector values */
+  values: number[];
+  /** Sector angles */
+  angles: number[];
 }
 
 /**
@@ -61,7 +73,8 @@ export interface CrossTooltipData {
           <!-- Handle both numeric and string values -->
           <span class="curve-value" *ngIf="cv.value === null">---</span>
           <span class="curve-value" *ngIf="isNumber(cv.value)">{{ asNumber(cv.value) | number:'1.2-2' }}</span>
-          <span class="curve-value" *ngIf="cv.value !== null && !isNumber(cv.value)">{{ cv.value }}</span>
+          <span class="curve-value" *ngIf="isImage(cv.value)">[Image Data]</span>
+          <span class="curve-value" *ngIf="cv.value !== null && !isNumber(cv.value) && !isImage(cv.value)">{{ cv.value }}</span>
           
           <span class="curve-unit">{{ cv.unit }}</span>
         </div>
@@ -152,6 +165,10 @@ export class CrossTooltipComponent implements OnChanges {
 
   asNumber(val: any): number {
     return val as number;
+  }
+
+  isImage(val: any): boolean {
+    return Array.isArray(val);
   }
 
   constructor(private el: ElementRef) {}
