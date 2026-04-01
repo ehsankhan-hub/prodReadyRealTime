@@ -1806,10 +1806,16 @@ export class DynamicTrackGeneratorComponent
           
           /* Log2D image headers */
           '.geotoolkit.welllog.header.CompositeLog2DVisualHeader {',
-          `  textstyle-color: ${theme.headerText};`,
+          '  textstyle-color: #ffffff;',
           `  fillstyle: ${theme.headerBg};`,
           `  linestyle-color: ${theme.headerBorder};`,
           '  linestyle-width: 1;',
+          '}',
+          '.geotoolkit.welllog.header.CompositeLog2DVisualHeader .geotoolkit.welllog.axis.Axis {',
+          '  textstyle-color: #ffffff;',
+          '}',
+          '.geotoolkit.welllog.header.CompositeLog2DVisualHeader .geotoolkit.util.StepColorBar {',
+          '  textstyle-color: #ffffff;',
           '}',
 
           /* Selection box */
