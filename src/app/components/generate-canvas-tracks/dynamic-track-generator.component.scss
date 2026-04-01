@@ -4,7 +4,7 @@
   height: 100%;
 }
 
-.well-log-container {
+.dynamic-track-generator-container {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -97,24 +97,19 @@
    // background: #000000;  // Pure black
    ========================================== */
 
-.canvas-wrapper {
+/* Direct styling for the widget to fill the container */
+app-basewidget {
   flex: 1;
   min-height: 0;
   position: relative;
   overflow: hidden;
-  height: 400px;
-  background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
+  background: #1a1a1a;
 }
 
-.canvas-wrapper app-basewidget {
-  width: 100%;
-  height: 100%;
+::ng-deep .basewidget-container {
+  background: #1a1a1a;
 }
 
-.canvas-wrapper ::ng-deep .basewidget-container {
-  background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
-}
-
-.canvas-wrapper ::ng-deep .plot-canvas {
-  background: #1a1a1a; /* CHANGE THIS COLOR to match your image */
+::ng-deep .plot-canvas {
+  background: #1a1a1a;
 }

@@ -299,13 +299,17 @@ export class DynamicTrackGeneratorComponent
    * @private
    */
   private setupResizeHandler(): void {
-    const container = document.querySelector('.canvas-wrapper');
-    if (!container) return;
+    // Look for the specific container for this component
+    const container = document.querySelector('.dynamic-track-generator-container');
+    if (!container) {
+      console.warn('⚠️ Could not find .dynamic-track-generator-container for ResizeObserver');
+      return;
+    }
 
     this.resizeObserver = new ResizeObserver(() => {
       this.ngZone.run(() => {
         if (this.wellLogWidget) {
-          console.log('📏 Container resized - updating track layout');
+          console.log('📏 Dynamic container resized - updating track layout');
           this.wellLogWidget.updateLayout();
         }
       });
