@@ -268,6 +268,8 @@ export class GenerateCanvasTracksComponent
   private curveDepthIndices: Map<string, number[]> = new Map();
   /** Tracks in-flight chunk ranges to prevent duplicate requests */
   private inFlightRanges: Set<string> = new Set();
+  /** Observer to handle container resizing for responsive tracks */
+  private resizeObserver: ResizeObserver | null = null;
 
   /**
    * Creates an instance of GenerateCanvasTracksComponent.
@@ -298,6 +300,7 @@ export class GenerateCanvasTracksComponent
   ngAfterViewInit(): void {
     this.sceneReady = true;
     console.log('🔧 Scene ready - waiting for data to load');
+    this.setupResizeHandler();
   }
 
   /**
@@ -310,6 +313,32 @@ export class GenerateCanvasTracksComponent
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
     }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+  }
+
+  /**
+   * Sets up a ResizeObserver to handle horizontal responsiveness.
+   * Tells the WellLogWidget to update its layout when the container size changes.
+   *
+   * @private
+   */
+  private setupResizeHandler(): void {
+    const container = document.querySelector('.canvas-wrapper');
+    if (!container) return;
+
+    this.resizeObserver = new ResizeObserver(() => {
+      this.ngZone.run(() => {
+        if (this.wellLogWidget) {
+          console.log('📏 Container resized - updating track layout');
+          this.wellLogWidget.updateLayout();
+        }
+      });
+    });
+
+    this.resizeObserver.observe(container);
   }
 
   /**
@@ -328,7 +357,7 @@ export class GenerateCanvasTracksComponent
         }
         const factory = PatternFactory.getInstance();
         let count = 0;
-        
+
         Object.keys(patternsObj).forEach((name) => {
           const base64Data = patternsObj[name];
           if (!base64Data || !base64Data.startsWith('data:image')) {
@@ -440,7 +469,7 @@ export class GenerateCanvasTracksComponent
         this.createSceneWithData();
       }, 1000); // Wait 1 second for MudLog data to load
     }
-    
+
     // Log Log2D tracks
     if (log2DTrackCount > 0) {
       console.log(`🖼️ ${log2DTrackCount} Log2D track(s) will load data separately via createLog2DCurves`);
@@ -986,61 +1015,61 @@ export class GenerateCanvasTracksComponent
           geoLogData.setValues(mergedDepths, mergedValues);
           entry.logCurve.setData(geoLogData);
         } else if (entry.logCurve instanceof StackedLogFill) {
-            // Rebuild the individual log data arrays for StackedLogFill
-            const patternsList = [
-              {pattern: 'chert', color: 'crimson'},
-              {pattern: 'lime', color: 'lightgreen'},
-              {pattern: 'lime', color: '#0099FF'},
-              {pattern: 'salt', color: '#afeeee'},
-              {pattern: 'sand', color: '#cf33e1'},
-              {pattern: 'shale', color: 'yellow'},
-              {pattern: 'volc', color: 'gray'},
-              {pattern: 'dolomite', color: '#DDA0DD'},
-              {pattern: 'siltstone', color: '#DEB887'},
-              {pattern: 'pattern', color: '#E0E0E0'}
-            ];
-            const lithMap = this.getLithologyPatternMap();
-            const valuesArrays = patternsList.map(() => [] as number[]);
-            
-            mergedValues.forEach((lith: string) => {
-                const mappedPattern = lithMap[lith] || 'pattern';
-                for (let i = 0; i < patternsList.length; i++) {
-                     if (patternsList[i].pattern === mappedPattern) {
-                         valuesArrays[i].push(1);
-                     } else {
-                         valuesArrays[i].push(0);
-                     }
-                }
-            });
-            
-            const geoLogDatas: GeoLogData[] = [];
-            patternsList.forEach((p, i) => {
-               const gld = new GeoLogData(p.pattern);
-               gld.setValues(mergedDepths, valuesArrays[i]);
-               geoLogDatas.push(gld);
-            });
-            
-            const newStackedFill = new StackedLogFill(geoLogDatas)
-                .setName(curve.displayName)
-                .setInterpolationType(InterpolationType.EndStep);
-                
-            geoLogDatas.forEach((src, i) => {
-                newStackedFill.setCurveOptions(i, {
-                    'fillstyle': {
-                        'pattern': PatternFactory.getInstance().getPattern(patternsList[i].pattern) || undefined,
-                        'color': patternsList[i].color
-                    },
-                    'linestyle': patternsList[i].color,
-                    'displaymode': ['line']
-                });
-            });
-            
-            const track = entry.logCurve.getParent();
-            if (track) {
-                (track as any).removeChild(entry.logCurve);
-                (track as any).addChild(newStackedFill);
-                entry.logCurve = newStackedFill as any;
+          // Rebuild the individual log data arrays for StackedLogFill
+          const patternsList = [
+            { pattern: 'chert', color: 'crimson' },
+            { pattern: 'lime', color: 'lightgreen' },
+            { pattern: 'lime', color: '#0099FF' },
+            { pattern: 'salt', color: '#afeeee' },
+            { pattern: 'sand', color: '#cf33e1' },
+            { pattern: 'shale', color: 'yellow' },
+            { pattern: 'volc', color: 'gray' },
+            { pattern: 'dolomite', color: '#DDA0DD' },
+            { pattern: 'siltstone', color: '#DEB887' },
+            { pattern: 'pattern', color: '#E0E0E0' }
+          ];
+          const lithMap = this.getLithologyPatternMap();
+          const valuesArrays = patternsList.map(() => [] as number[]);
+
+          mergedValues.forEach((lith: string) => {
+            const mappedPattern = lithMap[lith] || 'pattern';
+            for (let i = 0; i < patternsList.length; i++) {
+              if (patternsList[i].pattern === mappedPattern) {
+                valuesArrays[i].push(1);
+              } else {
+                valuesArrays[i].push(0);
+              }
             }
+          });
+
+          const geoLogDatas: GeoLogData[] = [];
+          patternsList.forEach((p, i) => {
+            const gld = new GeoLogData(p.pattern);
+            gld.setValues(mergedDepths, valuesArrays[i]);
+            geoLogDatas.push(gld);
+          });
+
+          const newStackedFill = new StackedLogFill(geoLogDatas)
+            .setName(curve.displayName)
+            .setInterpolationType(InterpolationType.EndStep);
+
+          geoLogDatas.forEach((src, i) => {
+            newStackedFill.setCurveOptions(i, {
+              'fillstyle': {
+                'pattern': PatternFactory.getInstance().getPattern(patternsList[i].pattern) || undefined,
+                'color': patternsList[i].color
+              },
+              'linestyle': patternsList[i].color,
+              'displaymode': ['line']
+            });
+          });
+
+          const track = entry.logCurve.getParent();
+          if (track) {
+            (track as any).removeChild(entry.logCurve);
+            (track as any).addChild(newStackedFill);
+            entry.logCurve = newStackedFill as any;
+          }
         }
       } catch (e) {
         console.warn(
@@ -1127,18 +1156,18 @@ export class GenerateCanvasTracksComponent
                   } else if (logCurve instanceof StackedLogFill) {
                     // Raw string array from info.data
                     if (Array.isArray(info.data)) {
-                        const depthsObj = this.curveDepthIndices.get(info.mnemonicId) || [];
-                        const idx = depthsObj.findIndex((d: number) => Math.abs(d - depth) < 0.5);
-                        if (idx !== -1 && info.data[idx]) {
-                            value = (info.data[idx] as any).value || info.data[idx] as string;
-                        } else {
-                            // Alternatively, look at original parsed data or curveMap entry data
-                            // Actually, curve.data was updated in appendChunkData!
-                            const curveData: any = info.data;
-                            if (curveData[idx]) {
-                                value = curveData[idx];
-                            }
+                      const depthsObj = this.curveDepthIndices.get(info.mnemonicId) || [];
+                      const idx = depthsObj.findIndex((d: number) => Math.abs(d - depth) < 0.5);
+                      if (idx !== -1 && info.data[idx]) {
+                        value = (info.data[idx] as any).value || info.data[idx] as string;
+                      } else {
+                        // Alternatively, look at original parsed data or curveMap entry data
+                        // Actually, curve.data was updated in appendChunkData!
+                        const curveData: any = info.data;
+                        if (curveData[idx]) {
+                          value = curveData[idx];
                         }
+                      }
                     }
                   }
                 } catch (_) {
@@ -1398,10 +1427,11 @@ export class GenerateCanvasTracksComponent
           // Create Log2D track using dedicated method
           track = this.createLog2DTrack(trackInfo);
         } else {
-          // Create regular track
+          // Create regular track - use setFactor for responsiveness
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
-          track.setWidth(trackInfo.trackWidth || 100);
+          // Converting pixel width to factor (weight) for proportional scaling
+          (track as any).setLayoutStyle({ factor: trackInfo.trackWidth || 205 });
         }
 
         // Create curves for this track
@@ -1573,7 +1603,8 @@ export class GenerateCanvasTracksComponent
     // Create MudLog track using TrackType.LinearTrack
     const mudLogTrack = this.wellLogWidget.addTrack(TrackType.LinearTrack);
     mudLogTrack.setName(trackInfo.trackName);
-    mudLogTrack.setWidth(trackInfo.trackWidth || 150);
+    // Use proportional factor (via layout style) for responsiveness
+    (mudLogTrack as any).setLayoutStyle({ factor: trackInfo.trackWidth || 150 });
 
     // Configure MudLog-specific properties
     mudLogTrack.setProperty('show-grid', false);
@@ -1612,57 +1643,57 @@ export class GenerateCanvasTracksComponent
         }
 
         const patternsList = [
-          {pattern: 'chert', color: 'crimson'},
-          {pattern: 'lime', color: 'lightgreen'},
-          {pattern: 'lime', color: '#0099FF'},
-          {pattern: 'salt', color: '#afeeee'},
-          {pattern: 'sand', color: '#cf33e1'},
-          {pattern: 'shale', color: 'yellow'},
-          {pattern: 'volc', color: 'gray'},
-          {pattern: 'dolomite', color: '#DDA0DD'},
-          {pattern: 'siltstone', color: '#DEB887'},
-          {pattern: 'pattern', color: '#E0E0E0'}
+          { pattern: 'chert', color: 'crimson' },
+          { pattern: 'lime', color: 'lightgreen' },
+          { pattern: 'lime', color: '#0099FF' },
+          { pattern: 'salt', color: '#afeeee' },
+          { pattern: 'sand', color: '#cf33e1' },
+          { pattern: 'shale', color: 'yellow' },
+          { pattern: 'volc', color: 'gray' },
+          { pattern: 'dolomite', color: '#DDA0DD' },
+          { pattern: 'siltstone', color: '#DEB887' },
+          { pattern: 'pattern', color: '#E0E0E0' }
         ];
-        
+
         // Map lithology values to pattern names via our previous helper
         const lithMap = this.getLithologyPatternMap();
-        
+
         // Create GeoLogData for each pattern
         const geoLogDatas: GeoLogData[] = [];
         patternsList.forEach(p => {
-           geoLogDatas.push(new GeoLogData(p.pattern));
+          geoLogDatas.push(new GeoLogData(p.pattern));
         });
 
         // Populate binary values arrays (1 or 0)
         const valuesArrays = geoLogDatas.map(() => [] as number[]);
         mudLogData.lithology.forEach(lith => {
-            const mappedPattern = lithMap[lith] || 'pattern';
-            for (let i = 0; i < patternsList.length; i++) {
-                 if (patternsList[i].pattern === mappedPattern) {
-                     valuesArrays[i].push(1);
-                 } else {
-                     valuesArrays[i].push(0);
-                 }
+          const mappedPattern = lithMap[lith] || 'pattern';
+          for (let i = 0; i < patternsList.length; i++) {
+            if (patternsList[i].pattern === mappedPattern) {
+              valuesArrays[i].push(1);
+            } else {
+              valuesArrays[i].push(0);
             }
+          }
         });
 
         geoLogDatas.forEach((gld, i) => {
-            gld.setValues(mudLogData.depths, valuesArrays[i]);
+          gld.setValues(mudLogData.depths, valuesArrays[i]);
         });
 
         const stackedFill = new StackedLogFill(geoLogDatas)
-            .setName(curveInfo.displayName)
-            .setInterpolationType(InterpolationType.EndStep);
+          .setName(curveInfo.displayName)
+          .setInterpolationType(InterpolationType.EndStep);
 
         geoLogDatas.forEach((src, i) => {
-            stackedFill.setCurveOptions(i, {
-                'fillstyle': {
-                    'pattern': PatternFactory.getInstance().getPattern(patternsList[i].pattern) || undefined,
-                    'color': patternsList[i].color
-                },
-                'linestyle': patternsList[i].color,
-                'displaymode': ['line']
-            });
+          stackedFill.setCurveOptions(i, {
+            'fillstyle': {
+              'pattern': PatternFactory.getInstance().getPattern(patternsList[i].pattern) || undefined,
+              'color': patternsList[i].color
+            },
+            'linestyle': patternsList[i].color,
+            'displaymode': ['line']
+          });
         });
 
         // Add the StackedLogFill to the track
@@ -1782,7 +1813,8 @@ export class GenerateCanvasTracksComponent
     // Create Log2D track using TrackType.LinearTrack
     const log2DTrack = this.wellLogWidget.addTrack(TrackType.LinearTrack);
     log2DTrack.setName(trackInfo.trackName);
-    log2DTrack.setWidth(trackInfo.trackWidth || 150);
+    // Use proportional factor (via layout style) for responsiveness
+    (log2DTrack as any).setLayoutStyle({ factor: trackInfo.trackWidth || 150 });
 
     // Configure Log2D-specific properties
     log2DTrack.setProperty('show-grid', false);
@@ -1864,16 +1896,16 @@ export class GenerateCanvasTracksComponent
         // Get depth range from image data (may be timestamps or depths)
         const rawMinDepth = response.imageData[0]?.depth || 0;
         const rawMaxDepth = response.imageData[response.imageData.length - 1]?.depth || rawMinDepth + 1;
-        
+
         // Target depth range to match the well log (use headerMaxDepth or reasonable default)
         const targetMinDepth = 0;
         const targetMaxDepth = this.headerMaxDepth > 0 ? this.headerMaxDepth : 100000;
-        
+
         // Calculate scaling factors to normalize depths to well's range
         const rawRange = rawMaxDepth - rawMinDepth;
         const targetRange = targetMaxDepth - targetMinDepth;
         const scaleFactor = rawRange > 0 ? targetRange / rawRange : 1;
-        
+
         console.log(`📐 Scaling image depths: raw(${rawMinDepth}-${rawMaxDepth}) → target(${targetMinDepth}-${targetMaxDepth}), factor: ${scaleFactor}`);
 
         // Parse image data and create Log2DDataRow objects with scaled depths

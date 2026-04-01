@@ -55,6 +55,9 @@ import { Log2DDataRow } from '@int/geotoolkit/welllog/data/Log2DDataRow';
 import { DefaultColorProvider } from '@int/geotoolkit/util/DefaultColorProvider';
 import { CompositeLog2DVisualHeader } from '@int/geotoolkit/welllog/header/CompositeLog2DVisualHeader';
 import { InterpolationType } from '@int/geotoolkit/data/DataStepInterpolation';
+import { AddDynamicTracksDialogComponent } from '../add-dynamic-tracks-dialog/add-dynamic-tracks-dialog.component';
+import { ILinePattern } from '../../../models/chart/linePattern';
+import { Patterns } from '@int/geotoolkit/attributes/LineStyle';
 
 /**
  * Interface representing a single curve within a track.
@@ -177,6 +180,25 @@ export class DynamicTrackGeneratorComponent
   /** Flag to enable/disable live data polling */
   public isLivePolling = false;
 
+
+  selectedLog: any;
+  lstTrackTypes: string[] = [
+    'Linear',
+    'Logarithimic',
+    'Index',
+    'Mudlog',
+    'Image',
+    'Comments',
+  ];
+  lstLineStyle: ILinePattern[] = [
+    { name: Patterns.Solid, style: '___________' },
+    { name: Patterns.Dash, style: '---------------' },
+    { name: Patterns.Dot, style: '.....................' },
+  ];
+  anchorTypes: string[] = ['None', 'Left', 'Right', 'Center'];
+  lstHourss: number[] = [24, 12, 6, 4, 2, 1];
+
+
   /** Canvas theme flag  */
   public isDarkTheme = false;
   /** Available depth scale options (meters per screen height) */
@@ -220,6 +242,8 @@ export class DynamicTrackGeneratorComponent
   /** Tracks in-flight chunk ranges to prevent duplicate requests */
   private inFlightRanges: Set<string> = new Set();
   isFirstTimeLoading!: boolean;
+  /** Observer to handle container resizing for responsive tracks */
+  private resizeObserver: ResizeObserver | null = null;
 
   /**
    * Creates an instance of GenerateCanvasTracksComponent.
@@ -239,6 +263,7 @@ export class DynamicTrackGeneratorComponent
     console.log('🎨 Generate Canvas Tracks Component initialized');
     console.log('📊 Input tracks:', this.listOfTracks);
     this.loadLogHeadersAndCreateTracks();
+    this.isFirstTimeLoading = true;
   }
 
   /**
@@ -248,6 +273,7 @@ export class DynamicTrackGeneratorComponent
   ngAfterViewInit(): void {
     this.sceneReady = true;
     console.log('🔧 Scene ready - waiting for data to load');
+    this.setupResizeHandler();
   }
 
   /**
@@ -260,6 +286,32 @@ export class DynamicTrackGeneratorComponent
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
     }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+  }
+
+  /**
+   * Sets up a ResizeObserver to handle horizontal responsiveness.
+   * Tells the WellLogWidget to update its layout when the container size changes.
+   *
+   * @private
+   */
+  private setupResizeHandler(): void {
+    const container = document.querySelector('.canvas-wrapper');
+    if (!container) return;
+
+    this.resizeObserver = new ResizeObserver(() => {
+      this.ngZone.run(() => {
+        if (this.wellLogWidget) {
+          console.log('📏 Container resized - updating track layout');
+          this.wellLogWidget.updateLayout();
+        }
+      });
+    });
+
+    this.resizeObserver.observe(container);
   }
 
   /**
@@ -410,7 +462,6 @@ export class DynamicTrackGeneratorComponent
         // It's an Observable - use subscribe
         (result as any).subscribe({
           next: (logDataArray: IWellboreLogData) => {
-            console.log('logDataArray  ---', logDataArray);
             this.isFirstTimeLoading = false;
             if (logDataArray != null) {
               // Parse using backend response format (logs[0].logData)
@@ -997,28 +1048,6 @@ export class DynamicTrackGeneratorComponent
         this.isLoadingChunk = false;
       }
     };
-
-    // chunkRequests.forEach(({ header, curves, start, end }, key) => {
-    //   // Mark range as in-flight immediately to prevent duplicates
-    //   this.inFlightRanges.add(key);
-    //   console.log(`  📥 Chunk: ${start}-${end} for ${header.uid}`);
-
-    //   this.logHeadersService
-    //     .getLogData(this.well, this.wellbore, header.uid, start, end)
-    //     .subscribe({
-    //       next: (logDataArray) => {
-    //         if (logDataArray.length > 0) {
-    //           curves.forEach((curve) =>
-    //             this.appendChunkData(logDataArray[0], curve)
-    //           );
-    //         }
-    //         onDone(key);
-    //       },
-    //       error: () => onDone(key),
-    //     });
-    // });
-    //}
-
     chunkRequests.forEach(({ header, curves, start, end }, key) => {
       // Mark range as in-flight immediately to prevent duplicates
       this.inFlightRanges.add(key);
@@ -1503,10 +1532,11 @@ export class DynamicTrackGeneratorComponent
           );
           return;
         } else {
-          // Create regular track
+          // Create regular track - use proportional factor for responsiveness
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
-          track.setWidth(trackInfo.trackWidth || 205);
+          // Converting pixel width to factor (weight) for proportional scaling
+          (track as any).setLayoutStyle({ factor: trackInfo.trackWidth || 205 });
         }
 
         // Create curves for this track
@@ -1687,6 +1717,17 @@ export class DynamicTrackGeneratorComponent
   }
 
   /**
+ * Toggles between light and dark theme.
+ */
+  toggleTheme(): void {
+    this.isDarkTheme = !this.isDarkTheme;
+    console.log('🎨 Theme toggled to:', this.isDarkTheme ? 'dark' : 'light');
+
+    // Apply theme to GeoToolkit headers and tracks
+    this.applyGeoToolkitTheme();
+  }
+
+  /**
    * Converts real backend response to flat LogData format for appendChunkData.
    * Backend returns: { logData: { data: [...], mnemonicList: "...", unitList: "..." } }
    * This converts to flat: { mnemonicList: "...", data: [...], unitList: "..." }
@@ -1709,7 +1750,7 @@ export class DynamicTrackGeneratorComponent
    *
    * @private
    */
-  private applyGeoToolkitTheme(): void {
+  public applyGeoToolkitTheme(): void {
     if (!this.wellLogWidget) {
       console.warn('⚠️ WellLogWidget not available for theme application');
       return;
@@ -1722,9 +1763,9 @@ export class DynamicTrackGeneratorComponent
           headerBg: 'transparent',
           headerText: '#e2e8f0',
           headerBorder: '#4a5568',
-          trackBg: 'white',
-          trackBorder: 'gray',
-          gridLines: '#2564e0ff',
+          trackBg: '#253247',
+          trackBorder: '#a2a5b1',
+          gridLines: '#2a3a50',
           axisText: '#e2e8f0',
           curveColors: [
             '#40857fff',
@@ -1739,7 +1780,7 @@ export class DynamicTrackGeneratorComponent
           headerText: '#e2e8f0',
           headerBorder: '#e2e8f0',
           trackBg: '#fcf8f7ff',
-          trackBorder: '#e0cfcbff',
+          trackBorder: '#e0cfcb',
           gridLines: '#e2e8f0',
           axisText: '#4a5568',
           curveColors: [
@@ -1833,6 +1874,19 @@ export class DynamicTrackGeneratorComponent
           '  linestyle-width: 2;',
           `  fillstyle: ${theme.curveColors[0]}20;`, // Semi-transparent
           '}',
+
+          `.geotoolkit.axis.Axis[cssclass="indexTrack"] {
+            tickgenerator-labelformat-type : number;
+            tickgenerator-labelformat-grouplength : 0;
+            }
+            *[cssclass="horizontalGrid"] {
+              tickgenerator-major-tickstyle-color: ${theme.gridLines};
+              tickgenerator-minor-tickstyle-color: ${theme.gridLines};
+            }
+            *[cssclass="verticalGrid"] {
+              linestyle: ${theme.gridLines};
+            }`
+
         ].join('\n'),
       });
 
@@ -1842,5 +1896,66 @@ export class DynamicTrackGeneratorComponent
     } catch (error) {
       console.error('❌ Error applying GeoToolkit theme:', error);
     }
+  }
+
+
+  // Declaring these static parameters for OpenCardConfiguration method using to Edit properties
+  selectedHour: number = 4;
+  selectedDepth: number = 500;
+  hideHeader: boolean = false;
+  swtichToTvd: boolean = false;
+  showSurvey: boolean = false;
+  isFitToheight: boolean = false;
+  isAutoScroll: boolean = true;
+  horizontalOrientaion: boolean = false;
+  IntervalStep: number = 5;
+
+  OpenCardConfiguration() {
+    const dialogRef = this.dialog.open(AddDynamicTracksDialogComponent, {
+      width: '700px',
+      maxWidth: '95vw',
+      height: '85vh',
+      panelClass: 'custom-dialog-container',
+      data: {
+        lstOfTrack: JSON.parse(JSON.stringify(this.listOfTracks)), // ✅ deep copy
+        selectedLog: this.selectedLog,
+
+        wellboreObjects: this.wellboreObjects,
+        lstTrackTypes: this.lstTrackTypes,
+        lstLineStyle: this.lstLineStyle,
+        anchorTypes: this.anchorTypes,
+
+        selectedHour: this.selectedHour,
+        lstHourss: this.lstHourss,
+        selectedDepth: this.selectedDepth,
+        hideHeader: this.hideHeader,
+        swtichToTvd: this.swtichToTvd,
+        showSurvey: this.showSurvey,
+        isFitToheight: this.isFitToheight,
+        isAutoScroll: this.isAutoScroll,
+        horizontalOrientaion: this.horizontalOrientaion,
+        IntervalStep: this.IntervalStep,
+      },
+    });
+
+    dialogRef.afterClosed().subscribe((result) => {
+      if (!result) return; // ✅ Cancel
+
+      this.listOfTracks = result.lstOfTrack;
+      this.selectedLog = result.selectedLog;
+
+      this.selectedHour = result.selectedHour;
+      this.selectedDepth = result.selectedDepth;
+      this.hideHeader = result.hideHeader;
+      this.swtichToTvd = result.swtichToTvd;
+      this.showSurvey = result.showSurvey;
+      this.isFitToheight = result.isFitToheight;
+      this.isAutoScroll = result.isAutoScroll;
+      this.horizontalOrientaion = result.horizontalOrientaion;
+      this.IntervalStep = result.IntervalStep;
+
+      //  console.log('result.lstOfTrack from edit dialog', result.lstOfTrack);
+      this.createSceneWithData();
+    });
   }
 }
