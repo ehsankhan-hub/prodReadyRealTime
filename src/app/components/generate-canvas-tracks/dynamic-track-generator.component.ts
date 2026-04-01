@@ -1803,6 +1803,14 @@ export class DynamicTrackGeneratorComponent
           `  linestyle-color: ${theme.headerBorder};`,
           '  linestyle-width: 1;',
           '}',
+          
+          /* Log2D image headers */
+          '.geotoolkit.welllog.header.CompositeLog2DVisualHeader {',
+          `  textstyle-color: ${theme.headerText};`,
+          `  fillstyle: ${theme.headerBg};`,
+          `  linestyle-color: ${theme.headerBorder};`,
+          '  linestyle-width: 1;',
+          '}',
 
           /* Selection box */
           '.geotoolkit.controls.tools.SelectionBox {',
