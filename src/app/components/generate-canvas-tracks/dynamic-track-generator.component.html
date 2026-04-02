@@ -1,3 +1,19 @@
 <div #trackContainer class="dynamic-track-generator-container">
-  <app-basewidget #canvasWidget></app-basewidget>
+  <div class="toolbar">
+    <label for="scaleSelect">Scale:</label>
+    <select id="scaleSelect" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
+      <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
+    </select>
+    <div class="btn-group">
+      <button class="tool-btn" (click)="zoomIn()" title="Zoom In">+</button>
+      <button class="tool-btn" (click)="zoomOut()" title="Zoom Out">-</button>
+      <button class="tool-btn reset-btn" (click)="resetView()" title="Reset View">Reset</button>
+    </div>
+    <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">&#9881;</button>
+    <span class="loading-indicator" *ngIf="isLoadingChunk">Loading...</span>
+  </div>
+  <div class="canvas-wrapper">
+    <app-basewidget #canvasWidget></app-basewidget>
+    <app-cross-tooltip [data]="tooltipData"></app-cross-tooltip>
+  </div>
 </div>

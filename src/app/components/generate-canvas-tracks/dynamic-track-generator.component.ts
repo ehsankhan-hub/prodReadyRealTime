@@ -39,7 +39,6 @@ import {
   CrossTooltipComponent,
   CrossTooltipData,
   TooltipCurveValue,
-
 } from '../cross-tooltip/cross-tooltip.component';
 import { WellDataService } from '../../../service/well-service/well.service';
 import {
@@ -185,7 +184,6 @@ export class DynamicTrackGeneratorComponent
   /** Flag to enable/disable live data polling */
   public isLivePolling = false;
 
-
   selectedLog: any;
   lstTrackTypes: string[] = [
     'Linear',
@@ -202,7 +200,6 @@ export class DynamicTrackGeneratorComponent
   ];
   anchorTypes: string[] = ['None', 'Left', 'Right', 'Center'];
   lstHourss: number[] = [24, 12, 6, 4, 2, 1];
-
 
   /** Canvas theme flag  */
   public isDarkTheme = false;
@@ -278,7 +275,7 @@ export class DynamicTrackGeneratorComponent
   ngAfterViewInit(): void {
     this.sceneReady = true;
     console.log('🔧 Scene ready - waiting for data to load');
-    this.setupResizeHandler();
+    // this.setupResizeHandler();
   }
 
   /**
@@ -307,7 +304,9 @@ export class DynamicTrackGeneratorComponent
     // Robustly use the @ViewChild reference instead of global document query
     const container = this.trackContainer?.nativeElement;
     if (!container) {
-      console.warn('⚠️ Could not find trackContainer native element for ResizeObserver');
+      console.warn(
+        '⚠️ Could not find trackContainer native element for ResizeObserver'
+      );
       return;
     }
 
@@ -458,7 +457,7 @@ export class DynamicTrackGeneratorComponent
         indexCurve: header.indexCurve,
         startIndex: startIndex,
         endIndex: endIndex,
-        isGrowing: header.objectGrowing,
+        isGrowing: false,
         mnemonicList: '',
       };
       console.log('queryParameter ', queryParameter);
@@ -735,7 +734,9 @@ export class DynamicTrackGeneratorComponent
           }
         }
 
-        const isValidValue = Array.isArray(value) ? value.length > 0 : !isNaN(value);
+        const isValidValue = Array.isArray(value)
+          ? value.length > 0
+          : !isNaN(value);
 
         if (isValidValue && !isNaN(indexValue)) {
           indexValues.push(indexValue);
@@ -748,8 +749,8 @@ export class DynamicTrackGeneratorComponent
     const initialEntries = indexValues.map((iv, i) => ({ iv, v: values[i] }));
     initialEntries.sort((a, b) => a.iv - b.iv);
 
-    const sortedIndexValues = initialEntries.map(e => e.iv);
-    const sortedValues = initialEntries.map(e => e.v);
+    const sortedIndexValues = initialEntries.map((e) => e.iv);
+    const sortedValues = initialEntries.map((e) => e.v);
 
     curve.data = sortedValues;
     this.curveDepthIndices.set(curve.mnemonicId, sortedIndexValues);
@@ -808,7 +809,7 @@ export class DynamicTrackGeneratorComponent
           border: { visible: true },
         },
       });
-
+      //this.wellLogWidget.getTrackContainer().getLayout().setProperties(true)
       this.wellLogWidget.setLayoutStyle({
         left: 0,
         top: 0,
@@ -817,15 +818,17 @@ export class DynamicTrackGeneratorComponent
       });
 
       // Register Header Provider for Log2DVisual
-      const headerProvider = this.wellLogWidget.getHeaderContainer().getHeaderProvider();
+      const headerProvider = this.wellLogWidget
+        .getHeaderContainer()
+        .getHeaderProvider();
       const log2DHeader = new CompositeLog2DVisualHeader();
       // Explicitly set text styles for composite header components
       (log2DHeader as any).setProperties({
-        'title': { 'textstyle': { 'color': 'white' } },
-        'colorbar': {
-          'axis': { 'textstyle': { 'color': 'white' } },
-          'title': { 'textstyle': { 'color': 'white' } }
-        }
+        title: { textstyle: { color: 'white' } },
+        colorbar: {
+          axis: { textstyle: { color: 'white' } },
+          title: { textstyle: { color: 'white' } },
+        },
       });
       headerProvider.registerHeaderProvider(
         Log2DVisual.getClassName(),
@@ -845,6 +848,8 @@ export class DynamicTrackGeneratorComponent
       // Create data tracks
       this.createTracks();
 
+      this.wellLogWidget.updateLayout();
+
       // Set depth limits, show recent data first, and configure crosshair + scroll listener
       setTimeout(() => {
         try {
@@ -863,9 +868,6 @@ export class DynamicTrackGeneratorComponent
           } else {
             this.applyScale(this.selectedScale);
           }
-
-          // Force an initial layout update to ensure horizontal factor fitting
-          this.wellLogWidget.updateLayout();
 
           this.wellLogWidget.updateLayout();
 
@@ -993,40 +995,53 @@ export class DynamicTrackGeneratorComponent
       });
     });
 
-    logIdCurves.forEach(({ header, curves, range }: { header: IWellboreObject; curves: TrackCurve[]; range: { min: number; max: number } }, logId: string) => {
-      // Check if we need data below loaded range (user scrolled up)
-      if (needMin < range.min && range.min > 0) {
-        const chunkEnd = range.min;
-        const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
-        const key = `${logId}_${chunkStart}_${chunkEnd}`;
-        if (!this.inFlightRanges.has(key)) {
-          chunkRequests.set(key, {
-            header,
-            curves,
-            start: chunkStart,
-            end: chunkEnd,
-          });
+    logIdCurves.forEach(
+      (
+        {
+          header,
+          curves,
+          range,
+        }: {
+          header: IWellboreObject;
+          curves: TrackCurve[];
+          range: { min: number; max: number };
+        },
+        logId: string
+      ) => {
+        // Check if we need data below loaded range (user scrolled up)
+        if (needMin < range.min && range.min > 0) {
+          const chunkEnd = range.min;
+          const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
+          const key = `${logId}_${chunkStart}_${chunkEnd}`;
+          if (!this.inFlightRanges.has(key)) {
+            chunkRequests.set(key, {
+              header,
+              curves,
+              start: chunkStart,
+              end: chunkEnd,
+            });
+          }
         }
-      }
 
-      // Check if we need data above loaded range (user scrolled down)
-      if (needMax > range.max && range.max < this.headerMaxDepth) {
-        const chunkStart = range.max;
-        const chunkEnd = Math.min(
-          this.headerMaxDepth,
-          chunkStart + this.CHUNK_SIZE
-        );
-        const key = `${logId}_${chunkStart}_${chunkEnd}`;
-        if (!this.inFlightRanges.has(key)) {
-          chunkRequests.set(key, {
-            header,
-            curves,
-            start: chunkStart,
-            end: chunkEnd,
-          });
+        // Check if we need data above loaded range (user scrolled down)
+        if (needMax > range.max && range.max < this.headerMaxDepth) {
+          const chunkStart = range.max;
+          const chunkEnd = Math.min(
+            this.headerMaxDepth,
+            chunkStart + this.CHUNK_SIZE
+          );
+          const key = `${logId}_${chunkStart}_${chunkEnd}`;
+          if (!this.inFlightRanges.has(key)) {
+            chunkRequests.set(key, {
+              header,
+              curves,
+              start: chunkStart,
+              end: chunkEnd,
+            });
+          }
         }
       }
-    });
+    );
 
     if (chunkRequests.size === 0) {
       console.log(
@@ -1147,12 +1162,17 @@ export class DynamicTrackGeneratorComponent
       if (!isNaN(depth) && rawValue) {
         let value: number | number[];
         if (rawValue.includes(' ')) {
-          value = rawValue.split(/\s+/).map((v: string) => parseFloat(v)).filter((v: number) => !isNaN(v));
+          value = rawValue
+            .split(/\s+/)
+            .map((v: string) => parseFloat(v))
+            .filter((v: number) => !isNaN(v));
         } else {
           value = parseFloat(rawValue);
         }
 
-        const isValidValue = Array.isArray(value) ? value.length > 0 : !isNaN(value);
+        const isValidValue = Array.isArray(value)
+          ? value.length > 0
+          : !isNaN(value);
         if (isValidValue) {
           newDepths.push(depth);
           newValues.push(value);
@@ -1177,10 +1197,15 @@ export class DynamicTrackGeneratorComponent
 
     // Sort by depth
     const sortedEntries = Array.from(depthValueMap.entries()).sort(
-      (a: [number, number | number[]], b: [number, number | number[]]) => a[0] - b[0]
+      (a: [number, number | number[]], b: [number, number | number[]]) =>
+        a[0] - b[0]
     );
-    const mergedDepths = sortedEntries.map((e: [number, number | number[]]) => e[0]);
-    const mergedValues = sortedEntries.map((e: [number, number | number[]]) => e[1]);
+    const mergedDepths = sortedEntries.map(
+      (e: [number, number | number[]]) => e[0]
+    );
+    const mergedValues = sortedEntries.map(
+      (e: [number, number | number[]]) => e[1]
+    );
 
     curve.data = mergedValues;
     this.curveDepthIndices.set(curve.mnemonicId, mergedDepths);
@@ -1204,8 +1229,12 @@ export class DynamicTrackGeneratorComponent
           mergedDepths.forEach((depth: number, idx: number) => {
             const rowValues = mergedValues[idx];
             if (Array.isArray(rowValues)) {
-              const angles = rowValues.map((_: number, i: number) => (i * 360) / rowValues.length);
-              log2DData.getRows().push(new Log2DDataRow(depth, rowValues, angles));
+              const angles = rowValues.map(
+                (_: number, i: number) => (i * 360) / rowValues.length
+              );
+              log2DData
+                .getRows()
+                .push(new Log2DDataRow(depth, rowValues, angles));
             }
           });
           log2DData.updateLimits();
@@ -1370,6 +1399,53 @@ export class DynamicTrackGeneratorComponent
   onScaleChange(scale: number): void {
     this.selectedScale = Number(scale);
     console.log('🔄 Scale changed to:', this.selectedScale);
+    this.applyScale(this.selectedScale);
+  }
+
+  /**
+   * Relative Zoom In: Shrinks the visible depth range around the current center.
+   */
+  zoomIn(): void {
+    if (!this.wellLogWidget) return;
+    const limits: any = this.wellLogWidget.getVisibleDepthLimits();
+    if (!limits) return;
+
+    const vMin = limits.getLow();
+    const vMax = limits.getHigh();
+    const center = (vMin + vMax) / 2;
+    const range = vMax - vMin;
+    const newRange = range * 0.8; // Zoom in by 20%
+
+    this.wellLogWidget.setVisibleDepthLimits(center - newRange / 2, center + newRange / 2);
+    this.wellLogWidget.updateLayout();
+  }
+
+  /**
+   * Relative Zoom Out: Expands the visible depth range around the current center.
+   */
+  zoomOut(): void {
+    if (!this.wellLogWidget) return;
+    const limits: any = this.wellLogWidget.getVisibleDepthLimits();
+    if (!limits) return;
+
+    const vMin = limits.getLow();
+    const vMax = limits.getHigh();
+    const center = (vMin + vMax) / 2;
+    const range = vMax - vMin;
+    const newRange = range * 1.25; // Zoom out
+
+    const start = Math.max(0, center - newRange / 2);
+    const end = Math.min(this.headerMaxDepth || 100000, center + newRange / 2);
+
+    this.wellLogWidget.setVisibleDepthLimits(start, end);
+    this.wellLogWidget.updateLayout();
+  }
+
+  /**
+   * Resets the view to the default scale.
+   */
+  resetView(): void {
+    this.selectedScale = 1000;
     this.applyScale(this.selectedScale);
   }
 
@@ -1548,7 +1624,9 @@ export class DynamicTrackGeneratorComponent
           track = this.wellLogWidget.addTrack(TrackType.LinearTrack);
           track.setName(trackInfo.trackName);
           // Converting pixel width to factor (weight) for proportional scaling
-          (track as any).setLayoutStyle({ factor: trackInfo.trackWidth || 205 });
+          (track as any).setLayoutStyle({
+            factor: trackInfo.trackWidth || 205,
+          });
         }
 
         // Create curves for this track
@@ -1573,14 +1651,12 @@ export class DynamicTrackGeneratorComponent
     trackInfo.curves.forEach((curveInfo: any, curveIndex: any) => {
       try {
         if (!curveInfo.show) {
-          console.warn(
-            `⚠️ Skipping curve ${curveInfo.mnemonicId} - curve hidden`
-          );
           return;
         }
-
         if (!curveInfo.data || curveInfo.data.length === 0) {
-          console.log(`ℹ️ Creating empty curve header for ${curveInfo.mnemonicId} (no data)`);
+          console.warn(
+            `⚠️ Creating empity header for : ${curveInfo.mnemonicId} `
+          );
         }
 
         console.log(`📈 Creating curve: ${curveInfo.mnemonicId}`);
@@ -1590,7 +1666,8 @@ export class DynamicTrackGeneratorComponent
           this.curveDepthIndices.get(curveInfo.mnemonicId) ||
           this.generateIndexData(curveInfo.data.length);
 
-        const isImageData = curveInfo.data.length > 0 && Array.isArray(curveInfo.data[0]);
+        const isImageData =
+          curveInfo.data.length > 0 && Array.isArray(curveInfo.data[0]);
 
         if (isImageData) {
           // Create Log2DVisual for image data
@@ -1599,8 +1676,12 @@ export class DynamicTrackGeneratorComponent
           indexData.forEach((depth: number, idx: number) => {
             const rowValues = curveInfo.data[idx];
             if (Array.isArray(rowValues)) {
-              const angles = rowValues.map((_: number, i: number) => (i * 360) / rowValues.length);
-              log2dData.getRows().push(new Log2DDataRow(depth, rowValues, angles));
+              const angles = rowValues.map(
+                (_: number, i: number) => (i * 360) / rowValues.length
+              );
+              log2dData
+                .getRows()
+                .push(new Log2DDataRow(depth, rowValues, angles));
             }
           });
           log2dData.updateLimits();
@@ -1610,11 +1691,11 @@ export class DynamicTrackGeneratorComponent
           const delta = (maxVal - minVal) / 4;
 
           const colorProvider = new DefaultColorProvider()
-            .addColor(minVal, '#FFFACD')            // Lemon Chiffon (Lightest)
-            .addColor(minVal + delta, '#FFD700')    // Gold
-            .addColor(minVal + 2 * delta, '#D2691E')// Chocolate
-            .addColor(minVal + 3 * delta, '#8B4513')// Saddle Brown
-            .addColor(maxVal, '#3B0000');           // Very Dark Brown (Darkest)
+            .addColor(minVal, '#FFFACD') // Lemon Chiffon (Lightest)
+            .addColor(minVal + delta, '#FFD700') // Gold
+            .addColor(minVal + 2 * delta, '#D2691E') // Chocolate
+            .addColor(minVal + 3 * delta, '#8B4513') // Saddle Brown
+            .addColor(maxVal, '#3B0000'); // Very Dark Brown (Darkest)
 
           const visual = new Log2DVisual();
           visual.setName(curveInfo.displayName);
@@ -1733,8 +1814,8 @@ export class DynamicTrackGeneratorComponent
   }
 
   /**
- * Toggles between light and dark theme.
- */
+   * Toggles between light and dark theme.
+   */
   toggleTheme(): void {
     this.isDarkTheme = !this.isDarkTheme;
     console.log('🎨 Theme toggled to:', this.isDarkTheme ? 'dark' : 'light');
@@ -1901,8 +1982,7 @@ export class DynamicTrackGeneratorComponent
             }
             *[cssclass="verticalGrid"] {
               linestyle: ${theme.gridLines};
-            }`
-
+            }`,
         ].join('\n'),
       });
 
@@ -1913,7 +1993,6 @@ export class DynamicTrackGeneratorComponent
       console.error('❌ Error applying GeoToolkit theme:', error);
     }
   }
-
 
   // Declaring these static parameters for OpenCardConfiguration method using to Edit properties
   selectedHour: number = 4;
