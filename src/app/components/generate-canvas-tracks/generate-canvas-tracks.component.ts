@@ -161,6 +161,11 @@ export interface TrackInfo {
         <select id="scaleSelect" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
           <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
         </select>
+        <div class="btn-group">
+          <button class="tool-btn" (click)="zoomIn()" title="Zoom In">+</button>
+          <button class="tool-btn" (click)="zoomOut()" title="Zoom Out">-</button>
+          <button class="tool-btn reset-btn" (click)="resetView()" title="Reset View">Reset</button>
+        </div>
         <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">&#9881;</button>
         <span class="loading-indicator" *ngIf="isLoadingChunk">Loading...</span>
       </div>
@@ -188,9 +193,17 @@ export interface TrackInfo {
     .settings-btn {
       padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px;
       background: white; cursor: pointer; font-size: 16px; line-height: 1;
-      color: #555; transition: all 0.2s;
+      color: #555; transition: all 0.2s; margin-left: auto;
     }
     .settings-btn:hover { background: #e8e8e8; border-color: #999; color: #333; }
+    .btn-group { display: flex; gap: 4px; margin-left: 8px; }
+    .tool-btn {
+      padding: 4px 12px; border: 1px solid #ccc; border-radius: 4px;
+      background: white; cursor: pointer; font-size: 14px; font-weight: 600;
+      color: #555; transition: all 0.2s; min-width: 32px;
+    }
+    .tool-btn:hover { background: #e8e8e8; border-color: #999; color: #333; }
+    .reset-btn { font-size: 12px; font-weight: normal; }
     .loading-indicator {
       font-size: 12px; color: #667eea; font-weight: 600; margin-left: 8px;
       animation: pulse 1s infinite;
@@ -1259,6 +1272,57 @@ export class GenerateCanvasTracksComponent
   onScaleChange(scale: number): void {
     this.selectedScale = Number(scale);
     console.log('🔄 Scale changed to:', this.selectedScale);
+    this.applyScale(this.selectedScale);
+  }
+
+  /**
+   * Relative Zoom In: Shrinks the visible depth range around the current center.
+   */
+  zoomIn(): void {
+    if (!this.wellLogWidget) return;
+    const limits: any = this.wellLogWidget.getVisibleDepthLimits();
+    if (!limits) return;
+
+    const vMin = limits.getLow();
+    const vMax = limits.getHigh();
+    const center = (vMin + vMax) / 2;
+    const range = vMax - vMin;
+    const newRange = range * 0.8; // Zoom in by 20%
+
+    this.wellLogWidget.setVisibleDepthLimits(center - newRange / 2, center + newRange / 2);
+    this.wellLogWidget.updateLayout();
+    console.log('🔍 Zoomed In:', (center - newRange/2).toFixed(1), '-', (center + newRange/2).toFixed(1));
+  }
+
+  /**
+   * Relative Zoom Out: Expands the visible depth range around the current center.
+   */
+  zoomOut(): void {
+    if (!this.wellLogWidget) return;
+    const limits: any = this.wellLogWidget.getVisibleDepthLimits();
+    if (!limits) return;
+
+    const vMin = limits.getLow();
+    const vMax = limits.getHigh();
+    const center = (vMin + vMax) / 2;
+    const range = vMax - vMin;
+    const newRange = range * 1.25; // Zoom out
+
+    // Constrain to positive depths and max depth if needed, though GeoToolkit handles most
+    const start = Math.max(0, center - newRange / 2);
+    const end = Math.min(this.headerMaxDepth || 100000, center + newRange / 2);
+
+    this.wellLogWidget.setVisibleDepthLimits(start, end);
+    this.wellLogWidget.updateLayout();
+    console.log('🔍 Zoomed Out:', start.toFixed(1), '-', end.toFixed(1));
+  }
+
+  /**
+   * Resets the view to the default scale.
+   */
+  resetView(): void {
+    console.log('🔄 Resetting view to default scale (1:1000)');
+    this.selectedScale = 1000;
     this.applyScale(this.selectedScale);
   }
 
