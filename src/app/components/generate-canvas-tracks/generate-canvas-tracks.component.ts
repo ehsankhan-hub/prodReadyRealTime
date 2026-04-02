@@ -6,6 +6,7 @@ import {
   ViewChild,
   OnDestroy,
   NgZone,
+  ElementRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -215,6 +216,10 @@ export class GenerateCanvasTracksComponent
   @ViewChild('canvasWidget', { static: true })
   private widgetComponent!: BaseWidgetComponent;
 
+  /** Reference to the main container for ResizeObserver */
+  @ViewChild('trackContainer', { static: true })
+  private trackContainer!: ElementRef;
+
   /** GeoToolkit WellLogWidget instance for rendering tracks and curves */
   private wellLogWidget!: WellLogWidget;
   /** Array of subscriptions to manage cleanup */
@@ -326,10 +331,10 @@ export class GenerateCanvasTracksComponent
    * @private
    */
   private setupResizeHandler(): void {
-    // Look for the specific container for this component
-    const container = document.querySelector('.track-generator-container');
+    // Robustly use the @ViewChild reference instead of global document query
+    const container = this.trackContainer?.nativeElement;
     if (!container) {
-      console.warn('⚠️ Could not find .track-generator-container for ResizeObserver');
+      console.warn('⚠️ Could not find trackContainer native element for ResizeObserver');
       return;
     }
 
@@ -741,6 +746,9 @@ export class GenerateCanvasTracksComponent
           } else {
             this.applyScale(this.selectedScale);
           }
+
+          // Force an initial layout update to ensure horizontal factor fitting
+          this.wellLogWidget.updateLayout();
 
           this.wellLogWidget.updateLayout();
 
