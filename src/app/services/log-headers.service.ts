@@ -131,7 +131,7 @@ export class LogHeadersService {
    */
   getTimeLogHeaders(well: string, wellbore: string): Observable<LogHeader[]> {
     return this.http.get<LogHeader[]>(`${this.baseUrl}/timeLogHeaders`).pipe(
-      map((headers: LogHeader[]) => headers.filter(header => 
+      map((headers: LogHeader[]) => headers.filter(header =>
         header['@uidWell'] === well && header['@uidWellbore'] === wellbore
       ))
     );
@@ -154,7 +154,7 @@ export class LogHeadersService {
   getLogHeaders(well: string, wellbore: string): Observable<LogHeader[]> {
     return this.http.get<LogHeader[]>(`${this.baseUrl}/logHeaders`).pipe(
       map((headers: LogHeader[]) => {
-        return headers.filter(header => 
+        return headers.filter(header =>
           header['@uidWell'] === well && header['@uidWellbore'] === wellbore
         );
       })
@@ -188,7 +188,7 @@ export class LogHeadersService {
   /** Tracks if a fetch is already in progress for a cache key (shared observable emitting full filtered data) */
   private logDataFetchInProgress = new Map<string, Observable<LogData[]>>();
 
-  getLogData(well: string, wellbore: string, logId: string, startIndex: number, endIndex: number): Observable<LogData[]> {
+  getLogData(well: string, wellbore: string, logId: string, startIndex: number | string, endIndex: number | string): Observable<LogData[]> {
     const cacheKey = `${well}|${wellbore}|${logId}`;
 
     // Serve from cache if available and range matches cached data
@@ -196,7 +196,7 @@ export class LogHeadersService {
       console.log(`📋 Cache hit for ${logId}, checking range ${startIndex}-${endIndex}`);
       const cached = this.logDataCache.get(cacheKey)!;
       const cachedData = cached[0];
-      
+
       // Check if requested range is within cached data
       if (cachedData && this.isRangeInCache(cachedData, startIndex, endIndex)) {
         console.log(`✅ Range available in cache, slicing ${startIndex}-${endIndex}`);
@@ -234,15 +234,27 @@ export class LogHeadersService {
     return shared$;
   }
 
-  getTimeLogData(well: string, wellbore: string, logId: string, startIndex: number, endIndex: number): Observable<LogData[]> {
+  /**
+   * Clears the log data cache to force a fresh fetch on the next request.
+   */
+  public clearCache(): void {
+    console.log('🧹 Clearing LogHeadersService cache');
+    this.logDataCache.clear();
+    this.logDataFetchInProgress.clear();
+  }
+
+  getTimeLogData(well: string, wellbore: string, logId: string, startIndex: number | string, endIndex: number | string): Observable<LogData[]> {
     const cacheKey = `${well}|${wellbore}|${logId}|time`;
 
-    // Serve from cache if available
+    // Disable caching for time logs to ensure scrolling/lazy loading works correctly
+    // Local slicing against a limited initial cache prevents historical data from being fetched
+    /* 
     if (this.logDataCache.has(cacheKey)) {
       console.log(`📋 Cache hit for time log ${logId}, slicing ${startIndex}-${endIndex}`);
       const cached = this.logDataCache.get(cacheKey)!;
       return of(this.sliceLogData(cached, startIndex, endIndex));
     }
+    */
 
     // If a fetch is already in progress for this key, piggyback on its shared observable
     if (this.logDataFetchInProgress.has(cacheKey)) {
@@ -267,7 +279,7 @@ export class LogHeadersService {
           endIndex: { '@uom': 's', '#text': '10000' },
           data: response.logs?.[0]?.logData?.data || []
         };
-        
+
         // Store full dataset in cache (wrap in array for consistency)
         const fullDataset = [logData];
         this.logDataCache.set(cacheKey, fullDataset);
@@ -293,9 +305,9 @@ export class LogHeadersService {
    * @param endIndex - End depth
    * @returns Observable that fetches the specific chunk
    */
-  private fetchChunk(logDataArr: LogData[], well: string, wellbore: string, logId: string, startIndex: number, endIndex: number): Observable<LogData[]> {
+  private fetchChunk(logDataArr: LogData[], well: string, wellbore: string, logId: string, startIndex: number | string, endIndex: number | string): Observable<LogData[]> {
     console.log(`🔄 Fetching new chunk for ${logId}: ${startIndex}-${endIndex}`);
-    
+
     return this.http.get(`${this.baseUrl}/logData?uidWell=${well}&uidWellbore=${wellbore}&uid=${logId}&startIndex=${startIndex}&endIndex=${endIndex}`).pipe(
       map((chunkData: any) => {
         console.log(`✅ Fetched chunk for ${logId}: ${chunkData?.data?.length || 0} rows`);
@@ -312,7 +324,7 @@ export class LogHeadersService {
    * @param endIndex - Requested end depth
    * @returns True if range is available in cache
    */
-  private isRangeInCache(cachedData: LogData, startIndex: number, endIndex: number): boolean {
+  private isRangeInCache(cachedData: LogData, startIndex: number | string, endIndex: number | string): boolean {
     if (!cachedData || !cachedData.data || cachedData.data.length === 0) {
       return false;
     }
@@ -320,26 +332,30 @@ export class LogHeadersService {
     // Get the depth range from cached data
     const mnemonics = cachedData.mnemonicList?.split(',').map(m => m.trim());
     const depthIndex = mnemonics?.indexOf('DEPTH') ?? 0;
-    
+
     const firstRow = cachedData.data[0].split(',');
     const lastRow = cachedData.data[cachedData.data.length - 1].split(',');
-    
+
     const firstDepth = parseFloat(firstRow[depthIndex]?.trim());
     const lastDepth = parseFloat(lastRow[depthIndex]?.trim());
-    
-    return startIndex >= firstDepth && endIndex <= lastDepth;
+
+    // Normalize requested indices to numbers for cache range check
+    const startNum = typeof startIndex === 'string' ? new Date(startIndex).getTime() : startIndex;
+    const endNum = typeof endIndex === 'string' ? new Date(endIndex).getTime() : endIndex;
+
+    return startNum >= firstDepth && endNum <= lastDepth;
   }
 
-  private sliceLogData(logDataArr: LogData[], startIndex: number, endIndex: number): LogData[] {
+  private sliceLogData(logDataArr: LogData[], startIndex: number | string, endIndex: number | string): LogData[] {
     return logDataArr.map(logData => {
       // Detect if time-based by checking mnemonicList for time columns
       const mnemonics = logData.mnemonicList?.split(',').map(m => m.trim());
       const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP', 'Time'];
       const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
-      
+
       let indexCol = -1;
       let isTimeBased = false;
-      
+
       // Try depth mnemonics first
       for (const dm of depthMnemonics) {
         indexCol = mnemonics?.indexOf(dm);
@@ -354,10 +370,10 @@ export class LogHeadersService {
       }
       // Fallback to first column as depth
       if (indexCol === -1) { indexCol = 0; isTimeBased = false; }
-      
+
       // Initialize timestamp variables for time-based filtering
       let startTs: number = 0, endTs: number = 0;
-      
+
       // Debug: Show the range being requested vs available data
       if (!isTimeBased && logData.data?.length > 0) {
         const firstRow = logData.data[0].split(',');
@@ -372,40 +388,40 @@ export class LogHeadersService {
       } else if (isTimeBased && logData.data.length > 0) {
         const firstRow = logData.data[0].split(',');
         const lastRow = logData.data[logData.data.length - 1].split(',');
-        const firstTime = parseInt(firstRow[indexCol]?.trim());
-        const lastTime = parseInt(lastRow[indexCol]?.trim());
+        const firstTime = firstRow[indexCol]?.trim();
+        const lastTime = lastRow[indexCol]?.trim();
         console.log(`🕐 Time slicing for ${logData.uid}:`);
         console.log(`   Requested: ${startIndex} to ${endIndex} (type: ${typeof startIndex})`);
         console.log(`   Available: ${firstTime} to ${lastTime}`);
         console.log(`   Index column: ${mnemonics[indexCol]} at position ${indexCol}`);
         console.log(`   Total rows: ${logData.data.length}`);
-        
+
         // Convert startIndex and endIndex to timestamps if they're strings
         if (typeof startIndex === 'string') {
           startTs = new Date(startIndex).getTime();
-          endTs = new Date(endIndex).getTime();
+          endTs = new Date(endIndex as string).getTime();
           console.log(`   Converted ISO to timestamps: ${startTs} to ${endTs}`);
         } else {
-          startTs = startIndex;
-          endTs = endIndex;
+          startTs = startIndex as number;
+          endTs = endIndex as number;
           console.log(`   Using numeric timestamps: ${startTs} to ${endTs}`);
         }
       } else if (isTimeBased) {
         // Handle time-based case when no data is available
         if (typeof startIndex === 'string') {
           startTs = new Date(startIndex).getTime();
-          endTs = new Date(endIndex).getTime();
+          endTs = new Date(endIndex as string).getTime();
         } else {
-          startTs = startIndex;
-          endTs = endIndex;
+          startTs = startIndex as number;
+          endTs = endIndex as number;
         }
       }
-      
+
       const slicedRows = logData.data?.filter(row => {
         const cols = row.split(',');
         const colStr = cols[indexCol]?.trim();
         if (!colStr) return false;
-        
+
         if (isTimeBased) {
           // Handle both millisecond timestamps and ISO date strings
           let ts: number;
@@ -420,20 +436,22 @@ export class LogHeadersService {
           return !isNaN(ts) && ts >= startTs && ts <= endTs;
         } else {
           const depthVal = parseFloat(colStr);
-          return !isNaN(depthVal) && depthVal >= startIndex && depthVal <= endIndex;
+          const startNum = typeof startIndex === 'string' ? parseFloat(startIndex) : startIndex;
+          const endNum = typeof endIndex === 'string' ? parseFloat(endIndex) : endIndex;
+          return !isNaN(depthVal) && depthVal >= startNum && depthVal <= endNum;
         }
       });
-      
+
       if (isTimeBased) {
         console.log(`🕐 Time slicing result: ${slicedRows?.length} rows from ${logData.data?.length} total`);
       } else {
         console.log(`📏 Depth slicing result: ${slicedRows?.length} rows from ${logData.data?.length} total`);
       }
-      
+
       // Handle office system data format - create startIndex/endIndex if they don't exist
       const startIndexObj = logData.startIndex || { '@uom': 'm', '#text': String(startIndex) };
       const endIndexObj = logData.endIndex || { '@uom': 'm', '#text': String(endIndex) };
-      
+
       return {
         ...logData,
         data: slicedRows,

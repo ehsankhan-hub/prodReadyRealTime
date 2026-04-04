@@ -236,7 +236,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
       }
     ];
 
-    // Add Surface_Time tracks for comparison
+    // Add MWD_Time_SLB tracks for comparison
     this.surfaceTimeTracks = [
       {
         trackNo: 7,
@@ -256,7 +256,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 150,
             autoScale: false,
             show: true,
-            LogId: 'Surface_Time',
+            LogId: 'MWD_Time_SLB',
             data: [],
             mnemonicLst: []
           }
@@ -280,7 +280,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 100,
             autoScale: false,
             show: true,
-            LogId: 'Surface_Time',
+            LogId: 'MWD_Time_SLB',
             data: [],
             mnemonicLst: []
           }
@@ -304,7 +304,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 3.0,
             autoScale: false,
             show: true,
-            LogId: 'Surface_Time',
+            LogId: 'MWD_Time_SLB',
             data: [],
             mnemonicLst: []
           }
@@ -328,7 +328,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 0.6,
             autoScale: false,
             show: true,
-            LogId: 'Surface_Time',
+            LogId: 'MWD_Time_SLB',
             data: [],
             mnemonicLst: []
           }
@@ -352,7 +352,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 10.0,
             autoScale: false,
             show: true,
-            LogId: 'Surface_Time',
+            LogId: 'MWD_Time_SLB',
             data: [],
             mnemonicLst: []
           }

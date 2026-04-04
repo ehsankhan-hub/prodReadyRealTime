@@ -4,7 +4,15 @@ const path = require('path');
 const url = require('url');
 
 // Read database
-const db = JSON.parse(fs.readFileSync(path.join(__dirname, 'db.json'), 'utf8'));
+// Helper to read database on each request to pick up changes without restart
+const getDb = () => {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(__dirname, 'db.json'), 'utf8'));
+    } catch (e) {
+        console.error("❌ Error reading db.json:", e);
+        return {};
+    }
+};
 
 // Enable CORS
 const enableCORS = (req, res, next) => {
@@ -47,50 +55,88 @@ const handleTimeLogHeaders = (req, res) => {
   const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
   
   console.log(`🔍 API Call: timeLogHeaders for path:`, parsedUrl.pathname);
-  console.log(`🔍 Path parts:`, pathParts);
   
   // Handle both /timeLogHeaders/well/wellbore and /timeLogHeaders
   let well, wellbore;
   if (pathParts.length >= 3) {
     well = pathParts[1];
     wellbore = pathParts[2];
+  }
+
+  // Placeholder detection: if the user literally requested ':well', return everything
+  const isPlaceholder = (well === ':well' || !well);
+  if (isPlaceholder) {
+    console.log(`🔍 Placeholder detected or well omitted. Returning all time-based headers.`);
   } else {
-    // Return all time headers if no specific well/wellbore provided
-    console.log(`📊 Returning all time log headers`);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(db.logHeaders));
-    return;
+    console.log(`🔍 API Call: timeLogHeaders for ${well}/${wellbore}`);
   }
   
-  console.log(`🔍 API Call: timeLogHeaders for ${well}/${wellbore}`);
-  
-  // Filter for headers that contain 'time' (case-insensitive)
-  const filteredHeaders = db.logHeaders.filter(header => {
-    const matchesWellbore = header['@uidWell'] === well && header['@uidWellbore'] === wellbore;
-    const isTimeRelated = header.uid && header.uid.toLowerCase().includes('time');
-    return matchesWellbore && isTimeRelated;
+  // Collect all headers from both possible collections
+  const db = getDb();
+  const allHeaderSources = [
+    { name: 'logHeaders', data: db.logHeaders || [] },
+    { name: 'timeLogHeaders', data: db.timeLogHeaders || [] }
+  ];
+
+  const filteredHeaders = [];
+  allHeaderSources.forEach(source => {
+    const matched = source.data.filter(header => {
+      // 1. Check if it's time related (by UID name or IndexType)
+      const isTimeRelated = (header.uid && header.uid.toLowerCase().includes('time')) || 
+                           (header.indexType && header.indexType.toLowerCase().includes('time'));
+      
+      if (!isTimeRelated) return false;
+
+      // 2. Filter by wellbore if NOT using a placeholder
+      if (!isPlaceholder) {
+        return header['@uidWell'] === well && header['@uidWellbore'] === wellbore;
+      }
+
+      return true; // Match all time headers if placeholder or omitted
+    });
+
+    if (matched.length > 0) {
+      console.log(`📊 Found ${matched.length} time headers in '${source.name}'`);
+      filteredHeaders.push(...matched);
+    }
   });
   
-  console.log(`📊 Found ${filteredHeaders.length} time headers for ${well}/${wellbore}`);
-  console.log(`🔍 Time templates matched:`, filteredHeaders.map(h => h.uid));
+  console.log(`📊 Total time headers found: ${filteredHeaders.length}`);
   
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(filteredHeaders));
 };
 
+
 // Custom route for time-based log data
 const handleTimeLogData = (req, res) => {
+  const db = getDb();
   const query = url.parse(req.url, true).query;
   console.log(`🔍 API Call: timeLogData with query:`, query);
-  console.log(`🔍 Full URL: ${req.url}`);
-  console.log(`🔍 Query string: ${url.parse(req.url).query}`);
   
-  const { wellUid, logUid, wellboreUid, startIndex, endIndex } = query;
-  
+  let { wellUid, logUid, wellboreUid, startIndex, endIndex } = query;
+
+  // Safety check: if parameters are missing, return an error or a fallback
+  if (!wellUid || !logUid || !wellboreUid) {
+      console.log(`⚠️ Missing required parameters for timeLogData. Checking for fallback...`);
+      if (db.timeLogData && db.timeLogData.length > 0) {
+          console.log(`💡 Returning first available log as fallback.`);
+          const fallbackLog = db.timeLogData[0];
+          wellUid = fallbackLog.wellUid;
+          wellboreUid = fallbackLog.wellboreUid;
+          logUid = fallbackLog.logUid;
+      } else {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing wellUid, logUid, or wellboreUid' }));
+          return;
+      }
+  }
+
   console.log(`🔍 Looking for time log data with:`);
   console.log(`   wellUid: ${wellUid}`);
   console.log(`   logUid: ${logUid}`);
   console.log(`   wellboreUid: ${wellboreUid}`);
+
   
   // Debug: Show all available timeLogData entries
   console.log(`🔍 Available timeLogData entries:`);
@@ -137,7 +183,7 @@ const handleTimeLogData = (req, res) => {
   
   if (!timeLogEntry) {
     console.log(`🔍 Trying match by removing suffix numbers...`);
-    const cleanLogUid = logUid.replace(/\d+$/, ''); // Remove trailing numbers
+    const cleanLogUid = (logUid || "").replace(/\d+$/, ''); // Remove trailing numbers
     console.log(`   Cleaned logUid: ${cleanLogUid}`);
     timeLogEntry = db.timeLogData.find(log => 
       log.wellUid === wellUid && 
@@ -195,11 +241,20 @@ const handleTimeLogData = (req, res) => {
   }
   
   // Find matching time log header to get correct mnemonics
-  const timeLogHeader = db.logHeaders.find(header => 
+  let timeLogHeader = db.timeLogHeaders.find(header => 
     header['@uidWell'] === wellUid && 
     header.uid === logUid && 
     header['@uidWellbore'] === wellboreUid
   );
+  
+  if (!timeLogHeader) {
+      // Fallback to checking normal logHeaders
+      timeLogHeader = db.logHeaders.find(header => 
+        header['@uidWell'] === wellUid && 
+        header.uid === logUid && 
+        header['@uidWellbore'] === wellboreUid
+      );
+  }
   
   console.log(`🔍 Found matching header:`, timeLogHeader ? timeLogHeader.uid : 'None');
   
@@ -261,6 +316,7 @@ const handleTimeLogData = (req, res) => {
 
 // Custom route for getLogHeaders
 const handleGetLogHeaders = (req, res) => {
+  const db = getDb();
   let well, wellbore;
   
   // Check if it's the old format with path parameters
@@ -289,6 +345,7 @@ const handleGetLogHeaders = (req, res) => {
 
 // Custom route for logData
 const handleLogData = (req, res) => {
+  const db = getDb();
   const query = url.parse(req.url, true).query;
   console.log(`🔍 API Call: logData with query:`, query);
   console.log(`📊 Raw query params: startIndex=${query.startIndex}, endIndex=${query.endIndex}`);
