@@ -8,6 +8,10 @@
       <button class="tool-btn" (click)="zoomIn()" title="Zoom In">+</button>
       <button class="tool-btn" (click)="zoomOut()" title="Zoom Out">-</button>
       <button class="tool-btn reset-btn" (click)="resetView()" title="Reset View">Reset</button>
+      <button class="tool-btn live-btn" [class.active]="isLivePolling" (click)="toggleLiveFeeding()" [title]="isLivePolling ? 'Stop Live Feeding' : 'Start Live Feeding'">
+        <mat-icon>{{ isLivePolling ? 'stop' : 'play_arrow' }}</mat-icon>
+        <span *ngIf="isLivePolling" class="live-indicator blinking-label">LIVE</span>
+      </button>
     </div>
     <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">&#9881;</button>
     <span class="loading-indicator" *ngIf="isLoadingChunk">Loading...</span>

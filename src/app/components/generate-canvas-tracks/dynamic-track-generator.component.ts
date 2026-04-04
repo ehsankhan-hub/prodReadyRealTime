@@ -275,7 +275,8 @@ export class DynamicTrackGeneratorComponent
   ngAfterViewInit(): void {
     this.sceneReady = true;
     console.log('🔧 Scene ready - waiting for data to load');
-    // this.setupResizeHandler();
+    // FIX: Re-enable resize handler for responsive track widths
+    this.setupResizeHandler();
   }
 
   /**
@@ -287,6 +288,10 @@ export class DynamicTrackGeneratorComponent
     if (this.scrollPollHandle) {
       clearInterval(this.scrollPollHandle);
       this.scrollPollHandle = null;
+    }
+    if (this.livePollHandle) {
+      clearInterval(this.livePollHandle);
+      this.livePollHandle = null;
     }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -482,7 +487,8 @@ export class DynamicTrackGeneratorComponent
               );
             }
             this.pendingLoads--;
-            if (this.pendingLoads <= 0 && this.sceneReady) {
+            // FIX: Only create scene if all data is loaded AND scene is ready AND widget doesn't exist yet
+            if (this.pendingLoads <= 0 && this.sceneReady && !this.wellLogWidget) {
               console.log('🎯 All data loaded - creating scene');
               this.createSceneWithData();
             }
@@ -496,7 +502,8 @@ export class DynamicTrackGeneratorComponent
               err
             );
             this.pendingLoads--;
-            if (this.pendingLoads <= 0 && this.sceneReady) {
+            // FIX: Singleton guard
+            if (this.pendingLoads <= 0 && this.sceneReady && !this.wellLogWidget) {
               this.createSceneWithData();
             }
             reject(err);
@@ -517,7 +524,8 @@ export class DynamicTrackGeneratorComponent
             );
           }
           this.pendingLoads--;
-          if (this.pendingLoads <= 0 && this.sceneReady) {
+          // FIX: Only create scene if all data is loaded AND scene is ready AND widget doesn't exist yet
+          if (this.pendingLoads <= 0 && this.sceneReady && !this.wellLogWidget) {
             console.log('🎯 All data loaded - creating scene');
             this.createSceneWithData();
           }
@@ -529,7 +537,8 @@ export class DynamicTrackGeneratorComponent
             err
           );
           this.pendingLoads--;
-          if (this.pendingLoads <= 0 && this.sceneReady) {
+          // FIX: Singleton guard
+          if (this.pendingLoads <= 0 && this.sceneReady && !this.wellLogWidget) {
             this.createSceneWithData();
           }
           reject(err);
@@ -690,7 +699,7 @@ export class DynamicTrackGeneratorComponent
       );
       if (decrementPending) {
         this.pendingLoads--;
-        if (this.pendingLoads <= 0 && this.sceneReady) {
+        if (this.pendingLoads <= 0 && this.sceneReady && !this.wellLogWidget) {
           this.createSceneWithData();
         }
       }
@@ -755,6 +764,17 @@ export class DynamicTrackGeneratorComponent
     curve.data = sortedValues;
     this.curveDepthIndices.set(curve.mnemonicId, sortedIndexValues);
 
+    // FIX: If widget already exists, use incremental append logic instead of waiting for scene creation
+    if (this.wellLogWidget) {
+      console.log(`📡 Redirecting new data for ${curve.mnemonicId} to incremental append`);
+      const convertedLogData = {
+        mnemonicList: innerLogData.mnemonicList,
+        data: innerLogData.data,
+      };
+      this.appendChunkData(convertedLogData as any, curve);
+      return;
+    }
+
     // Track loaded range using actual index values (depth or time)
     if (sortedIndexValues.length > 0) {
       this.loadedRanges.set(curve.mnemonicId, {
@@ -775,8 +795,8 @@ export class DynamicTrackGeneratorComponent
     if (decrementPending) {
       this.pendingLoads--;
       console.log(`⏳ Pending loads remaining: ${this.pendingLoads}`);
-      if (this.pendingLoads <= 0 && this.sceneReady) {
-        console.log('🎯 All data loaded - updating scene');
+      if (this.pendingLoads <= 0 && this.sceneReady && !this.wellLogWidget) {
+        console.log('🎯 All initial data loaded - creating scene');
         this.createSceneWithData();
       }
     }
@@ -789,6 +809,11 @@ export class DynamicTrackGeneratorComponent
    * @private
    */
   private createSceneWithData(): void {
+    // FIX: Singleton guard - absolutely prevent recreation if widget already exists
+    if (this.wellLogWidget) {
+      console.log('🛡️ Scene already exists - skipping redundant recreation');
+      return;
+    }
     try {
       console.log('🔧 Creating scene with loaded data');
 
@@ -1255,6 +1280,17 @@ export class DynamicTrackGeneratorComponent
       } points, depth ${mergedDepths[0]}-${mergedDepths[mergedDepths.length - 1]
       }`
     );
+
+    // FIX: Dynamic Depth Expansion
+    // If newly appended data exceeds original endIndex from header, update WellLogWidget limits
+    if (this.wellLogWidget) {
+      const currentMax = mergedDepths[mergedDepths.length - 1];
+      const limits: any = this.wellLogWidget.getDepthLimits();
+      if (limits && currentMax > limits.getHigh()) {
+        console.log(`📈 Expanding widget depth limits to accommodate new data: ${currentMax}`);
+        this.wellLogWidget.setDepthLimits(limits.getLow(), currentMax);
+      }
+    }
   }
 
   /**
@@ -1447,6 +1483,92 @@ export class DynamicTrackGeneratorComponent
   resetView(): void {
     this.selectedScale = 1000;
     this.applyScale(this.selectedScale);
+  }
+
+  /**
+   * Toggles the live data feeding state.
+   */
+  toggleLiveFeeding(): void {
+    this.isLivePolling = !this.isLivePolling;
+    if (this.isLivePolling) {
+      this.startLivePolling();
+    } else {
+      this.stopLivePolling();
+    }
+  }
+
+  /**
+   * Starts periodic polling for new data 'tail'.
+   */
+  private startLivePolling(): void {
+    if (this.livePollHandle) return;
+
+    console.log(`📡 Starting live polling (interval: ${this.LIVE_POLL_INTERVAL}ms)`);
+    this.livePollHandle = setInterval(() => {
+      this.ngZone.run(() => {
+        this.pollLatestData();
+      });
+    }, this.LIVE_POLL_INTERVAL);
+  }
+
+  /**
+   * Stops live data polling.
+   */
+  private stopLivePolling(): void {
+    if (this.livePollHandle) {
+      clearInterval(this.livePollHandle);
+      this.livePollHandle = null;
+      console.log('🛑 Live polling stopped');
+    }
+  }
+
+  /**
+   * Polls for the latest tail data for all active curves.
+   */
+  private pollLatestData(): void {
+    // Map existing groups to track their latest depth
+    const logIdGroups = new Map<string, { header: IWellboreObject; curves: TrackCurve[]; lastMax: number }>();
+
+    this.curveMap.forEach((entry, mnemonicId) => {
+      const { info } = entry;
+      const range = this.loadedRanges.get(mnemonicId);
+      if (range) {
+        if (!logIdGroups.has(info.LogId)) {
+          const header = this.cachedHeaders.find(h => h.objectId.includes(info.LogId));
+          if (header) {
+            logIdGroups.set(info.LogId, { header, curves: [], lastMax: range.max });
+          }
+        }
+        const group = logIdGroups.get(info.LogId);
+        if (group) {
+          group.curves.push(info);
+          if (range.max > group.lastMax) group.lastMax = range.max;
+        }
+      }
+    });
+
+    logIdGroups.forEach((group, logId) => {
+      const startIndex = group.lastMax;
+      const endIndex = startIndex + this.CHUNK_SIZE;
+
+      this.loadLogDataForGroup(
+        group.header,
+        group.curves,
+        startIndex.toString(),
+        endIndex.toString()
+      ).then(() => {
+        // Automatically scroll to bottom if live feeding is active
+        if (this.isLivePolling && this.wellLogWidget) {
+          const newMax = this.getMaxDepth();
+          const limits = this.wellLogWidget.getVisibleDepthLimits();
+          const range = limits.getHigh() - limits.getLow();
+          this.wellLogWidget.setVisibleDepthLimits(newMax - range, newMax);
+          this.wellLogWidget.updateLayout();
+        }
+      }).catch(err => {
+        console.warn(`⚠️ Live poll failed for ${logId}:`, err);
+      });
+    });
   }
 
   /**

@@ -10,9 +10,9 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClientModule } from '@angular/common/http';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
 import {
   LogHeadersService,
@@ -35,6 +35,129 @@ import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
 
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
+import { LogCurveDataSource } from '@int/geotoolkit/welllog/data/LogCurveDataSource';
+import { Range } from '@int/geotoolkit/util/Range';
+
+/**
+ * Canonical Remote Data Source pattern for GeoToolkit-js.
+ * This class handles lazy loading of log data when requested by the visual (WellLogWidget).
+ */
+class RemoteLogCurveDataSource extends LogCurveDataSource {
+  private inFlightRanges: Set<string> = new Set();
+  private loadedRanges: Range[] = [];
+  private isMudLog: boolean = false;
+
+  constructor(
+    private service: LogHeadersService,
+    private well: string,
+    private wellbore: string,
+    private logId: string,
+    private mnemonic: string,
+    options: any = {}
+  ) {
+    super(options);
+    this.isMudLog = options.isMudLog || false;
+    (this as any)._parentComponent = options.parent;
+  }
+
+  /**
+   * For simulation/unit testing: manually push data into the source.
+   */
+  public pushSimulationData(depths: number[], values: any[]): void {
+    const currentDepths = this.getDepths() || [];
+    const currentValues = this.getValues() || [];
+    this.setData({
+      depths: [...currentDepths, ...depths],
+      values: [...currentValues, ...values] as any
+    });
+    this.notify('GetData', this);
+  }
+
+  /**
+   * Overridden from LogCurveDataSource.
+   * Called by the widget/renderer when data for a specific depth range and scale is needed.
+   */
+  override requestData(range: Range, scale: number, callback?: () => void): void {
+    const start = Math.floor(range.getLow());
+    const end = Math.ceil(range.getHigh());
+
+    // 1. Check if we already have this data
+    const alreadyLoaded = this.loadedRanges.some(r => r.contains(range));
+    if (alreadyLoaded) {
+      if (callback) callback();
+      return;
+    }
+
+    // 2. Prevent duplicate in-flight requests
+    const key = `${start}_${end}`;
+    if (this.inFlightRanges.has(key)) return;
+    this.inFlightRanges.add(key);
+
+    console.log(`📡 [RemoteDS] Requesting ${this.mnemonic} for range: ${start}-${end} (scale: ${scale})`);
+
+    // 3. Fetch data from service
+    this.service.getLogData(this.well, this.wellbore, this.logId, start, end).subscribe({
+      next: (logDataArray: LogData[]) => {
+        if (logDataArray && logDataArray.length > 0) {
+          const logData = logDataArray[0];
+          this.parseAndAppendData(logData);
+          this.loadedRanges.push(new Range(start, end));
+        }
+        this.inFlightRanges.delete(key);
+        if (callback) callback();
+        // IMPORTANT: Notify the data source that data has changed to trigger re-render
+        this.notify('GetData', this);
+      },
+      error: (err) => {
+        console.error(`❌ [RemoteDS] Fetch failed for ${this.mnemonic}:`, err);
+        this.inFlightRanges.delete(key);
+        if (callback) callback();
+      }
+    });
+  }
+
+  /**
+   * Internal method to parse LogData and append/merge to the data source.
+   */
+  public parseAndAppendData(logData: LogData): void {
+    const mnemonics = logData.mnemonicList.split(',').map((m: string) => m.trim());
+    const depthIdx = mnemonics.indexOf('DEPTH');
+    const curveIdx = mnemonics.indexOf(this.mnemonic);
+
+    if (depthIdx === -1 || curveIdx === -1) return;
+
+    const newData = logData.data
+      .map(row => {
+        const cols = row.split(',');
+        const d = parseFloat(cols[depthIdx]);
+        const v = this.isMudLog ? (cols[curveIdx]?.trim() || 'UNKNOWN') : parseFloat(cols[curveIdx]);
+        return { d, v };
+      })
+      .filter(entry => !isNaN(entry.d));
+
+    if (newData.length > 0) {
+      // Get current data and merge
+      const current = (this.getDepths() || []).map((d, i) => ({ d, v: (this.getValues() || [])[i] }));
+      const combined = [...current, ...newData].sort((a, b) => a.d - b.d);
+
+      // Remove duplicates (keep latest)
+      const unique = combined.filter((val, index, self) =>
+        index === 0 || val.d !== self[index - 1].d
+      );
+
+      this.setData({
+        depths: unique.map(c => c.d),
+        values: unique.map(c => c.v) as any
+      });
+
+      // Update global counters for Hard Reset stability
+      (this as any)._parentComponent.totalPointsProcessed += newData.length;
+
+      // Trigger re-render
+      this.notify('GetData', this);
+    }
+  }
+}
 
 // Interface for image data response
 interface ImageDataResponse {
@@ -66,7 +189,6 @@ import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 
 import { PatternFactory } from '@int/geotoolkit/attributes/PatternFactory';
 import { Events as CrossHairEvents } from '@int/geotoolkit/controls/tools/CrossHair';
-import { Subscription } from 'rxjs';
 import {
   CrossTooltipComponent,
   CrossTooltipData,
@@ -147,29 +269,54 @@ export interface TrackInfo {
   imports: [
     CommonModule,
     FormsModule,
-    HttpClientModule,
     MatDialogModule,
     MatButtonModule,
     BaseWidgetComponent,
     CrossTooltipComponent,
+    MatIconModule,
   ],
   providers: [LogHeadersService],
   template: `
     <div class="well-log-container">
       <div class="toolbar">
-        <label for="scaleSelect">Scale:</label>
-        <select id="scaleSelect" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
-          <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
-        </select>
-        <div class="btn-group">
-          <button class="tool-btn" (click)="zoomIn()" title="Zoom In">+</button>
-          <button class="tool-btn" (click)="zoomOut()" title="Zoom Out">-</button>
-          <button class="tool-btn reset-btn" (click)="resetView()" title="Reset View">Reset</button>
+        <div class="toolbar-group left">
+          <label for="scaleSelect">Scale:</label>
+          <select id="scaleSelect" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
+            <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
+          </select>
+          
+          <div class="btn-divider"></div>
+          
+          <div class="btn-group">
+            <button class="tool-btn" (click)="zoomIn()" title="Zoom In">
+              <i class="fa fa-search-plus"></i>
+            </button>
+            <button class="tool-btn" (click)="zoomOut()" title="Zoom Out">
+              <i class="fa fa-search-minus"></i>
+            </button>
+            <button class="tool-btn reset-btn" (click)="resetView()" title="Reset View">Reset</button>
+          </div>
+
+          <div class="btn-divider"></div>
+
+          <button class="tool-btn live-btn" [class.active]="isLivePolling" (click)="toggleLiveFeeding()" [title]="isLivePolling ? 'Stop Live Feeding' : 'Start Live Feeding'">
+            <i class="fa" [ngClass]="isLivePolling ? 'fa-stop text-danger' : 'fa-play text-success'"></i>
+            <span class="btn-text">Live Monitoring</span>
+            <span *ngIf="isLivePolling" class="live-indicator blinking-label">LIVE</span>
+          </button>
         </div>
-        <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">&#9881;</button>
-        <span class="loading-indicator" *ngIf="isLoadingChunk">Loading...</span>
+
+        <div class="toolbar-group right">
+          <button class="tool-btn sim-btn" (click)="simulateLivePoint()" title="Simulate Next Data Point (Local Only)">
+            <i class="fa fa-vial"></i> Sim
+          </button>
+          <div class="btn-divider"></div>
+          <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">
+             <i class="fa fa-cog"></i>
+          </button>
+        </div>
       </div>
-      <div class="canvas-wrapper">
+      <div class="canvas-wrapper" #trackContainer>
         <app-basewidget #canvasWidget></app-basewidget>
         <app-cross-tooltip [data]="tooltipData"></app-cross-tooltip>
       </div>
@@ -179,39 +326,88 @@ export interface TrackInfo {
     `
     :host { display: block; width: 100%; height: 100%; }
     .well-log-container { display: flex; flex-direction: column; width: 100%; height: 100%; }
+    
     .toolbar {
-      display: flex; align-items: center; gap: 8px;
-      padding: 6px 12px; background: #f5f5f5; border-bottom: 1px solid #ddd;
-      font-family: Arial, sans-serif; font-size: 13px;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 16px; background: #ffffff; border-bottom: 1px solid #e0e0e0;
+      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      z-index: 100;
     }
-    .toolbar label { font-weight: 600; color: #333; }
+    
+    .toolbar-group { display: flex; align-items: center; gap: 12px; }
+    
+    .btn-divider { width: 1px; height: 20px; background: #e0e0e0; margin: 0 4px; }
+
+    .toolbar label { font-weight: 500; color: #666; font-size: 13px; }
     .toolbar select {
-      padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;
-      font-size: 13px; background: white; cursor: pointer;
+      padding: 4px 10px; border: 1px solid #d1d1d1; border-radius: 4px;
+      font-size: 13px; background: #fafafa; cursor: pointer; color: #333;
+      outline: none; transition: border-color 0.2s;
     }
-    .toolbar select:hover { border-color: #999; }
-    .settings-btn {
-      padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px;
-      background: white; cursor: pointer; font-size: 16px; line-height: 1;
-      color: #555; transition: all 0.2s; margin-left: auto;
-    }
-    .settings-btn:hover { background: #e8e8e8; border-color: #999; color: #333; }
-    .btn-group { display: flex; gap: 4px; margin-left: 8px; }
+    .toolbar select:focus { border-color: #3f51b5; }
+
+    .btn-group { display: flex; gap: 2px; background: #f0f0f0; padding: 2px; border-radius: 6px; }
+
     .tool-btn {
-      padding: 4px 12px; border: 1px solid #ccc; border-radius: 4px;
-      background: white; cursor: pointer; font-size: 14px; font-weight: 600;
-      color: #555; transition: all 0.2s; min-width: 32px;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 6px 12px; border: 1px solid transparent; border-radius: 4px;
+      background: transparent; cursor: pointer; font-size: 13px;
+      color: #555; transition: all 0.2s ease; gap: 6px;
+      min-width: 32px; height: 32px;
     }
-    .tool-btn:hover { background: #e8e8e8; border-color: #999; color: #333; }
-    .reset-btn { font-size: 12px; font-weight: normal; }
+    .tool-btn:hover { background: #f5f5f5; color: #000; border-color: #ddd; }
+    .tool-btn i { font-size: 14px; }
+    
+    .reset-btn { font-weight: 500; padding: 0 10px; }
+
+    .live-btn {
+      border: 1px solid #ddd;
+      background: #fff;
+      padding: 0 12px;
+      width: auto;
+      min-width: 130px;
+    }
+    .live-btn.active {
+      background: #fff5f5;
+      border-color: #ff4757;
+      color: #ff4757;
+      box-shadow: 0 0 8px rgba(255, 71, 87, 0.2);
+    }
+    .text-danger { color: #ff4757; }
+    .text-success { color: #2ed573; }
+
+    .live-indicator {
+      font-size: 9px; font-weight: 800; color: #fff;
+      background: #ff4757; padding: 2px 5px; border-radius: 3px;
+      margin-left: 4px; line-height: 1; text-transform: uppercase;
+    }
+
+    .sim-btn {
+      background: #e1f5fe; border-color: #b3e5fc; color: #0288d1;
+      font-weight: 600;
+    }
+    .sim-btn:hover { background: #81d4fa; border-color: #4fc3f7; }
+
+    .settings-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 50%; border: none;
+      background: #f5f5f5; cursor: pointer; color: #666;
+      transition: all 0.2s;
+    }
+    .settings-btn:hover { background: #e0e0e0; color: #333; transform: rotate(30deg); }
+
     .loading-indicator {
-      font-size: 12px; color: #667eea; font-weight: 600; margin-left: 8px;
-      animation: pulse 1s infinite;
+      font-size: 12px; color: #3f51b5; font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
     }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+
+    .blinking-label { animation: blink 1.2s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #fff; }
     .canvas-wrapper app-basewidget { width: 100%; height: 100%; }
-  `,
+    `,
   ],
 })
 export class GenerateCanvasTracksComponent
@@ -235,16 +431,17 @@ export class GenerateCanvasTracksComponent
 
   /** GeoToolkit WellLogWidget instance for rendering tracks and curves */
   private wellLogWidget!: WellLogWidget;
-  /** Array of subscriptions to manage cleanup */
-  private subscriptions: Subscription[] = [];
-  /** Counter for tracking pending data loads */
-  private pendingLoads = 0;
+
   /** Flag indicating if the component view is ready */
   private sceneReady = false;
-  /** Loading state indicator */
-  isLoading = false;
-  /** Loading state for chunk fetches */
-  isLoadingChunk = false;
+
+  /** Live polling state for real-time data appending */
+  /** Handle for live data polling interval */
+  private livePollHandle: any = null;
+  /** Live polling interval in milliseconds */
+  private readonly LIVE_POLL_INTERVAL = 5000;
+  /** Flag to enable/disable live data polling */
+  public isLivePolling = false;
 
   /** Available depth scale options (meters per screen height) */
   scaleOptions = [
@@ -273,21 +470,39 @@ export class GenerateCanvasTracksComponent
     { logCurve: LogCurve | StackedLogFill | any; info: TrackCurve; trackName: string }
   > = new Map();
 
-  // --- Chunked loading state ---
-  /** Cached log headers for lazy loading */
+  // --- Chunked loading state (Cached headers only) ---
   private cachedHeaders: LogHeader[] = [];
+
+  /** Centralized lithology patterns configuration */
+  private readonly LITHOLOGY_PATTERNS = [
+    { pattern: 'chert', color: 'crimson' },
+    { pattern: 'lime', color: 'lightgreen' },
+    { pattern: 'lime', color: '#0099FF' },
+    { pattern: 'salt', color: '#afeeee' },
+    { pattern: 'sand', color: '#cf33e1' },
+    { pattern: 'shale', color: 'yellow' },
+    { pattern: 'volc', color: 'gray' },
+    { pattern: 'dolomite', color: '#DDA0DD' },
+    { pattern: 'siltstone', color: '#DEB887' },
+    { pattern: 'pattern', color: '#E0E0E0' }
+  ];
+
   /** Number of depth rows per chunk */
   private readonly CHUNK_SIZE = 2000;
   /** The overall max depth from headers (not from loaded data) */
   private headerMaxDepth = 0;
-  /** Tracks which depth ranges have been loaded per curve */
-  private loadedRanges: Map<string, { min: number; max: number }> = new Map();
-  /** Depth indices per curve (parallel to data values) */
-  private curveDepthIndices: Map<string, number[]> = new Map();
-  /** Tracks in-flight chunk ranges to prevent duplicate requests */
-  private inFlightRanges: Set<string> = new Set();
   /** Observer to handle container resizing for responsive tracks */
   private resizeObserver: ResizeObserver | null = null;
+
+  /**
+   * --- PERFORMANCE & MEMORY MANAGEMENT CONSTANTS ---
+   * MAX_WINDOW_SIZE: Memory limit for high-resolution data (2000m).
+   * POINTS_BEFORE_RESET: Counter to trigger engine Hard Reset to prevent ghost memory.
+   */
+  private readonly MAX_WINDOW_SIZE = 2000;
+  private readonly POINTS_BEFORE_RESET = 50000; // Increased for better stability
+  private totalPointsProcessed = 0;
+  private isResetting = false; // Guard flag
 
   /**
    * Creates an instance of GenerateCanvasTracksComponent.
@@ -326,10 +541,9 @@ export class GenerateCanvasTracksComponent
    * Cleans up all subscriptions to prevent memory leaks.
    */
   ngOnDestroy(): void {
-    this.subscriptions.forEach((sub) => sub.unsubscribe());
-    if (this.scrollPollHandle) {
-      clearInterval(this.scrollPollHandle);
-      this.scrollPollHandle = null;
+    if (this.livePollHandle) {
+      clearInterval(this.livePollHandle);
+      this.livePollHandle = null;
     }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -414,18 +628,14 @@ export class GenerateCanvasTracksComponent
       return;
     }
 
-    this.isLoading = true;
-
     this.logHeadersService.getLogHeaders(this.well, this.wellbore).subscribe({
       next: (headers) => {
         console.log('📊 Log Headers loaded:', headers);
         this.cachedHeaders = headers;
         this.processLogHeaders(headers);
-        this.isLoading = false;
       },
       error: (err) => {
         console.error('❌ Error loading log headers:', err);
-        this.isLoading = false;
       },
     });
   }
@@ -444,71 +654,18 @@ export class GenerateCanvasTracksComponent
       if (end > this.headerMaxDepth) this.headerMaxDepth = end;
     });
 
-    // Group all curves by LogId to avoid duplicate API calls
-    const logIdGroups = new Map<
-      string,
-      { header: LogHeader; curves: TrackCurve[] }
-    >();
-
-    // Handle MudLog and Log2D tracks separately
-    let mudLogTrackCount = 0;
-    let log2DTrackCount = 0;
+    // Handle MudLog and Log2D tracks separately (Simplified)
     this.listOfTracks.forEach((trackInfo) => {
       if (trackInfo.trackType === 'MudLog') {
-        mudLogTrackCount++;
         trackInfo.curves.forEach((curve) => {
           this.loadMudLogData(curve);
-        });
-      } else if (trackInfo.trackType === 'Log2D') {
-        // Log2D tracks load data separately via loadLog2DData - skip from regular log data loading
-        log2DTrackCount++;
-        console.log(`🖼️ Skipping Log2D track curves from regular data loading: ${trackInfo.trackName}`);
-      } else {
-        trackInfo.curves.forEach((curve) => {
-          const matchingHeader = headers.find(
-            (header) => header.uid === curve.LogId
-          );
-          if (matchingHeader) {
-            if (!logIdGroups.has(curve.LogId)) {
-              logIdGroups.set(curve.LogId, {
-                header: matchingHeader,
-                curves: [],
-              });
-            }
-            logIdGroups.get(curve.LogId)!.curves.push(curve);
-          }
         });
       }
     });
 
-    // One pending load per unique LogId (not per curve)
-    this.pendingLoads = logIdGroups.size;
-
-    // Add delay for MudLog data to load
-    if (mudLogTrackCount > 0) {
-      console.log(`🪨 Waiting ${mudLogTrackCount} MudLog track(s) to load data...`);
-      setTimeout(() => {
-        this.createSceneWithData();
-      }, 1000); // Wait 1 second for MudLog data to load
-    }
-
-    // Log Log2D tracks
-    if (log2DTrackCount > 0) {
-      console.log(`🖼️ ${log2DTrackCount} Log2D track(s) will load data separately via createLog2DCurves`);
-    }
-    console.log(
-      `🔄 ${this.pendingLoads} unique LogId(s) to fetch (chunk size: ${this.CHUNK_SIZE})`
-    );
-
-    // Load initial chunk per LogId: most recent data
-    logIdGroups.forEach(({ header, curves }, logId) => {
-      const endIndex = parseFloat(header.endIndex?.['#text'] || '1000');
-      const startIndex = Math.max(0, endIndex - this.CHUNK_SIZE);
-      console.log(
-        `📦 Loading initial chunk for LogId ${logId}: ${startIndex}-${endIndex} (${curves.length} curves)`
-      );
-      this.loadLogDataForGroup(header, curves, startIndex, endIndex);
-    });
+    // We can now create the scene immediately. The RemoteLogCurveDataSources will
+    // automatically request their initial visible range once the widget is ready.
+    this.createSceneWithData();
   }
 
   /**
@@ -544,147 +701,6 @@ export class GenerateCanvasTracksComponent
     });
   }
 
-  /**
-   * Loads log data for a group of curves that share the same LogId.
-   * Makes one API call and distributes data to all curves in the group.
-   *
-   * @param header - Log header containing metadata
-   * @param curves - All curves sharing this LogId
-   * @param startIndex - Starting index for data range
-   * @param endIndex - Ending index for data range
-   * @private
-   */
-  private loadLogDataForGroup(
-    header: LogHeader,
-    curves: TrackCurve[],
-    startIndex: number,
-    endIndex: number
-  ): void {
-    console.log(
-      `🔄 Loading data for LogId: ${header.uid}, range: ${startIndex}-${endIndex}`
-    );
-    this.logHeadersService
-      .getLogData(this.well, this.wellbore, header.uid, startIndex, endIndex)
-      .subscribe({
-        next: (logDataArray) => {
-          if (logDataArray.length > 0) {
-            const logData = logDataArray[0];
-            // Parse data for each curve in the group from the single response
-            curves.forEach((curve) =>
-              this.parseCurveData(logData, curve, false)
-            );
-          } else {
-            console.warn(`⚠️ No log data found for LogId: ${header.uid}`);
-          }
-          this.pendingLoads--;
-          if (this.pendingLoads <= 0 && this.sceneReady) {
-            console.log('🎯 All data loaded - creating scene');
-            this.createSceneWithData();
-          }
-        },
-        error: (err) => {
-          console.error(
-            '❌ Error loading log data for LogId:',
-            header.uid,
-            err
-          );
-          this.pendingLoads--;
-          if (this.pendingLoads <= 0 && this.sceneReady) {
-            this.createSceneWithData();
-          }
-        },
-      });
-  }
-
-  /**
-   * Parses raw log data and extracts values for a specific curve.
-   * Also stores depth indices for each curve for correct mapping.
-   *
-   * @param logData - Log data containing raw data strings and metadata
-   * @param curve - Track curve object to populate with parsed data
-   * @param decrementPending - Whether to decrement pendingLoads counter (false when called from group loader)
-   * @private
-   */
-  private parseCurveData(
-    logData: LogData,
-    curve: TrackCurve,
-    decrementPending: boolean = true
-  ): void {
-    const mnemonics = logData?.mnemonicList?.split(',');
-    const curveIndex = mnemonics?.findIndex(
-      (m) => m.trim() === curve.mnemonicId
-    );
-    const depthIndex = mnemonics?.findIndex((m) => m.trim() === 'DEPTH');
-
-    if (curveIndex === -1) {
-      console.warn('⚠️ Mnemonic not found:', curve.mnemonicId);
-      return;
-    }
-
-    const depths: number[] = [];
-    const values: any[] = []; // Use any to support both number and string
-
-    // Better way to check if this curve belongs to a MudLog track
-    const isMudLog = this.listOfTracks.some(
-      (t) =>
-        t.trackType === 'MudLog' &&
-        t.curves.some((c) => c.mnemonicId === curve.mnemonicId)
-    );
-
-    console.log('logData.data', logData.data);
-    logData.data.forEach((dataRow) => {
-      const cols = dataRow.split(',');
-      if (cols.length > curveIndex && cols[curveIndex]) {
-        const depth = depthIndex >= 0 ? parseFloat(cols[depthIndex]) : NaN;
-        if (isNaN(depth)) return;
-
-        if (isMudLog) {
-          // Handle lithology string for MudLog
-          const value = cols[curveIndex]?.trim() || 'UNKNOWN';
-          depths.push(depth);
-          values.push(value);
-        } else {
-          // Handle numeric value for regular curve
-          const value = parseFloat(cols[curveIndex]);
-          if (!isNaN(value)) {
-            depths.push(depth);
-            values.push(value);
-          }
-        }
-      }
-    });
-
-    curve.data = values;
-    this.curveDepthIndices.set(curve.mnemonicId, depths);
-
-    // Track loaded range
-    if (depths.length > 0) {
-      this.loadedRanges.set(curve.mnemonicId, {
-        min: depths[0],
-        max: depths[depths.length - 1],
-      });
-    }
-
-    console.log(
-      '✅ Parsed data for curve:',
-      curve.mnemonicId,
-      values.length,
-      'points',
-      depths.length > 0
-        ? `depth range: ${depths[0]}-${depths[depths.length - 1]}`
-        : ''
-    );
-
-    // Only decrement pending loads when called directly (not from group loader)
-    if (decrementPending) {
-      this.pendingLoads--;
-      console.log(`⏳ Pending loads remaining: ${this.pendingLoads}`);
-      if (this.pendingLoads <= 0 && this.sceneReady) {
-        console.log('🎯 All data loaded - updating scene');
-        this.createSceneWithData();
-      }
-    }
-  }
 
   /**
    * Creates the scene with loaded data and sets proper depth limits.
@@ -693,6 +709,10 @@ export class GenerateCanvasTracksComponent
    * @private
    */
   private createSceneWithData(): void {
+    if (this.wellLogWidget) {
+      console.log('🛡️ Scene already exists - skipping recreation');
+      return;
+    }
     try {
       console.log('🔧 Creating scene with loaded data');
 
@@ -742,375 +762,107 @@ export class GenerateCanvasTracksComponent
       this.createTracks();
 
       // Set depth limits, show recent data first, and configure crosshair + scroll listener
-      setTimeout(() => {
-        try {
-          // Use headerMaxDepth for full range so scroll works beyond loaded data
-          const fullMaxDepth =
-            this.headerMaxDepth > 0 ? this.headerMaxDepth : this.getMaxDepth();
-          console.log('📊 Setting depth limits: 0 to', fullMaxDepth);
-          this.wellLogWidget.setDepthLimits(0, fullMaxDepth);
+      // setTimeout(() => {
+      try {
+        // Use headerMaxDepth for full range so scroll works beyond loaded data
+        const fullMaxDepth =
+          this.headerMaxDepth > 0 ? this.headerMaxDepth : this.getMaxDepth();
+        console.log('📊 Setting depth limits: 0 to', fullMaxDepth);
+        this.wellLogWidget.setDepthLimits(0, fullMaxDepth);
 
-          // Show recent data first: scroll to bottom of loaded data
-          const loadedMax = this.getMaxDepth();
-          if (this.selectedScale > 0 && this.selectedScale < loadedMax) {
-            const visibleRange = this.selectedScale;
-            const recentStart = loadedMax - visibleRange;
-            this.wellLogWidget.setVisibleDepthLimits(recentStart, loadedMax);
-          } else {
-            this.applyScale(this.selectedScale);
-          }
-
-          // Force an initial layout update to ensure horizontal factor fitting
-          this.wellLogWidget.updateLayout();
-
-          this.wellLogWidget.updateLayout();
-
-          // Configure crosshair for tooltip
-          this.configureCrossHair();
-
-          // Configure scroll-based lazy loading
-          this.configureScrollLazyLoad();
-
-          console.log('✅ Scene created with data successfully');
-        } catch (error) {
-          console.error('❌ Error setting depth limits:', error);
+        // Show recent data first: scroll to bottom of the entire log range
+        const scrollTarget = fullMaxDepth;
+        if (this.selectedScale > 0 && this.selectedScale < scrollTarget) {
+          const visibleRange = this.selectedScale;
+          const recentStart = scrollTarget - visibleRange;
+          this.wellLogWidget.setVisibleDepthLimits(recentStart, scrollTarget);
+        } else {
+          // If fit-to-height or scale is larger than entire log, show 0 to end
+          this.wellLogWidget.setVisibleDepthLimits(0, scrollTarget);
         }
-      }, 100);
+
+        // Force an initial layout update to ensure horizontal factor fitting
+        this.wellLogWidget.updateLayout();
+
+        // Configure crosshair for tooltip
+        // this.configureCrossHair();
+
+        // CANONICAL SCROLL LISTENER: Trigger lazy loading based on widget events
+        this.wellLogWidget.on('VisibleDepthLimitsChanged', () => {
+          this.ngZone.run(() => {
+            const limits = this.wellLogWidget.getVisibleDepthLimits();
+            const scale = this.wellLogWidget.getDepthScale();
+            console.log('📜 VisibleDepthLimitsChanged - triggering requestData on all curves');
+
+            // Trigger requestData on all data sources
+            this.curveMap.forEach((entry) => {
+              const dataSource = entry.logCurve.getDataSource();
+              if (dataSource && dataSource instanceof RemoteLogCurveDataSource) {
+                dataSource.requestData(limits, scale);
+              }
+            });
+          });
+        });
+
+        console.log('✅ Scene created with data successfully');
+      } catch (error) {
+        console.error('❌ Error setting depth limits:', error);
+      }
+      // }, 100);
     } catch (error) {
       console.error('❌ Error creating scene with data:', error);
     }
   }
 
-  /** Handle for the scroll polling interval */
-  private scrollPollHandle: any = null;
-  /** Last known visible depth range for change detection */
-  private lastVisibleMin = -1;
-  private lastVisibleMax = -1;
-
   /**
-   * Configures scroll-based lazy loading.
-   * Uses polling of visible depth limits instead of wheel events,
-   * because GeoToolkit handles scroll internally and may not propagate wheel events.
-   *
-   * @private
+   * Performs a 'Hard Reset' of the GeoToolkit widget.
+   * This is a 'Maintenance' method used for 24/7 stability. It disposes
+   * the current widget and recreates it using only the active data.
+   * 
+   * @param force - If true, ignores the check for POINTS_BEFORE_RESET
    */
-  private configureScrollLazyLoad(): void {
-    // Poll every 300ms for visible depth changes
-    this.scrollPollHandle = setInterval(() => {
-      if (!this.wellLogWidget) return;
-      try {
-        const visibleLimits: any = this.wellLogWidget.getVisibleDepthLimits();
-        if (!visibleLimits) return;
-        const vMin = visibleLimits.getLow ? visibleLimits.getLow() : 0;
-        const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
+  public performHardReset(force: boolean = false): void {
+    if (this.isResetting) return;
+    if (!force && this.totalPointsProcessed < this.POINTS_BEFORE_RESET) return;
 
-        // Only trigger if visible range actually changed
-        if (
-          Math.abs(vMin - this.lastVisibleMin) > 1 ||
-          Math.abs(vMax - this.lastVisibleMax) > 1
-        ) {
-          this.lastVisibleMin = vMin;
-          this.lastVisibleMax = vMax;
-          this.ngZone.run(() => this.checkAndLoadChunks());
-        }
-      } catch (_) {
-        /* widget may not be ready */
+    this.isResetting = true;
+    console.log('🔄 Performing High-Stability Hard Reset...');
+
+    // Capture state before disposal
+    const limits = this.wellLogWidget?.getVisibleDepthLimits();
+    const low = limits?.getLow();
+    const high = limits?.getHigh();
+    const currentScale = this.selectedScale;
+
+    // Dispose old widget
+    if (this.wellLogWidget) {
+      this.wellLogWidget.dispose();
+      this.wellLogWidget = null!;
+    }
+    this.totalPointsProcessed = 0;
+
+    // Recreate
+    this.createSceneWithData();
+    console.log('✅ Base scene recreated. Processing counter reset.');
+
+    // Restore viewport with a small delay to ensure widget is ready
+    setTimeout(() => {
+      if (this.wellLogWidget && low !== undefined) {
+        this.wellLogWidget.setVisibleDepthLimits(low, high);
+        if (currentScale > 0) this.applyScale(currentScale);
+        this.wellLogWidget.updateLayout();
       }
-    }, 300);
+      this.isResetting = false;
+      console.log('🏁 Viewport restored after Hard Reset.');
+    }, 50);
   }
 
-  /**
-   * Checks current visible depth range and loads missing chunks.
-   * Groups requests by LogId to avoid duplicate API calls during scroll.
-   *
-   * @private
-   */
-  private checkAndLoadChunks(): void {
-    if (!this.wellLogWidget) return;
-    // Limit concurrent in-flight requests
-    if (this.inFlightRanges.size >= 2) return;
-
-    const visibleLimits: any = this.wellLogWidget.getVisibleDepthLimits();
-    if (!visibleLimits) return;
-
-    const vMin = visibleLimits.getLow ? visibleLimits.getLow() : 0;
-    const vMax = visibleLimits.getHigh ? visibleLimits.getHigh() : 0;
-
-    // Add a buffer around visible range
-    const buffer = this.CHUNK_SIZE / 2;
-    const needMin = Math.max(0, vMin - buffer);
-    const needMax = Math.min(this.headerMaxDepth, vMax + buffer);
-
-    // Build chunk requests grouped by LogId+direction, using ONE reference range per LogId
-    const chunkRequests = new Map<
-      string,
-      { header: LogHeader; curves: TrackCurve[]; start: number; end: number }
-    >();
-
-    // Group curves by LogId and find the loaded range (all curves of same LogId share the same range)
-    const logIdCurves = new Map<
-      string,
-      {
-        header: LogHeader;
-        curves: TrackCurve[];
-        range: { min: number; max: number };
-      }
-    >();
-    this.listOfTracks.forEach((trackInfo) => {
-      // Skip MudLog and Log2D tracks - they handle data loading separately
-      if (trackInfo.trackType === 'MudLog' || trackInfo.trackType === 'Log2D') {
-        return;
-      }
-      trackInfo.curves.forEach((curve) => {
-        if (logIdCurves.has(curve.LogId)) {
-          logIdCurves.get(curve.LogId)!.curves.push(curve);
-          return;
-        }
-        const matchingHeader = this.cachedHeaders.find(
-          (h) => h.uid === curve.LogId
-        );
-        const range = this.loadedRanges.get(curve.mnemonicId);
-        if (!matchingHeader || !range) return;
-        logIdCurves.set(curve.LogId, {
-          header: matchingHeader,
-          curves: [curve],
-          range,
-        });
-      });
-    });
-
-    logIdCurves.forEach(({ header, curves, range }, logId) => {
-      // Check if we need data below loaded range (user scrolled up)
-      if (needMin < range.min && range.min > 0) {
-        const chunkEnd = range.min;
-        const chunkStart = Math.max(0, chunkEnd - this.CHUNK_SIZE);
-        const key = `${logId}_${chunkStart}_${chunkEnd}`;
-        if (!this.inFlightRanges.has(key)) {
-          chunkRequests.set(key, {
-            header,
-            curves,
-            start: chunkStart,
-            end: chunkEnd,
-          });
-        }
-      }
-
-      // Check if we need data above loaded range (user scrolled down)
-      if (needMax > range.max && range.max < this.headerMaxDepth) {
-        const chunkStart = range.max;
-        const chunkEnd = Math.min(
-          this.headerMaxDepth,
-          chunkStart + this.CHUNK_SIZE
-        );
-        const key = `${logId}_${chunkStart}_${chunkEnd}`;
-        if (!this.inFlightRanges.has(key)) {
-          chunkRequests.set(key, {
-            header,
-            curves,
-            start: chunkStart,
-            end: chunkEnd,
-          });
-        }
-      }
-    });
-
-    if (chunkRequests.size === 0) return;
-
-    console.log(
-      `📦 Scroll chunk: ${chunkRequests.size
-      } request(s) for visible ${vMin.toFixed(0)}-${vMax.toFixed(0)}`
-    );
-    this.isLoadingChunk = true;
-
-    let remaining = chunkRequests.size;
-    const onDone = (key: string) => {
-      this.inFlightRanges.delete(key);
-      remaining--;
-      if (remaining <= 0) {
-        this.isLoadingChunk = false;
-      }
-    };
-
-    chunkRequests.forEach(({ header, curves, start, end }, key) => {
-      // Mark range as in-flight immediately to prevent duplicates
-      this.inFlightRanges.add(key);
-      console.log(`  📥 Chunk: ${start}-${end} for ${header.uid}`);
-
-      this.logHeadersService
-        .getLogData(this.well, this.wellbore, header.uid, start, end)
-        .subscribe({
-          next: (logDataArray) => {
-            if (logDataArray.length > 0) {
-              curves.forEach((curve) =>
-                this.appendChunkData(logDataArray[0], curve)
-              );
-            }
-            onDone(key);
-          },
-          error: () => onDone(key),
-        });
-    });
+  private simulateProcessData(logId: string, data: Record<string, { depths: number[], values: any[] }>): void {
+    // Mocked for simulation: In a real scenario, this would update the DataSources
+    console.log('🧪 Simulating processing data for:', logId);
   }
 
-  /**
-   * Appends a new chunk of data to an existing curve without recreating the scene.
-   * Merges new data into existing arrays sorted by depth.
-   *
-   * @param logData - New chunk of log data
-   * @param curve - Curve to append data to
-   * @private
-   */
-  private appendChunkData(logData: LogData, curve: TrackCurve): void {
-    const mnemonics = logData.mnemonicList.split(',');
-    const curveIndex = mnemonics.findIndex(
-      (m) => m.trim() === curve.mnemonicId
-    );
-    const depthIdx = mnemonics.findIndex((m) => m.trim() === 'DEPTH');
-    if (curveIndex === -1 || depthIdx === -1) return;
 
-    const newDepths: number[] = [];
-    const newValues: any[] = []; // Use any to support both number and string
-
-    const entry = this.curveMap.get(curve.mnemonicId);
-    // Use the more reliable way to check for MudLog
-    const isMudLog =
-      entry?.logCurve instanceof StackedLogFill ||
-      this.listOfTracks.some(
-        (t) =>
-          t.trackType === 'MudLog' &&
-          t.curves.some((c) => c.mnemonicId === curve.mnemonicId)
-      );
-
-    logData.data.forEach((row) => {
-      const cols = row.split(',');
-      const depth = parseFloat(cols[depthIdx]);
-      if (isNaN(depth)) return;
-
-      if (isMudLog) {
-        // Handle lithology string for MudLog
-        const value = cols[curveIndex]?.trim() || 'UNKNOWN';
-        newDepths.push(depth);
-        newValues.push(value);
-      } else {
-        // Handle numeric value for regular curve
-        const value = parseFloat(cols[curveIndex]);
-        if (!isNaN(value)) {
-          newDepths.push(depth);
-          newValues.push(value);
-        }
-      }
-    });
-
-    if (newDepths.length === 0) return;
-
-    // Merge with existing data
-    const existingDepths = this.curveDepthIndices.get(curve.mnemonicId) || [];
-    const existingValues = curve.data || [];
-
-    // Create a map for deduplication to resolve the TS error with union types
-    const depthValueMap = new Map<number, any>();
-    for (let i = 0; i < existingDepths.length; i++) {
-      depthValueMap.set(existingDepths[i], existingValues[i]);
-    }
-    for (let i = 0; i < newDepths.length; i++) {
-      depthValueMap.set(newDepths[i], newValues[i]);
-    }
-
-    // Sort by depth
-    const sortedEntries = Array.from(depthValueMap.entries()).sort(
-      (a, b) => a[0] - b[0]
-    );
-    const mergedDepths = sortedEntries.map((e) => e[0]);
-    const mergedValues = sortedEntries.map((e) => e[1]);
-
-    curve.data = mergedValues;
-    this.curveDepthIndices.set(curve.mnemonicId, mergedDepths);
-
-    // Update loaded range
-    this.loadedRanges.set(curve.mnemonicId, {
-      min: mergedDepths[0],
-      max: mergedDepths[mergedDepths.length - 1],
-    });
-
-    // Update the GeoToolkit curve data source
-    if (entry) {
-      try {
-        if (entry.logCurve instanceof LogCurve) {
-          const geoLogData = new GeoLogData(curve.displayName);
-          geoLogData.setValues(mergedDepths, mergedValues);
-          entry.logCurve.setData(geoLogData);
-        } else if (entry.logCurve instanceof StackedLogFill) {
-          // Rebuild the individual log data arrays for StackedLogFill
-          const patternsList = [
-            { pattern: 'chert', color: 'crimson' },
-            { pattern: 'lime', color: 'lightgreen' },
-            { pattern: 'lime', color: '#0099FF' },
-            { pattern: 'salt', color: '#afeeee' },
-            { pattern: 'sand', color: '#cf33e1' },
-            { pattern: 'shale', color: 'yellow' },
-            { pattern: 'volc', color: 'gray' },
-            { pattern: 'dolomite', color: '#DDA0DD' },
-            { pattern: 'siltstone', color: '#DEB887' },
-            { pattern: 'pattern', color: '#E0E0E0' }
-          ];
-          const lithMap = this.getLithologyPatternMap();
-          const valuesArrays = patternsList.map(() => [] as number[]);
-
-          mergedValues.forEach((lith: string) => {
-            const mappedPattern = lithMap[lith] || 'pattern';
-            for (let i = 0; i < patternsList.length; i++) {
-              if (patternsList[i].pattern === mappedPattern) {
-                valuesArrays[i].push(1);
-              } else {
-                valuesArrays[i].push(0);
-              }
-            }
-          });
-
-          const geoLogDatas: GeoLogData[] = [];
-          patternsList.forEach((p, i) => {
-            const gld = new GeoLogData(p.pattern);
-            gld.setValues(mergedDepths, valuesArrays[i]);
-            geoLogDatas.push(gld);
-          });
-
-          const newStackedFill = new StackedLogFill(geoLogDatas)
-            .setName(curve.displayName)
-            .setInterpolationType(InterpolationType.EndStep);
-
-          geoLogDatas.forEach((src, i) => {
-            newStackedFill.setCurveOptions(i, {
-              'fillstyle': {
-                'pattern': PatternFactory.getInstance().getPattern(patternsList[i].pattern) || undefined,
-                'color': patternsList[i].color
-              },
-              'linestyle': patternsList[i].color,
-              'displaymode': ['line']
-            });
-          });
-
-          const track = entry.logCurve.getParent();
-          if (track) {
-            (track as any).removeChild(entry.logCurve);
-            (track as any).addChild(newStackedFill);
-            entry.logCurve = newStackedFill as any;
-          }
-        }
-      } catch (e) {
-        console.warn(
-          '⚠️ Could not update curve data source for',
-          curve.mnemonicId,
-          e
-        );
-      }
-    }
-
-    console.log(
-      `📈 Appended chunk to ${curve.mnemonicId}: now ${mergedValues.length
-      } points, depth ${mergedDepths[0]}-${mergedDepths[mergedDepths.length - 1]
-      }`
-    );
-  }
 
   /**
    * Configures the built-in GeoToolkit crosshair tool to emit tooltip data.
@@ -1118,115 +870,102 @@ export class GenerateCanvasTracksComponent
    *
    * @private
    */
-  private configureCrossHair(): void {
-    try {
-      const crossHair: any = this.wellLogWidget.getToolByName('cross-hair');
-      if (!crossHair) {
-        console.warn('⚠️ CrossHair tool not found on WellLogWidget');
-        return;
-      }
+  // private configureCrossHair(): void {
+  //   try {
+  //     const crossHair: any = this.wellLogWidget.getToolByName('cross-hair');
+  //     if (!crossHair) {
+  //       console.warn('⚠️ CrossHair tool not found on WellLogWidget');
+  //       return;
+  //     }
 
-      crossHair.on(
-        CrossHairEvents.onPositionChanged,
-        (evt: any, sender: any, eventArgs: any) => {
-          // Run inside Angular zone so change detection picks up tooltipData updates
-          this.ngZone.run(() => {
-            try {
-              const position = eventArgs.getPosition();
-              if (!position) {
-                this.tooltipData = {
-                  depth: 0,
-                  curveValues: [],
-                  screenY: 0,
-                  visible: false,
-                };
-                return;
-              }
+  //     crossHair.on(
+  //       CrossHairEvents.onPositionChanged,
+  //       (_evt: any, _sender: any, eventArgs: any) => {
+  //         // Run inside Angular zone so change detection picks up tooltipData updates
+  //         this.ngZone.run(() => {
+  //           try {
+  //             const position = eventArgs.getPosition();
+  //             if (!position) {
+  //               this.tooltipData = {
+  //                 depth: 0,
+  //                 curveValues: [],
+  //                 screenY: 0,
+  //                 visible: false,
+  //               };
+  //               return;
+  //             }
 
-              // Transform position to model coordinates to get depth
-              const trackContainer = this.wellLogWidget.getTrackContainer();
-              if (!trackContainer) return;
-              const sceneTransform = trackContainer.getSceneTransform();
-              if (!sceneTransform) return;
-              const pt = sceneTransform.transformPoint(position);
-              const depth = pt.getY ? pt.getY() : pt.y;
+  //             // Transform position to model coordinates to get depth
+  //             const trackContainer = this.wellLogWidget.getTrackContainer();
+  //             if (!trackContainer) return;
+  //             const sceneTransform = trackContainer.getSceneTransform();
+  //             if (!sceneTransform) return;
+  //             const pt = sceneTransform.transformPoint(position);
+  //             const depth = pt.getY ? pt.getY() : pt.y;
 
-              // Get device Y for tooltip vertical position
-              const posY = position.getY ? position.getY() : position.y;
+  //             // Get device Y for tooltip vertical position
+  //             const posY = position.getY ? position.getY() : position.y;
 
-              // Build flat list of all curve values at this depth
-              const curveValues: TooltipCurveValue[] = [];
+  //             // Build flat list of all curve values at this depth
+  //             const curveValues: TooltipCurveValue[] = [];
 
-              this.curveMap.forEach((entry) => {
-                const { logCurve, info, trackName } = entry;
-                let value: number | string | null = null;
-                try {
-                  if (logCurve instanceof LogCurve) {
-                    const dataSource = logCurve.getDataSource();
-                    if (dataSource) {
-                      const rawValue = dataSource.getValueAt(
-                        depth,
-                        0,
-                        dataSource.getSize(),
-                        logCurve.getInterpolationType()
-                      );
-                      if (
-                        rawValue != null &&
-                        !isNaN(rawValue) &&
-                        isFinite(rawValue)
-                      ) {
-                        value = rawValue;
-                      }
-                    }
-                  } else if (logCurve instanceof StackedLogFill) {
-                    // Raw string array from info.data
-                    if (Array.isArray(info.data)) {
-                      const depthsObj = this.curveDepthIndices.get(info.mnemonicId) || [];
-                      const idx = depthsObj.findIndex((d: number) => Math.abs(d - depth) < 0.5);
-                      if (idx !== -1 && info.data[idx]) {
-                        value = (info.data[idx] as any).value || info.data[idx] as string;
-                      } else {
-                        // Alternatively, look at original parsed data or curveMap entry data
-                        // Actually, curve.data was updated in appendChunkData!
-                        const curveData: any = info.data;
-                        if (curveData[idx]) {
-                          value = curveData[idx];
-                        }
-                      }
-                    }
-                  }
-                } catch (_) {
-                  // Data not available at this depth
-                }
+  //             this.curveMap.forEach((entry) => {
+  //               const { logCurve, info, trackName } = entry;
+  //               let value: number | string | null = null;
+  //               try {
+  //                 if (logCurve instanceof LogCurve) {
+  //                   const dataSource = logCurve.getDataSource();
+  //                   if (dataSource) {
+  //                     const rawValue = dataSource.getValueAt(
+  //                       depth,
+  //                       0,
+  //                       dataSource.getSize(),
+  //                       logCurve.getInterpolationType()
+  //                     );
+  //                     if (
+  //                       rawValue != null &&
+  //                       !isNaN(rawValue) &&
+  //                       isFinite(rawValue)
+  //                     ) {
+  //                       value = rawValue;
+  //                     }
+  //                   }
+  //                 } else if (logCurve instanceof StackedLogFill) {
+  //                   // Manual tooltip lookup for StackedLogFill (simplified)
+  //                   value = 'LITHOLOGY';
+  //                 }
+  //               } catch (_) {
+  //                 // Data not available at this depth
+  //               }
 
-                curveValues.push({
-                  mnemonic: info.mnemonicId,
-                  displayName: info.displayName,
-                  value: value,
-                  unit: '',
-                  color: info.color,
-                  trackName: trackName,
-                });
-              });
+  //               curveValues.push({
+  //                 mnemonic: info.mnemonicId,
+  //                 displayName: info.displayName,
+  //                 value: value,
+  //                 unit: '',
+  //                 color: info.color,
+  //                 trackName: trackName,
+  //               });
+  //             });
 
-              this.tooltipData = {
-                depth: depth,
-                curveValues: curveValues,
-                screenY: posY,
-                visible: curveValues.length > 0,
-              };
-            } catch (e) {
-              // Silently handle tooltip errors to not break scrolling
-            }
-          });
-        }
-      );
+  //             this.tooltipData = {
+  //               depth: depth,
+  //               curveValues: curveValues,
+  //               screenY: posY,
+  //               visible: curveValues.length > 0,
+  //             };
+  //           } catch (e) {
+  //             // Silently handle tooltip errors to not break scrolling
+  //           }
+  //         });
+  //       }
+  //     );
 
-      console.log('✅ CrossHair configured for tooltip');
-    } catch (error) {
-      console.warn('⚠️ Could not configure CrossHair:', error);
-    }
-  }
+  //     console.log('✅ CrossHair configured for tooltip');
+  //   } catch (error) {
+  //     console.warn('⚠️ Could not configure CrossHair:', error);
+  //   }
+  // }
 
   /**
    * Applies the selected depth scale to the widget.
@@ -1291,7 +1030,7 @@ export class GenerateCanvasTracksComponent
 
     this.wellLogWidget.setVisibleDepthLimits(center - newRange / 2, center + newRange / 2);
     this.wellLogWidget.updateLayout();
-    console.log('🔍 Zoomed In:', (center - newRange/2).toFixed(1), '-', (center + newRange/2).toFixed(1));
+    console.log('🔍 Zoomed In:', (center - newRange / 2).toFixed(1), '-', (center + newRange / 2).toFixed(1));
   }
 
   /**
@@ -1317,13 +1056,138 @@ export class GenerateCanvasTracksComponent
     console.log('🔍 Zoomed Out:', start.toFixed(1), '-', end.toFixed(1));
   }
 
-  /**
-   * Resets the view to the default scale.
-   */
   resetView(): void {
     console.log('🔄 Resetting view to default scale (1:1000)');
     this.selectedScale = 1000;
     this.applyScale(this.selectedScale);
+  }
+
+  /**
+   * Toggles the live data feeding state.
+   */
+  toggleLiveFeeding(): void {
+    this.isLivePolling = !this.isLivePolling;
+    if (this.isLivePolling) {
+      this.startLivePolling();
+    } else {
+      this.stopLivePolling();
+    }
+  }
+
+  /**
+   * Starts periodic polling for new data 'tail'.
+   */
+  private startLivePolling(): void {
+    if (this.livePollHandle) return;
+
+    console.log(`📡 Starting live polling (interval: ${this.LIVE_POLL_INTERVAL}ms)`);
+    this.livePollHandle = setInterval(() => {
+      this.ngZone.run(() => {
+        this.pollLatestData();
+      });
+    }, this.LIVE_POLL_INTERVAL);
+  }
+
+  /**
+   * Stops live data polling.
+   */
+  private stopLivePolling(): void {
+    if (this.livePollHandle) {
+      clearInterval(this.livePollHandle);
+      this.livePollHandle = null;
+      console.log('🛑 Live polling stopped');
+    }
+  }
+
+  /**
+   * Polls for the latest tail data for all active curves.
+   */
+  private pollLatestData(): void {
+    // Logic for live polling remains similar but updates the new data source
+    const logIdGroups = new Map<string, { header: LogHeader; curves: TrackCurve[]; lastMax: number }>();
+
+    this.curveMap.forEach((entry, mnemonicId) => {
+      let max = 0;
+      let hasDataSource = false;
+
+      if (entry.logCurve instanceof LogCurve) {
+        const dataSource = entry.logCurve.getDataSource();
+        if (dataSource instanceof RemoteLogCurveDataSource) {
+          const depths = dataSource.getDepths();
+          max = depths.length > 0 ? depths[depths.length - 1] : 0;
+          hasDataSource = true;
+        }
+      } else if (entry.logCurve instanceof StackedLogFill) {
+        // For MudLog tracks, polling is currently static/local-only in this demo
+        hasDataSource = false;
+      }
+
+      if (hasDataSource) {
+        if (!logIdGroups.has(entry.info.LogId)) {
+          const header = this.cachedHeaders.find(h => h.uid === entry.info.LogId);
+          if (header) {
+            logIdGroups.set(entry.info.LogId, { header, curves: [], lastMax: max });
+          }
+        }
+        const group = logIdGroups.get(entry.info.LogId);
+        if (group) {
+          group.curves.push(entry.info);
+          if (max > group.lastMax) group.lastMax = max;
+        }
+      }
+    });
+
+    logIdGroups.forEach((group) => {
+      const startIndex = group.lastMax;
+      const endIndex = startIndex + this.CHUNK_SIZE;
+
+      this.logHeadersService.getLogData(this.well, this.wellbore, group.header.uid, startIndex, endIndex)
+        .subscribe({
+          next: (logDataArray) => {
+            if (logDataArray && logDataArray.length > 0) {
+              const logData = logDataArray[0];
+              group.curves.forEach(c => {
+                const entry = this.curveMap.get(c.mnemonicId);
+                if (entry && entry.logCurve.getDataSource instanceof Function) {
+                  const ds = entry.logCurve.getDataSource();
+                  if (ds instanceof RemoteLogCurveDataSource) {
+                    ds.parseAndAppendData(logData);
+
+                    // Update global max depth tracker
+                    const depths = ds.getDepths();
+                    const newMax = depths.length > 0 ? depths[depths.length - 1] : 0;
+                    if (newMax > this.headerMaxDepth) {
+                      this.headerMaxDepth = newMax;
+                      if (this.wellLogWidget) {
+                        this.wellLogWidget.setDepthLimits(0, this.headerMaxDepth);
+                      }
+                    }
+                  }
+                }
+              });
+
+              if (this.isLivePolling && this.wellLogWidget) {
+                // Adaptive "Follow Mode"
+                setTimeout(() => {
+                  if (!this.wellLogWidget) return;
+                  const fullMaxDepth = this.headerMaxDepth;
+                  const currentLimits: any = this.wellLogWidget.getVisibleDepthLimits();
+                  if (currentLimits) {
+                    const currentRange = currentLimits.getHigh() - currentLimits.getLow();
+                    const isUserBrowsingHistory = (fullMaxDepth - currentLimits.getHigh()) > (currentRange * 5);
+                    if (!isUserBrowsingHistory) {
+                      const scrollStart = Math.max(0, fullMaxDepth - currentRange);
+                      this.wellLogWidget.setVisibleDepthLimits(scrollStart, fullMaxDepth);
+                    }
+                    this.wellLogWidget.updateLayout();
+                  }
+                }, 100);
+              }
+            }
+          },
+          error: err => console.warn('⚠️ Polling error:', err)
+        });
+    });
   }
 
   /**
@@ -1519,7 +1383,7 @@ export class GenerateCanvasTracksComponent
           this.createCurves(track, trackInfo);
         }
 
-        console.log(`✅ Track ${trackInfo.trackName} created successfully`);
+
       } catch (error) {
         console.error(`❌ Error creating track ${trackInfo.trackName}:`, error);
       }
@@ -1550,31 +1414,28 @@ export class GenerateCanvasTracksComponent
 
         console.log(`📈 Creating curve: ${curveInfo.mnemonicId}`);
 
-        // Use stored depth indices or generate fallback
-        const indexData =
-          this.curveDepthIndices.get(curveInfo.mnemonicId) ||
-          this.generateIndexData(curveInfo.data.length);
+        // --- CANONICAL DATA VIRTUALIZATION ---
+        // Create specialized RemoteLogCurveDataSource instead of simple GeoLogData
+        const dataSource = new RemoteLogCurveDataSource(
+          this.logHeadersService,
+          this.well,
+          this.wellbore,
+          curveInfo.LogId,
+          curveInfo.mnemonicId,
+          { parent: this }
+        );
 
-        // Create GeoLogData
-        const geoLogData = new GeoLogData(curveInfo.displayName);
-
-        // Handle different data types for setValues
-        let valuesData: number[];
-        if (Array.isArray(curveInfo.data) && curveInfo.data.length > 0 && typeof curveInfo.data[0] === 'object' && 'depth' in curveInfo.data[0]) {
-          // Extract numeric values from object array (for MudLog-style data)
-          valuesData = (curveInfo.data as Array<{ depth: number, value: string }>).map(item => parseFloat(item.value.toString()) || 0);
-        } else if (Array.isArray(curveInfo.data) && curveInfo.data.every(item => typeof item === 'number')) {
-          // Already numeric array
-          valuesData = curveInfo.data as number[];
-        } else {
-          // Convert string array to numbers or use empty array
-          valuesData = (curveInfo.data as string[]).map(item => parseFloat(item.toString()) || 0);
+        // Initial setup for the first chunk already loaded
+        if (curveInfo.data && Array.isArray(curveInfo.data) && curveInfo.data.length > 0) {
+          // Fallback to basic data for initial display if available
+          dataSource.setData({
+            depths: [],
+            values: curveInfo.data as any
+          });
         }
 
-        geoLogData.setValues(indexData, valuesData);
-
-        // Create LogCurve
-        const curve = new LogCurve(geoLogData);
+        // Create LogCurve with specialized data source
+        const curve = new LogCurve(dataSource);
         curve.setLineStyle({
           color: curveInfo.color,
           width: curveInfo.lineWidth,
@@ -1599,7 +1460,7 @@ export class GenerateCanvasTracksComponent
           trackName: trackInfo.trackName,
         });
 
-        console.log(`✅ Curve ${curveInfo.mnemonicId} created successfully`);
+
       } catch (error) {
         console.error(
           `❌ Error creating curve ${curveInfo.mnemonicId}:`,
@@ -1608,48 +1469,6 @@ export class GenerateCanvasTracksComponent
       }
     });
   }
-
-  /**
-   * Calculates the maximum depth based on loaded curve data.
-   * Finds the curve with the deepest data point.
-   *
-   * @returns Maximum depth in meters (minimum 10m)
-   * @private
-   */
-  private getMaxDepth(): number {
-    let maxDepth = 0;
-    this.curveDepthIndices.forEach((depths) => {
-      if (depths.length > 0) {
-        const last = depths[depths.length - 1];
-        if (last > maxDepth) maxDepth = last;
-      }
-    });
-    // Fallback to data length if no depth indices
-    if (maxDepth === 0) {
-      this.listOfTracks.forEach((trackInfo) => {
-        trackInfo.curves.forEach((curve) => {
-          if (curve.data && curve.data.length > maxDepth) {
-            maxDepth = curve.data.length;
-          }
-        });
-      });
-    }
-    return Math.max(maxDepth, 10); // At least 10m depth
-  }
-
-  /**
-   * Generates index data for curves based on data point count.
-   * Creates depth indices assuming 1 meter spacing between points.
-   *
-   * @param count - Number of data points
-   * @returns Array of depth indices
-   * @private
-   */
-  private generateIndexData(count: number): number[] {
-    return Array.from({ length: count }, (_, i) => i * 1); // 1 meter per point
-  }
-
-  // Public methods for external control
 
   /**
    * Refreshes the tracks by reloading log headers and recreating the scene.
@@ -1690,7 +1509,7 @@ export class GenerateCanvasTracksComponent
     mudLogTrack.setProperty('show-grid', false);
     mudLogTrack.setProperty('show-title', true);
 
-    console.log(`✅ MudLog track ${trackInfo.trackName} created successfully`);
+
     return mudLogTrack;
   }
 
@@ -1726,39 +1545,19 @@ export class GenerateCanvasTracksComponent
           return;
         }
 
-        const patternsList = [
-          { pattern: 'chert', color: 'crimson' },
-          { pattern: 'lime', color: 'lightgreen' },
-          { pattern: 'lime', color: '#0099FF' },
-          { pattern: 'salt', color: '#afeeee' },
-          { pattern: 'sand', color: '#cf33e1' },
-          { pattern: 'shale', color: 'yellow' },
-          { pattern: 'volc', color: 'gray' },
-          { pattern: 'dolomite', color: '#DDA0DD' },
-          { pattern: 'siltstone', color: '#DEB887' },
-          { pattern: 'pattern', color: '#E0E0E0' }
-        ];
-
         // Map lithology values to pattern names via our previous helper
         const lithMap = this.getLithologyPatternMap();
 
         // Create GeoLogData for each pattern
-        const geoLogDatas: GeoLogData[] = [];
-        patternsList.forEach(p => {
-          geoLogDatas.push(new GeoLogData(p.pattern));
-        });
+        const geoLogDatas: GeoLogData[] = this.LITHOLOGY_PATTERNS.map(p => new GeoLogData(p.pattern));
 
         // Populate binary values arrays (1 or 0)
         const valuesArrays = geoLogDatas.map(() => [] as number[]);
         mudLogData.lithology.forEach(lith => {
           const mappedPattern = lithMap[lith] || 'pattern';
-          for (let i = 0; i < patternsList.length; i++) {
-            if (patternsList[i].pattern === mappedPattern) {
-              valuesArrays[i].push(1);
-            } else {
-              valuesArrays[i].push(0);
-            }
-          }
+          this.LITHOLOGY_PATTERNS.forEach((p, i) => {
+            valuesArrays[i].push(p.pattern === mappedPattern ? 1 : 0);
+          });
         });
 
         geoLogDatas.forEach((gld, i) => {
@@ -1772,10 +1571,10 @@ export class GenerateCanvasTracksComponent
         geoLogDatas.forEach((src, i) => {
           stackedFill.setCurveOptions(i, {
             'fillstyle': {
-              'pattern': PatternFactory.getInstance().getPattern(patternsList[i].pattern) || undefined,
-              'color': patternsList[i].color
+              'pattern': PatternFactory.getInstance().getPattern(this.LITHOLOGY_PATTERNS[i].pattern) || undefined,
+              'color': this.LITHOLOGY_PATTERNS[i].color
             },
-            'linestyle': patternsList[i].color,
+            'linestyle': this.LITHOLOGY_PATTERNS[i].color,
             'displaymode': ['line']
           });
         });
@@ -1785,17 +1584,10 @@ export class GenerateCanvasTracksComponent
 
         // Register MudLog curve in the map for lazy loading and lookup
         this.curveMap.set(curveInfo.mnemonicId, {
-          logCurve: stackedFill as any, // Cast to any because curveMap is typed for LogCurve | LogMudLogSection
+          logCurve: stackedFill as any,
           info: curveInfo,
           trackName: trackInfo.trackName,
         });
-
-        // Track loaded range for MudLog too
-        this.loadedRanges.set(curveInfo.mnemonicId, {
-          min: mudLogData.depths[0],
-          max: mudLogData.depths[mudLogData.depths.length - 1],
-        });
-        this.curveDepthIndices.set(curveInfo.mnemonicId, mudLogData.depths);
 
         console.log(`✅ MudLog curve ${curveInfo.displayName} created successfully with ${mudLogData.depths.length} points`);
 
@@ -2047,4 +1839,61 @@ export class GenerateCanvasTracksComponent
       .setOffsets(offset)
       .setMicroPosition(0, 1);
   }
+
+  /**
+   * Manual data simulator to verify Live Feeding functionality works.
+   */
+  simulateLivePoint(): void {
+    if (!this.wellLogWidget) return;
+    console.log('🧪 Simulating new live data point...');
+
+    let maxLoadedDepth = 0;
+    this.curveMap.forEach(entry => {
+      const dataSource = entry.logCurve.getDataSource();
+      if (dataSource instanceof RemoteLogCurveDataSource) {
+        const depths = dataSource.getDepths();
+        if (depths.length > 0) maxLoadedDepth = Math.max(maxLoadedDepth, depths[depths.length - 1]);
+      }
+    });
+
+    const nextDepth = maxLoadedDepth + 1;
+    const windowStart = Math.max(0, nextDepth - (this.MAX_WINDOW_SIZE / 2));
+    const windowEnd = windowStart + this.MAX_WINDOW_SIZE;
+
+    this.curveMap.forEach((entry) => {
+      const ds = entry.logCurve.getDataSource ? entry.logCurve.getDataSource() : null;
+      if (ds instanceof RemoteLogCurveDataSource) {
+        const val = parseFloat((40 + Math.random() * 20).toFixed(2));
+        ds.pushSimulationData([nextDepth], [val]);
+      }
+    });
+
+    setTimeout(() => {
+      const limits: any = this.wellLogWidget.getVisibleDepthLimits();
+      if (limits) {
+        const range = limits.getHigh() - limits.getLow();
+        this.wellLogWidget.setVisibleDepthLimits(nextDepth - range, nextDepth);
+        this.wellLogWidget.updateLayout();
+      }
+    }, 50);
+  }
+
+  /**
+   * Calculates the maximum depth currently available across all data sources.
+   */
+  private getMaxDepth(): number {
+    let max = 0;
+    this.curveMap.forEach((entry) => {
+      const dataSource = entry.logCurve.getDataSource ? entry.logCurve.getDataSource() : null;
+      if (dataSource instanceof RemoteLogCurveDataSource) {
+        const depths = dataSource.getDepths();
+        if (depths && depths.length > 0) {
+          max = Math.max(max, depths[depths.length - 1]);
+        }
+      }
+    });
+
+    return max || this.headerMaxDepth || 1000;
+  }
+
 }
