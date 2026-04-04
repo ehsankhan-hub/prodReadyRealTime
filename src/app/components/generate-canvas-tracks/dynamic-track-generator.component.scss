@@ -110,6 +110,35 @@
   opacity: 1;
 }
 
+.live-btn {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  overflow: visible;
+}
+
+.live-btn.active {
+  color: #ff4757 !important;
+  border-color: #ff4757 !important;
+  background: rgba(255, 71, 87, 0.1) !important;
+}
+
+.live-indicator {
+  font-size: 9px;
+  font-weight: bold;
+  color: #ff4757;
+  position: absolute;
+  top: -12px;
+  right: -4px;
+  background: white;
+  padding: 0 4px;
+  border: 1px solid #ff4757;
+  border-radius: 4px;
+  z-index: 10;
+  white-space: nowrap;
+}
+
 .canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 
 /* BaseWidget and Canvas overrides for dark theme and responsiveness */
