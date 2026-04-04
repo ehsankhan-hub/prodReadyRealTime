@@ -184,6 +184,8 @@ import { InterpolationType } from '@int/geotoolkit/data/DataStepInterpolation';
 import { BoxVisibility, DiscreteStackedFillVisualHeader } from '@int/geotoolkit/welllog/header/DiscreteStackedFillVisualHeader';
 import { DiscreteFillDisplayType } from '@int/geotoolkit/welllog/header/AdaptiveDiscreteFillVisualHeader';
 import { HttpClient } from '@angular/common/http';
+import { forkJoin, Observable, of } from 'rxjs';
+import { map, catchError } from 'rxjs/operators';
 import { IndexType } from '@int/geotoolkit/welllog/IndexType';
 import { TrackType } from '@int/geotoolkit/welllog/TrackType';
 
@@ -654,53 +656,61 @@ export class GenerateCanvasTracksComponent
       if (end > this.headerMaxDepth) this.headerMaxDepth = end;
     });
 
-    // Handle MudLog and Log2D tracks separately (Simplified)
+    // Collect all MudLog data loading observables
+    const mudLogObservables: Observable<any>[] = [];
+
     this.listOfTracks.forEach((trackInfo) => {
       if (trackInfo.trackType === 'MudLog') {
         trackInfo.curves.forEach((curve) => {
-          this.loadMudLogData(curve);
+          mudLogObservables.push(this.loadMudLogDataAsObservable(curve));
         });
       }
     });
 
-    // We can now create the scene immediately. The RemoteLogCurveDataSources will
-    // automatically request their initial visible range once the widget is ready.
-    this.createSceneWithData();
-  }
+    if (mudLogObservables.length > 0) {
+      forkJoin(mudLogObservables).subscribe({
+        next: () => {
+          console.log('✅ All MudLog data loaded - creating scene');
+          this.createSceneWithData();
+        },
+        error: (err) => {
+          console.error('❌ Error loading MudLog data - creating scene anyway', err);
+          this.createSceneWithData();
+        }
+      });
+    } else {
+      this.createSceneWithData();
+    }
+}
 
   /**
-   * Loads MudLog lithology data from the sample data file.
-   * 
-   * @param curve - The MudLog curve to load data for
-   * @private
+   * Loads MudLog data and returns an observable for synchronization.
    */
-  private loadMudLogData(curve: TrackCurve): void {
+  private loadMudLogDataAsObservable(curve: TrackCurve): Observable<any> {
     console.log(`🪨 Loading MudLog data for curve: ${curve.displayName}`);
-
-    this.http.get<Array<{ depth: number, value: string }>>('/assets/data/mudLogData.json').subscribe({
-      next: (mudLogData) => {
+    // Use proper absolute path for Angular assets
+    return this.http.get<Array<{ depth: number, value: string }>>('assets/data/mudLogData.json').pipe(
+      map((mudLogData: Array<{ depth: number, value: string }>) => {
         console.log(`✅ MudLog data loaded for ${curve.displayName}:`, mudLogData.length, 'entries');
-
-        // Removing depth shift logic for production usage: 
-        // using raw absolute depths as determined by the downloaded JSON.
         curve.data = mudLogData;
 
-        // Reactively update visual section if it already exists in the scene
-        const entry = this.curveMap.get(curve.mnemonicId);
-        if (entry && entry.logCurve instanceof StackedLogFill) {
-          console.log(`🔄 Reactively updating MudLog visual for ${curve.displayName}`);
-          // Reactive updates for StackedLogFill should be implemented here if needed in the future
-          this.wellLogWidget?.updateLayout();
+        // Ensure headerMaxDepth is updated if MudLog data goes deeper than headers
+        if (mudLogData.length > 0) {
+          const maxMudDepth = Math.max(...mudLogData.filter(d => !isNaN(d.depth)).map(d => d.depth));
+          if (maxMudDepth > this.headerMaxDepth) {
+            console.log(`📏 Updating headerMaxDepth from MudLog: ${this.headerMaxDepth} -> ${maxMudDepth}`);
+            this.headerMaxDepth = maxMudDepth;
+          }
         }
-      },
-      error: (err) => {
+        return mudLogData;
+      }),
+      catchError((err: any) => {
         console.error(`❌ Error loading MudLog data for ${curve.displayName}:`, err);
-        // Set empty data to prevent errors
         curve.data = [];
-      }
-    });
+        return of([]);
+      })
+    );
   }
-
 
   /**
    * Creates the scene with loaded data and sets proper depth limits.
@@ -1777,18 +1787,10 @@ export class GenerateCanvasTracksComponent
         const targetMinDepth = 0;
         const targetMaxDepth = this.headerMaxDepth > 0 ? this.headerMaxDepth : 100000;
 
-        // Calculate scaling factors to normalize depths to well's range
-        const rawRange = rawMaxDepth - rawMinDepth;
-        const targetRange = targetMaxDepth - targetMinDepth;
-        const scaleFactor = rawRange > 0 ? targetRange / rawRange : 1;
-
-        console.log(`📐 Scaling image depths: raw(${rawMinDepth}-${rawMaxDepth}) → target(${targetMinDepth}-${targetMaxDepth}), factor: ${scaleFactor}`);
-
-        // Parse image data and create Log2DDataRow objects with scaled depths
+        // Parse image data and create Log2DDataRow objects with original depths
         response.imageData.forEach((item: LogDataItem) => {
-          // Scale depth proportionally to fit within well's depth range
-          const scaledDepth = targetMinDepth + ((item.depth - rawMinDepth) * scaleFactor);
-          const row = new Log2DDataRow(scaledDepth, item.values, item.angles);
+          // Use original depth from data source
+          const row = new Log2DDataRow(item.depth, item.values, item.angles);
           log2dData.getRows().push(row);
         });
 
