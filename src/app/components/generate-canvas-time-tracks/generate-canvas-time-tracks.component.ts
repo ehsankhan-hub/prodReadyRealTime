@@ -59,7 +59,7 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
     private service: LogHeadersService,
     private well: string,
     private wellbore: string,
-    private logId: string,
+    private header: LogHeader,
     private mnemonic: string,
     options: any = {}
   ) {
@@ -107,7 +107,20 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
 
-    this.service.getTimeLogData(this.well, this.wellbore, this.logId, startISO, endISO).subscribe({
+    const queryParameter: any = {
+      wellUid: this.well,
+      logUid: this.header.uid,
+      wellboreUid: this.wellbore,
+      logName: this.header.name,
+      indexType: this.header.indexType,
+      indexCurve: this.header.indexCurve,
+      startIndex: startISO,
+      endIndex: endISO,
+      isGrowing: false,
+      mnemonicList: '',
+    };
+
+    this.service.getTimeLogData(queryParameter).subscribe({
       next: (logDataArray: LogData[]) => {
         if (logDataArray && logDataArray.length > 0) {
           const logData = logDataArray[0];
@@ -1117,7 +1130,20 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
       const startIndex = group.lastMax;
       const endIndex = startIndex + this.CHUNK_SIZE;
 
-      this.logHeadersService.getTimeLogData(this.well, this.wellbore, group.header.uid, startIndex, endIndex)
+      const queryParameter: any = {
+        wellUid: this.well,
+        logUid: group.header.uid,
+        wellboreUid: this.wellbore,
+        logName: group.header.name,
+        indexType: group.header.indexType,
+        indexCurve: group.header.indexCurve,
+        startIndex: startIndex,
+        endIndex: endIndex,
+        isGrowing: false,
+        mnemonicList: '',
+      };
+
+      this.logHeadersService.getTimeLogData(queryParameter)
         .subscribe({
           next: (logDataArray) => {
             if (logDataArray && logDataArray.length > 0) {
@@ -1391,12 +1417,19 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
         console.log(`📈 Creating curve: ${curveInfo.mnemonicId}`);
 
         // --- CANONICAL DATA VIRTUALIZATION ---
+        // Find corresponding log header
+        const header = this.cachedHeaders.find((h) => h.uid === curveInfo.LogId);
+        if (!header) {
+          console.warn(`⚠️ Header not found for LogId: ${curveInfo.LogId}`);
+          return;
+        }
+
         // Create specialized RemoteLogCurveDataSource instead of simple GeoLogData
         const dataSource = new RemoteLogCurveDataSource(
           this.logHeadersService,
           this.well,
           this.wellbore,
-          curveInfo.LogId,
+          header,
           curveInfo.mnemonicId,
           { parent: this }
         );

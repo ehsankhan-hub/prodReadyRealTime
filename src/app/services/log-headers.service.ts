@@ -61,6 +61,10 @@ export interface LogHeader {
   };
   /** Unique identifier for this log header */
   uid: string;
+  /** Alias for uid used in some query contexts */
+  objectId?: string;
+  /** Alias for name used in some query contexts */
+  objectName?: string;
   /** Optional end date/time index */
   endDateTimeIndex?: string;
   /** Optional start date/time index */
@@ -98,6 +102,22 @@ export interface LogData {
   data: string[];
   /** Unique identifier for this log data */
   uid: string;
+}
+
+/**
+ * Interface for log data query parameters.
+ */
+export interface ILogDataQueryParameter {
+  wellUid: string;
+  logUid: string;
+  wellboreUid: string;
+  logName?: string;
+  indexType?: string;
+  indexCurve?: string;
+  startIndex: number | string;
+  endIndex: number | string;
+  isGrowing?: boolean;
+  mnemonicList?: string;
 }
 
 /**
@@ -243,36 +263,27 @@ export class LogHeadersService {
     this.logDataFetchInProgress.clear();
   }
 
-  getTimeLogData(well: string, wellbore: string, logId: string, startIndex: number | string, endIndex: number | string): Observable<LogData[]> {
-    const cacheKey = `${well}|${wellbore}|${logId}|time`;
-
-    // Disable caching for time logs to ensure scrolling/lazy loading works correctly
-    // Local slicing against a limited initial cache prevents historical data from being fetched
-    /* 
-    if (this.logDataCache.has(cacheKey)) {
-      console.log(`📋 Cache hit for time log ${logId}, slicing ${startIndex}-${endIndex}`);
-      const cached = this.logDataCache.get(cacheKey)!;
-      return of(this.sliceLogData(cached, startIndex, endIndex));
-    }
-    */
+  getTimeLogData(params: ILogDataQueryParameter): Observable<LogData[]> {
+    const { wellUid, logUid, wellboreUid, startIndex, endIndex } = params;
+    const cacheKey = `${wellUid}|${wellboreUid}|${logUid}|time`;
 
     // If a fetch is already in progress for this key, piggyback on its shared observable
     if (this.logDataFetchInProgress.has(cacheKey)) {
-      console.log(`⏳ Fetch already in progress for time log ${logId}, piggybacking for ${startIndex}-${endIndex}`);
+      console.log(`⏳ Fetch already in progress for time log ${logUid}, piggybacking for ${startIndex}-${endIndex}`);
       return this.logDataFetchInProgress.get(cacheKey)!.pipe(
         map((filtered) => this.sliceLogData(filtered, startIndex, endIndex))
       );
     }
 
     // First fetch — download full dataset, cache it, share across concurrent subscribers
-    console.log(`🌐 Fetching FULL time logData for ${logId} (will cache for future chunk requests)`);
-    const shared$ = this.http.get(`${this.baseUrl}/timeLogData?wellUid=${well}&logUid=${logId}&wellboreUid=${wellbore}&startIndex=${startIndex}&endIndex=${endIndex}`).pipe(
+    console.log(`🌐 Fetching FULL time logData for ${logUid} (will cache for future chunk requests)`);
+    const shared$ = this.http.get(`${this.baseUrl}/timeLogData?wellUid=${wellUid}&logUid=${logUid}&wellboreUid=${wellboreUid}&startIndex=${startIndex}&endIndex=${endIndex}`).pipe(
       map((response: any) => {
         // Convert time log response format to LogData format
         const logData: LogData = {
-          uidWell: well,
-          uidWellbore: wellbore,
-          uid: logId,
+          uidWell: wellUid,
+          uidWellbore: wellboreUid,
+          uid: logUid,
           mnemonicList: response.logs?.[0]?.logData?.mnemonicList || '',
           unitList: '',
           startIndex: { '@uom': 's', '#text': '0' },
@@ -284,7 +295,7 @@ export class LogHeadersService {
         const fullDataset = [logData];
         this.logDataCache.set(cacheKey, fullDataset);
         this.logDataFetchInProgress.delete(cacheKey);
-        console.log(`✅ Cached ${fullDataset.length} time logData entries for ${logId} (${logData.data?.length || 0} rows)`);
+        console.log(`✅ Cached ${fullDataset.length} time logData entries for ${logUid} (${logData.data?.length || 0} rows)`);
         return fullDataset;
       }),
       shareReplay(1)
