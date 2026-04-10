@@ -41,7 +41,7 @@ dist/
 Thumbs.db
 
 
-
+db.json
 db_backup.json
 well-data.csv
 *.json.bak
