@@ -18,12 +18,16 @@ import {
   LogHeadersService,
   LogHeader,
   LogData,
-} from '../../services/log-headers.service';
+} from '../../service/well-service/log-headers.service';
 import { Log2DVisual, PlotTypes } from '@int/geotoolkit/welllog/Log2DVisual';
 import { Log2DVisualData } from '@int/geotoolkit/welllog/data/Log2DVisualData';
 import { Log2DDataRow } from '@int/geotoolkit/welllog/data/Log2DDataRow';
 import { CompositeLog2DVisualHeader } from '@int/geotoolkit/welllog/header/CompositeLog2DVisualHeader';
 import { DefaultColorProvider } from '@int/geotoolkit/util/DefaultColorProvider';
+import { LogCompositeVisualHeader } from '@int/geotoolkit/welllog/header/LogCompositeVisualHeader';
+import { LogVisualTitleHeader } from '@int/geotoolkit/welllog/header/LogVisualTitleHeader';
+import { AdaptiveLogCurveVisualHeader } from '@int/geotoolkit/welllog/header/AdaptiveLogCurveVisualHeader';
+import { AnchorType } from '@int/geotoolkit/util/AnchorType';
 
 import {
   PrintPropertiesDialogComponent,
@@ -33,6 +37,7 @@ import {
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
+import { HoldTitle } from '@int/geotoolkit/welllog/header/HoldTitle';
 
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { LogCurveDataSource } from '@int/geotoolkit/welllog/data/LogCurveDataSource';
@@ -681,7 +686,7 @@ export class GenerateCanvasTracksComponent
     } else {
       this.createSceneWithData();
     }
-}
+  }
 
   /**
    * Loads MudLog data and returns an observable for synchronization.
@@ -738,6 +743,12 @@ export class GenerateCanvasTracksComponent
           visible: true,
           height: 80,
         },
+        track: {
+          header: {
+            visibletracktitle: true, // ENSURES TRACK NAMES STAY
+            holdtitle: HoldTitle.Top // KEEPS THEM AT TOP
+          }
+        },
         viewcache: true,
         trackcontainer: {
           border: { visible: true },
@@ -761,12 +772,18 @@ export class GenerateCanvasTracksComponent
       console.log('✅ Widget assigned to BaseWidgetComponent');
 
       const headerProvider = this.wellLogWidget.getHeaderContainer().getHeaderProvider();
+
       headerProvider.registerHeaderProvider(
         StackedLogFill.getClassName(),
         new DiscreteStackedFillVisualHeader()
           .setDiscreteDisplayType(DiscreteFillDisplayType.FlexBox)
           .setBoxVisibility(BoxVisibility.Visible)
       );
+
+      // ENSURE PERMANENT HEADERS: Register prototypes for Tracks and Curves
+      // This ensures all tracks and curves get these headers automatically and they persist through data loads.
+      headerProvider.registerHeaderProvider(LogTrack.getClassName(), new LogVisualTitleHeader(undefined));
+      headerProvider.registerHeaderProvider(LogCurve.getClassName(), new AdaptiveLogCurveVisualHeader(undefined));
 
       // Create data tracks
       this.createTracks();
@@ -1382,6 +1399,9 @@ export class GenerateCanvasTracksComponent
           track.setName(trackInfo.trackName);
           // Converting pixel width to factor (weight) for proportional scaling
           (track as any).setLayoutStyle({ factor: trackInfo.trackWidth || 130 });
+
+          // Native GeoToolkit automatic header management is now configured via the provider
+          // No manual injection needed - this avoids conflicts with the widget synchronization
         }
 
         // Create curves for this track
@@ -1451,6 +1471,7 @@ export class GenerateCanvasTracksComponent
           width: curveInfo.lineWidth,
         });
         curve.setName(curveInfo.displayName);
+        curve.setDescription(curveInfo.displayName);
 
         // Set normalization limits if not auto scale
         if (
@@ -1462,6 +1483,9 @@ export class GenerateCanvasTracksComponent
         }
 
         track.addChild(curve);
+
+        // Header is now managed automatically by the AdaptiveLogCurveVisualHeader provider
+        // configured in createSceneWithData.
 
         // Register curve in the map for crosshair tooltip lookup
         this.curveMap.set(curveInfo.mnemonicId, {
@@ -1514,6 +1538,8 @@ export class GenerateCanvasTracksComponent
     mudLogTrack.setName(trackInfo.trackName);
     // Use proportional factor (via layout style) for responsiveness
     (mudLogTrack as any).setLayoutStyle({ factor: trackInfo.trackWidth || 150 });
+
+    // Native GeoToolkit automatic header management is used
 
     // Configure MudLog-specific properties
     mudLogTrack.setProperty('show-grid', false);
@@ -1701,6 +1727,8 @@ export class GenerateCanvasTracksComponent
     log2DTrack.setName(trackInfo.trackName);
     // Use proportional factor (via layout style) for responsiveness
     (log2DTrack as any).setLayoutStyle({ factor: trackInfo.trackWidth || 150 });
+
+    // Native GeoToolkit automatic header management is used
 
     // Configure Log2D-specific properties
     log2DTrack.setProperty('show-grid', false);

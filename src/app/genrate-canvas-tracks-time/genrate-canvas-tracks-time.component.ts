@@ -13,11 +13,7 @@ import { HttpClientModule } from '@angular/common/http';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { BaseWidgetComponent } from '../basewidget/basewidget.component';
-import {
-  LogHeadersService,
-  LogHeader,
-  LogData,
-} from '../services/log-headers.service';
+import { LogHeadersService, LogData, LogHeader } from '../service/well-service/log-headers.service';
 
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';

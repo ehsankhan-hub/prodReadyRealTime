@@ -267,14 +267,6 @@ export class LogHeadersService {
     const { wellUid, logUid, wellboreUid, startIndex, endIndex } = params;
     const cacheKey = `${wellUid}|${wellboreUid}|${logUid}|time`;
 
-    // If a fetch is already in progress for this key, piggyback on its shared observable
-    if (this.logDataFetchInProgress.has(cacheKey)) {
-      console.log(`⏳ Fetch already in progress for time log ${logUid}, piggybacking for ${startIndex}-${endIndex}`);
-      return this.logDataFetchInProgress.get(cacheKey)!.pipe(
-        map((filtered) => this.sliceLogData(filtered, startIndex, endIndex))
-      );
-    }
-
     // First fetch — download full dataset, cache it, share across concurrent subscribers
     console.log(`🌐 Fetching FULL time logData for ${logUid} (will cache for future chunk requests)`);
     const shared$ = this.http.get(`${this.baseUrl}/timeLogData?wellUid=${wellUid}&logUid=${logUid}&wellboreUid=${wellboreUid}&startIndex=${startIndex}&endIndex=${endIndex}`).pipe(
@@ -304,7 +296,7 @@ export class LogHeadersService {
     this.logDataFetchInProgress.set(cacheKey, shared$);
     // Return sliced chunk from the shared observable
     return shared$.pipe(
-      map((filtered) => this.sliceLogData(filtered, startIndex, endIndex))
+      map((filtered) => this.sliceTimeLogData(filtered, params))
     );
   }
 
@@ -357,117 +349,77 @@ export class LogHeadersService {
     return startNum >= firstDepth && endNum <= lastDepth;
   }
 
+  /**
+   * Dedicated depth-based slicing logic.
+   */
   private sliceLogData(logDataArr: LogData[], startIndex: number | string, endIndex: number | string): LogData[] {
     return logDataArr.map(logData => {
-      // Detect if time-based by checking mnemonicList for time columns
       const mnemonics = logData.mnemonicList?.split(',').map(m => m.trim());
-      const timeMnemonics = ['RIGTIME', 'TIME', 'DATETIME', 'TIMESTAMP', 'Time'];
       const depthMnemonics = ['DEPTH', 'MD', 'TVD', 'BITDEPTH', 'MWD_Depth'];
 
       let indexCol = -1;
-      let isTimeBased = false;
-
-      // Try depth mnemonics first
       for (const dm of depthMnemonics) {
         indexCol = mnemonics?.indexOf(dm);
-        if (indexCol !== -1) { isTimeBased = false; break; }
+        if (indexCol !== -1) break;
       }
-      // If no depth, try time mnemonics
+      if (indexCol === -1) indexCol = 0; // Fallback to first column
+
+      const startNum = typeof startIndex === 'string' ? parseFloat(startIndex) : startIndex;
+      const endNum = typeof endIndex === 'string' ? parseFloat(endIndex) : endIndex;
+
+      const slicedRows = logData.data?.filter(row => {
+        const cols = row.split(',');
+        const depthVal = parseFloat(cols[indexCol]?.trim());
+        return !isNaN(depthVal) && depthVal >= startNum && depthVal <= endNum;
+      });
+
+      return {
+        ...logData,
+        data: slicedRows
+      };
+    });
+  }
+
+  /**
+   * Dedicated time-based slicing logic for time logs.
+   * Handles ISO date strings and numeric timestamps.
+   */
+  private sliceTimeLogData(logDataArr: LogData[], params: ILogDataQueryParameter): LogData[] {
+    const { startIndex, endIndex, indexCurve, logUid } = params;
+    
+    return logDataArr.map(logData => {
+      const mnemonics = logData.mnemonicList?.split(',').map(m => m.trim());
+      // Prioritize the requested index curve or common time mnemonics
+      const timeMnemonics = [indexCurve, 'RIGTIME', 'TIME', 'DATE', 'DATETIME', 'TIMESTAMP'].filter(Boolean) as string[];
+      
+      let indexCol = -1;
+      for (const tm of timeMnemonics) {
+        indexCol = mnemonics.indexOf(tm);
+        if (indexCol !== -1) break;
+      }
+
       if (indexCol === -1) {
-        for (const tm of timeMnemonics) {
-          indexCol = mnemonics.indexOf(tm);
-          if (indexCol !== -1) { isTimeBased = true; break; }
-        }
+        console.warn(`⚠️ No time index found for ${logUid}. Available: ${logData.mnemonicList}`);
+        return logData;
       }
-      // Fallback to first column as depth
-      if (indexCol === -1) { indexCol = 0; isTimeBased = false; }
 
-      // Initialize timestamp variables for time-based filtering
-      let startTs: number = 0, endTs: number = 0;
-
-      // Debug: Show the range being requested vs available data
-      if (!isTimeBased && logData.data?.length > 0) {
-        const firstRow = logData.data[0].split(',');
-        const lastRow = logData.data[logData.data?.length - 1].split(',');
-        const firstDepth = parseFloat(firstRow[indexCol]?.trim());
-        const lastDepth = parseFloat(lastRow[indexCol]?.trim());
-        console.log(`📏 Depth slicing for ${logData.uid}:`);
-        console.log(`   Requested: ${startIndex} to ${endIndex}`);
-        console.log(`   Available: ${firstDepth} to ${lastDepth}`);
-        console.log(`   Index column: ${mnemonics[indexCol]} at position ${indexCol}`);
-        console.log(`   Total rows: ${logData.data.length}`);
-      } else if (isTimeBased && logData.data.length > 0) {
-        const firstRow = logData.data[0].split(',');
-        const lastRow = logData.data[logData.data.length - 1].split(',');
-        const firstTime = firstRow[indexCol]?.trim();
-        const lastTime = lastRow[indexCol]?.trim();
-        console.log(`🕐 Time slicing for ${logData.uid}:`);
-        console.log(`   Requested: ${startIndex} to ${endIndex} (type: ${typeof startIndex})`);
-        console.log(`   Available: ${firstTime} to ${lastTime}`);
-        console.log(`   Index column: ${mnemonics[indexCol]} at position ${indexCol}`);
-        console.log(`   Total rows: ${logData.data.length}`);
-
-        // Convert startIndex and endIndex to timestamps if they're strings
-        if (typeof startIndex === 'string') {
-          startTs = new Date(startIndex).getTime();
-          endTs = new Date(endIndex as string).getTime();
-          console.log(`   Converted ISO to timestamps: ${startTs} to ${endTs}`);
-        } else {
-          startTs = startIndex as number;
-          endTs = endIndex as number;
-          console.log(`   Using numeric timestamps: ${startTs} to ${endTs}`);
-        }
-      } else if (isTimeBased) {
-        // Handle time-based case when no data is available
-        if (typeof startIndex === 'string') {
-          startTs = new Date(startIndex).getTime();
-          endTs = new Date(endIndex as string).getTime();
-        } else {
-          startTs = startIndex as number;
-          endTs = endIndex as number;
-        }
-      }
+      const startTs = typeof startIndex === 'string' ? new Date(startIndex).getTime() : startIndex as number;
+      const endTs = typeof endIndex === 'string' ? new Date(endIndex).getTime() : endIndex as number;
 
       const slicedRows = logData.data?.filter(row => {
         const cols = row.split(',');
         const colStr = cols[indexCol]?.trim();
         if (!colStr) return false;
 
-        if (isTimeBased) {
-          // Handle both millisecond timestamps and ISO date strings
-          let ts: number;
-          if (colStr.match(/^\d+$/)) {
-            // It's a millisecond timestamp
-            ts = parseInt(colStr);
-          } else {
-            // It's a date string
-            ts = new Date(colStr).getTime();
-          }
-          // Use the converted timestamps for comparison
-          return !isNaN(ts) && ts >= startTs && ts <= endTs;
-        } else {
-          const depthVal = parseFloat(colStr);
-          const startNum = typeof startIndex === 'string' ? parseFloat(startIndex) : startIndex;
-          const endNum = typeof endIndex === 'string' ? parseFloat(endIndex) : endIndex;
-          return !isNaN(depthVal) && depthVal >= startNum && depthVal <= endNum;
-        }
+        const ts = colStr.match(/^\d+$/) ? parseInt(colStr) : new Date(colStr).getTime();
+        return !isNaN(ts) && ts >= startTs && ts <= endTs;
       });
 
-      if (isTimeBased) {
-        console.log(`🕐 Time slicing result: ${slicedRows?.length} rows from ${logData.data?.length} total`);
-      } else {
-        console.log(`📏 Depth slicing result: ${slicedRows?.length} rows from ${logData.data?.length} total`);
-      }
-
-      // Handle office system data format - create startIndex/endIndex if they don't exist
-      const startIndexObj = logData.startIndex || { '@uom': 'm', '#text': String(startIndex) };
-      const endIndexObj = logData.endIndex || { '@uom': 'm', '#text': String(endIndex) };
+      console.log(`🕐 Time slicing for ${logUid}: Found ${slicedRows?.length} rows in requested range`);
 
       return {
         ...logData,
-        data: slicedRows,
-        startIndex: startIndexObj,
-        endIndex: endIndexObj,
+        data: slicedRows
       };
     });
   }

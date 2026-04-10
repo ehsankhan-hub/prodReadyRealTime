@@ -2,7 +2,7 @@ import { Component, Input, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GenerateCanvasTracksComponent, TrackInfo, TrackCurve } from '../../components/generate-canvas-tracks/generate-canvas-tracks.component';
 import { ITracks, IMnemonic } from '../../models/tracks.model';
-import { LogHeadersService } from '../../services/log-headers.service';
+import { LogHeadersService } from '../../service/well-service/log-headers.service';
 
 
 /**
@@ -181,8 +181,8 @@ export class MwdDensityComponent implements OnInit {
         curves: [
           {
             mnemonicId: 'GR',
-            displayName: 'Gamma Ray',
-            color: '#FF6B6B',
+            displayName: 'Gamma Ray1',
+            color: 'green',
             lineStyle: 'solid',
             lineWidth: 2,
             min: 0,

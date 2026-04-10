@@ -16,17 +16,17 @@ import { MatIconModule } from '@angular/material/icon';
 import { Observable, forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { BaseWidgetComponent } from '../../basewidget/basewidget.component';
-import {
-  LogHeadersService,
-  LogHeader,
-  LogData,
-} from '../../services/log-headers.service';
+
 import { Log2DVisual, PlotTypes } from '@int/geotoolkit/welllog/Log2DVisual';
 import { Log2DVisualData } from '@int/geotoolkit/welllog/data/Log2DVisualData';
 import { Log2DDataRow } from '@int/geotoolkit/welllog/data/Log2DDataRow';
 import { CompositeLog2DVisualHeader } from '@int/geotoolkit/welllog/header/CompositeLog2DVisualHeader';
 import { DefaultColorProvider } from '@int/geotoolkit/util/DefaultColorProvider';
 import { DateTimeFormat } from '@int/geotoolkit/util/DateTimeFormat';
+import { LogCompositeVisualHeader } from '@int/geotoolkit/welllog/header/LogCompositeVisualHeader';
+import { LogVisualTitleHeader } from '@int/geotoolkit/welllog/header/LogVisualTitleHeader';
+import { AdaptiveLogCurveVisualHeader } from '@int/geotoolkit/welllog/header/AdaptiveLogCurveVisualHeader';
+import { AnchorType } from '@int/geotoolkit/util/AnchorType';
 
 import {
   PrintPropertiesDialogComponent,
@@ -36,6 +36,7 @@ import {
 import { WellLogWidget } from '@int/geotoolkit/welllog/widgets/WellLogWidget';
 import { LogTrack } from '@int/geotoolkit/welllog/LogTrack';
 import { LogCurve } from '@int/geotoolkit/welllog/LogCurve';
+import { HoldTitle } from '@int/geotoolkit/welllog/header/HoldTitle';
 
 import { LogData as GeoLogData } from '@int/geotoolkit/welllog/data/LogData';
 import { LogCurveDataSource } from '@int/geotoolkit/welllog/data/LogCurveDataSource';
@@ -132,7 +133,7 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
         // IMPORTANT: Notify the data source that data has changed to trigger re-render
         this.notify('GetData', this);
       },
-      error: (err) => {
+      error: (err: any) => {
         console.error(`❌ [RemoteDS] Fetch failed for ${this.mnemonic}:`, err);
         this.inFlightRanges.delete(key);
         if (callback) callback();
@@ -189,25 +190,25 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
       // This prevents memory bloat while allowing historical browsing
       const viewport = (this as any)._parentComponent.wellLogWidget?.getVisibleDepthLimits();
       let pruned = unique;
-      
+
       if (viewport) {
-         const viewLow = viewport.getLow();
-         const viewHigh = viewport.getHigh();
-         const viewRange = viewHigh - viewLow;
-         
-         // Keep data within 2x the current visible range (before and after)
-         // OR keep at least 24 hours of data if we are tracking live
-         const keepRange = Math.max(MAX_RETENTION_WINDOW_MS, viewRange * 2);
-         const mid = (viewLow + viewHigh) / 2;
-         
-         const lowLimit = mid - keepRange;
-         const highLimit = mid + keepRange;
-         
-         pruned = unique.filter(c => c.d >= lowLimit && c.d <= highLimit);
-         
-         if (pruned.length < unique.length) {
-           console.log(`✂️ [RemoteDS] Virtualization: Pruned ${unique.length - pruned.length} points outside sliding window for ${this.mnemonic}`);
-         }
+        const viewLow = viewport.getLow();
+        const viewHigh = viewport.getHigh();
+        const viewRange = viewHigh - viewLow;
+
+        // Keep data within 2x the current visible range (before and after)
+        // OR keep at least 24 hours of data if we are tracking live
+        const keepRange = Math.max(MAX_RETENTION_WINDOW_MS, viewRange * 2);
+        const mid = (viewLow + viewHigh) / 2;
+
+        const lowLimit = mid - keepRange;
+        const highLimit = mid + keepRange;
+
+        pruned = unique.filter(c => c.d >= lowLimit && c.d <= highLimit);
+
+        if (pruned.length < unique.length) {
+          console.log(`✂️ [RemoteDS] Virtualization: Pruned ${unique.length - pruned.length} points outside sliding window for ${this.mnemonic}`);
+        }
       }
 
       console.log(`📊 [RemoteDS] Merging data for ${this.mnemonic}: current=${current.length}, new=${newData.length}, unique=${unique.length}, final=${pruned.length}`);
@@ -261,6 +262,7 @@ import {
   TooltipCurveValue,
 } from '../cross-tooltip/cross-tooltip.component';
 import { StackedLogFill } from '@int/geotoolkit/welllog/StackedLogFill';
+import { LogData, LogHeader, LogHeadersService } from '../../service/well-service/log-headers.service';
 
 /**
  * Interface representing a single curve within a track.
@@ -550,9 +552,9 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
    * --- PERFORMANCE & MEMORY MANAGEMENT ---
    * POINTS_BEFORE_RESET: Counter to trigger engine Hard Reset to prevent ghost memory.
    */
-  private readonly POINTS_BEFORE_RESET = 50000; 
+  private readonly POINTS_BEFORE_RESET = 50000;
   private totalPointsProcessed = 0;
-  private isResetting = false; 
+  private isResetting = false;
 
   /**
    * Creates an instance of GenerateCanvasTracksComponent.
@@ -662,7 +664,7 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
         });
         console.log(`✅ ${count} lithology patterns registration initiated`);
       },
-      error: (err) => console.error('❌ Failed to load lithology patterns:', err)
+      error: (err: any) => console.error('❌ Failed to load lithology patterns:', err)
     });
   }
 
@@ -731,7 +733,7 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
           console.log('✅ All async data loaded - initializing scene');
           this.createSceneWithData();
         },
-        error: (err) => {
+        error: (err: any) => {
           console.error('❌ Error loading async data assets:', err);
           this.createSceneWithData(); // Fallback anyway
         }
@@ -765,7 +767,7 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
         }
         return mudLogData;
       }),
-      catchError((err) => {
+      catchError((err: any) => {
         console.error(`❌ Error loading MudLog data for ${curve.displayName}:`, err);
         curve.data = [];
         return of([]);
@@ -798,7 +800,13 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
         verticalscrollable: true,
         header: {
           visible: true,
-          height: 80,
+          height: 150, // Increased to safely accommodate track titles and multiple curve headers
+        },
+        track: {
+          header: {
+            visibletracktitle: true, // ENSURES TRACK NAMES STAY
+            holdtitle: HoldTitle.Top // KEEPS THEM AT TOP
+          }
         },
         viewcache: true,
         trackcontainer: {
@@ -848,6 +856,9 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
           .setDiscreteDisplayType(DiscreteFillDisplayType.FlexBox)
           .setBoxVisibility(BoxVisibility.Visible)
       );
+
+      // NOTE: Manual prototype generic headers removed in favor of explicit instance headers below
+      // to guarantee stable layouts for each curve.
 
       // Create data tracks
       this.createTracks();
@@ -1374,6 +1385,9 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
           track.setName(trackInfo.trackName);
           // Converting pixel width to factor (weight) for proportional scaling
           (track as any).setLayoutStyle({ factor: trackInfo.trackWidth || 130 });
+
+          // Native GeoToolkit automatic header management is now configured via the provider
+          // No manual injection needed - this avoids conflicts with the widget synchronization
         }
 
         // Create curves for this track
@@ -1462,6 +1476,24 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
 
         track.addChild(curve);
 
+        // EXPLICIT CURVE HEADER REGISTRATION
+        const curveHeader = new AdaptiveLogCurveVisualHeader(curve);
+        
+        // Map elements explicitly, using LeftCenter alignment for exact positioning
+        curveHeader.setElement({
+          'Name': { 'visible': true, 'section': 'center', 'anchor': AnchorType.LeftCenter }, // LeftCenter Name natively clips the line
+          'ScaleFrom': { 'visible': true, 'section': 'top' },
+          'ScaleTo': { 'visible': true, 'section': 'bottom' },
+          'Line': { 'visible': true, 'section': 'center' }
+        }).setSettings({
+          'priority': ['ScaleTo', 'ScaleFrom', 'Line', 'Name'], // Name is highest priority
+          'gap': 2
+        });
+
+        
+        this.wellLogWidget.getHeaderContainer().getHeaderProvider().registerHeader(curve, curveHeader);
+        this.wellLogWidget.updateHeader();
+
         // Register curve in the map for crosshair tooltip lookup
         this.curveMap.set(curveInfo.mnemonicId, {
           logCurve: curve,
@@ -1513,6 +1545,8 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
     mudLogTrack.setName(trackInfo.trackName);
     // Use proportional factor (via layout style) for responsiveness
     (mudLogTrack as any).setLayoutStyle({ factor: trackInfo.trackWidth || 150 });
+
+    // Native GeoToolkit automatic header management is used
 
     // Configure MudLog-specific properties
     mudLogTrack.setProperty('show-grid', false);
@@ -1701,6 +1735,8 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
     // Use proportional factor (via layout style) for responsiveness
     (log2DTrack as any).setLayoutStyle({ factor: trackInfo.trackWidth || 150 });
 
+    // Native GeoToolkit automatic header management is used
+
     // Configure Log2D-specific properties
     log2DTrack.setProperty('show-grid', false);
     log2DTrack.setProperty('show-title', true);
@@ -1857,7 +1893,7 @@ export class GenerateCanvasTimeTracksComponent implements OnInit, AfterViewInit,
     });
 
     const nextTime = maxLoadedDepth > 0 ? maxLoadedDepth + 1000 : new Date().getTime(); // +1 second
-    
+
     this.curveMap.forEach((entry) => {
       const ds = entry.logCurve.getDataSource ? entry.logCurve.getDataSource() : null;
       if (ds instanceof RemoteLogCurveDataSource) {

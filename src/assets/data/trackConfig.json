@@ -1,0 +1,49 @@
+[
+  {
+    "trackNo": 1,
+    "trackName": "Gamma Ray & Resistivity",
+    "trackType": "Linear",
+    "trackWidth": 180,
+    "isIndex": false,
+    "isDepth": false,
+    "curves": [
+      {
+        "mnemonicId": "GR",
+        "displayName": "Gamma Ray (Config)",
+        "color": "green",
+        "lineWidth": 1.5,
+        "autoScale": true,
+        "show": true,
+        "LogId": "log1"
+      },
+      {
+        "mnemonicId": "RES",
+        "displayName": "Deep Resistivity (Config)",
+        "color": "red",
+        "lineWidth": 2,
+        "autoScale": true,
+        "show": true,
+        "LogId": "log1"
+      }
+    ]
+  },
+  {
+    "trackNo": 2,
+    "trackName": "Density & Porosity",
+    "trackType": "Linear",
+    "trackWidth": 150,
+    "isIndex": false,
+    "isDepth": false,
+    "curves": [
+      {
+        "mnemonicId": "DENS",
+        "displayName": "Bulk Density",
+        "color": "blue",
+        "lineWidth": 1.5,
+        "autoScale": true,
+        "show": true,
+        "LogId": "log2"
+      }
+    ]
+  }
+]

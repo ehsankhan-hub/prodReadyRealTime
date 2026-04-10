@@ -2,7 +2,7 @@ import { Component, OnInit, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatTabChangeEvent } from '@angular/material/tabs';
-import { LogHeadersService, LogHeader, LogData } from '../../services/log-headers.service';
+import { LogHeadersService, LogHeader, LogData } from '../../service/well-service/log-headers.service';
 import { HttpClientModule } from '@angular/common/http';
 import { MwdDensityComponent } from '../../templates/mwd-density/mwd-density.component';
 import { MwdTimeComponent } from '../../templates/mwd-time/mwd-time.component';
@@ -82,6 +82,35 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
           {
             mnemonicId: 'GR',
             displayName: 'Gamma Ray',
+            color: '#FF6B6B',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: 0,
+            max: 150,
+            autoScale: false,
+            show: true,
+            LogId: 'MWD_Depth_SLB',
+            data: [],
+            mnemonicLst: []
+          },
+          {
+            mnemonicId: 'PRM',
+            displayName: 'Roun per min',
+            color: '#FF6B6B',
+            lineStyle: 'solid',
+            lineWidth: 2,
+            min: 0,
+            max: 150,
+            autoScale: false,
+            show: true,
+            LogId: 'MWD_Depth_SLB',
+            data: [],
+            mnemonicLst: []
+          }
+          ,
+          {
+            mnemonicId: 'POP',
+            displayName: 'ehsan',
             color: '#FF6B6B',
             lineStyle: 'solid',
             lineWidth: 2,
