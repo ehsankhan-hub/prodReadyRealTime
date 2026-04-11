@@ -89,7 +89,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 150,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Depth_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           },
@@ -103,7 +103,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 150,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Depth_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
@@ -118,7 +118,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 150,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Depth_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
@@ -142,7 +142,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 50,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Depth_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
@@ -179,7 +179,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 3.0,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Depth_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
@@ -203,7 +203,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 10,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Depth_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
@@ -257,7 +257,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             max: 100,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Depth_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }

@@ -657,6 +657,14 @@ export class GenerateCanvasTracksComponent
   private processLogHeaders(headers: LogHeader[]): void {
     // Determine overall max depth from headers
     headers.forEach((h) => {
+      // ONLY include depth-based headers in the range calculation
+      // Large timestamp values in time-based logs correctly corrupted the depth scale
+      const isTimeLog = 
+        (h.indexType && h.indexType.toLowerCase().includes('time')) ||
+        (h.indexCurve && h.indexCurve.toLowerCase().includes('time'));
+        
+      if (isTimeLog) return;
+
       const end = parseFloat(h.endIndex?.['#text'] || '0');
       if (end > this.headerMaxDepth) this.headerMaxDepth = end;
     });

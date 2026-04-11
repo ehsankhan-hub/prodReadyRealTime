@@ -189,7 +189,7 @@ export class MwdDensityComponent implements OnInit {
             max: 150,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
@@ -213,7 +213,7 @@ export class MwdDensityComponent implements OnInit {
             max: 100,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
@@ -249,7 +249,7 @@ export class MwdDensityComponent implements OnInit {
             max: 3.0,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
@@ -273,7 +273,7 @@ export class MwdDensityComponent implements OnInit {
             max: 10,
             autoScale: false,
             show: true,
-            LogId: 'MWD_Time_SLB',
+            LogId: 'MWD_Depth_RS',
             data: [],
             mnemonicLst: []
           }
