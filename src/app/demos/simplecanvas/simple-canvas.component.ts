@@ -93,35 +93,8 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             data: [],
             mnemonicLst: []
           },
-          {
-            mnemonicId: 'PRM',
-            displayName: 'Roun per min',
-            color: '#FF6B6B',
-            lineStyle: 'solid',
-            lineWidth: 2,
-            min: 0,
-            max: 150,
-            autoScale: false,
-            show: true,
-            LogId: 'MWD_Depth_RS',
-            data: [],
-            mnemonicLst: []
-          }
-          ,
-          {
-            mnemonicId: 'POP',
-            displayName: 'ehsan',
-            color: '#FF6B6B',
-            lineStyle: 'solid',
-            lineWidth: 2,
-            min: 0,
-            max: 150,
-            autoScale: false,
-            show: true,
-            LogId: 'MWD_Depth_RS',
-            data: [],
-            mnemonicLst: []
-          }
+
+
         ]
       },
       {
