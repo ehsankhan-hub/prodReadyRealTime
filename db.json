@@ -1,0 +1,237 @@
+{
+    "logHeaders": [
+        {
+            "@uidWell": "HWYH_1389",
+            "@uidWellbore": "HWYH_1389_0",
+            "nameWell": "HWYH_1389",
+            "nameWellbore": "HWYH_1389_0",
+            "creationDate": "2026-01-31T05:48:19Z",
+            "dataDelimiter": ",",
+            "direction": "increasing",
+            "endDateTimeIndex": "2026-02-04T11:53:15Z",
+            "startIndex": {
+                "@uom": "ms",
+                "#text": "4000.00"
+            },
+            "endIndex": {
+                "@uom": "ms",
+                "#text": "4000.15"
+            },
+            "indexCurve": "TIME",
+            "indexType": "time",
+            "logCurveInfo": [
+                {
+                    "@uid": "TIME",
+                    "mnemonic": "TIME",
+                    "classIndex": "1",
+                    "unit": "ISO"
+                },
+                {
+                    "@uid": "GR",
+                    "mnemonic": "GR",
+                    "classIndex": "2",
+                    "unit": "API"
+                },
+                {
+                    "@uid": "RT",
+                    "mnemonic": "RT",
+                    "classIndex": "3",
+                    "unit": "ohm.m"
+                },
+                {
+                    "@uid": "NPHI",
+                    "mnemonic": "NPHI",
+                    "classIndex": "4",
+                    "unit": "v/v"
+                },
+                {
+                    "@uid": "RHOB",
+                    "mnemonic": "RHOB",
+                    "classIndex": "5",
+                    "unit": "gAPI"
+                },
+                {
+                    "@uid": "PEF",
+                    "mnemonic": "PEF",
+                    "classIndex": "6",
+                    "unit": "PE"
+                }
+            ],
+            "name": "MWD_Time_SLB",
+            "objectGrowing": "false",
+            "pass": "TimeLogicalAcq1",
+            "runNumber": "1",
+            "startDateTimeIndex": "2026-01-27T22:46:00Z",
+            "uid": "MWD_Time_SLB"
+        },
+        {
+            "@uidWell": "HWYH_1389",
+            "@uidWellbore": "HWYH_1389_0",
+            "nameWell": "HWYH_1389",
+            "nameWellbore": "HWYH_1389_0",
+            "creationDate": "2026-01-31T05:48:19Z",
+            "dataDelimiter": ",",
+            "direction": "increasing",
+            "endDateTimeIndex": "2025-02-14T06:13:14.000Z",
+            "startIndex": {
+                "@uom": "ms",
+                "#text": "4000.00"
+            },
+            "endIndex": {
+                "@uom": "ms",
+                "#text": "1739513594000"
+            },
+            "indexCurve": "TIME",
+            "indexType": "time",
+            "logCurveInfo": [
+                {
+                    "@uid": "TIME",
+                    "mnemonic": "TIME",
+                    "classIndex": "1",
+                    "unit": "ISO"
+                },
+                {
+                    "@uid": "GR",
+                    "mnemonic": "GR",
+                    "classIndex": "2",
+                    "unit": "API"
+                },
+                {
+                    "@uid": "RT",
+                    "mnemonic": "RT",
+                    "classIndex": "3",
+                    "unit": "ohm.m"
+                },
+                {
+                    "@uid": "NPHI",
+                    "mnemonic": "NPHI",
+                    "classIndex": "4",
+                    "unit": "v/v"
+                },
+                {
+                    "@uid": "RHOB",
+                    "mnemonic": "RHOB",
+                    "classIndex": "5",
+                    "unit": "gAPI"
+                },
+                {
+                    "@uid": "PEF",
+                    "mnemonic": "PEF",
+                    "classIndex": "6",
+                    "unit": "PE"
+                }
+            ],
+            "name": "Surface_Time_RS",
+            "objectGrowing": "false",
+            "pass": "TimeLogicalAcq2",
+            "runNumber": "2",
+            "startDateTimeIndex": "2025-02-11T06:13:15.000Z",
+            "uid": "Surface_Time_RS"
+        },
+        {
+            "@uidWell": "HWYH_1389",
+            "@uidWellbore": "HWYH_1389_0",
+            "nameWell": "HWYH_1389",
+            "nameWellbore": "HWYH_1389_0",
+            "creationDate": "2026-01-31T05:48:19Z",
+            "dataDelimiter": ",",
+            "direction": "increasing",
+            "startIndex": {
+                "@uom": "ft",
+                "#text": "0"
+            },
+            "endIndex": {
+                "@uom": "ft",
+                "#text": "10000"
+            },
+            "indexCurve": "DEPTH",
+            "indexType": "measured depth",
+            "logCurveInfo": [
+                {
+                    "@uid": "GR",
+                    "mnemonic": "GR",
+                    "classIndex": "1",
+                    "unit": "API"
+                },
+                {
+                    "@uid": "RT",
+                    "mnemonic": "RT",
+                    "classIndex": "2",
+                    "unit": "ohm.m"
+                },
+                {
+                    "@uid": "RHOB",
+                    "mnemonic": "RHOB",
+                    "classIndex": "3",
+                    "unit": "g/cc"
+                },
+                {
+                    "@uid": "PEF",
+                    "mnemonic": "PEF",
+                    "classIndex": "4",
+                    "unit": "b/e"
+                }
+            ],
+            "name": "MWD_Depth_SLB",
+            "objectGrowing": "false",
+            "uid": "MWD_Depth_SLB"
+        },
+        {
+            "@uidWell": "HWYH_1389",
+            "@uidWellbore": "HWYH_1389_0",
+            "nameWell": "HWYH_1389",
+            "nameWellbore": "HWYH_1389_0",
+            "creationDate": "2026-01-31T05:48:19Z",
+            "dataDelimiter": ",",
+            "direction": "increasing",
+            "startIndex": {
+                "@uom": "ft",
+                "#text": "0"
+            },
+            "endIndex": {
+                "@uom": "ft",
+                "#text": "5000"
+            },
+            "indexCurve": "DEPTH",
+            "indexType": "measured depth",
+            "logCurveInfo": [
+                {
+                    "@uid": "GR",
+                    "mnemonic": "GR",
+                    "classIndex": "1",
+                    "unit": "API"
+                },
+                {
+                    "@uid": "RT",
+                    "mnemonic": "RT",
+                    "classIndex": "2",
+                    "unit": "ohm.m"
+                }
+            ],
+            "name": "MWD_Depth_RS",
+            "objectGrowing": "false",
+            "uid": "MWD_Depth_RS"
+        }
+    ],
+    "logData": [
+        {
+            "uidWell": "HWYH_1389",
+            "uidWellbore": "HWYH_1389_0",
+            "uid": "MWD_Time_SLB",
+            "startIndex": {
+                "@uom": "ms",
+                "#text": "4000.00"
+            },
+            "endIndex": {
+                "@uom": "ms",
+                "#text": "4000.15"
+            },
+            "mnemonicList": "TIME,GR,RT,NPHI,RHOB,PEF",
+            "unitList": "ISO,API,ohm.m,v/v,gAPI,PE",
+            "data": [
+                "4000.00,82.3,2.54,0.149,30.8",
+                "4000.15,77.2,2.57,0.111,42.5"
+            ]
+        }
+    ]
+}

@@ -41,19 +41,8 @@ dist/
 Thumbs.db
 
 
-db.json
-db_backup.json
-well-data.csv
+# well-data.csv
 *.json.bak
-db-backup.json
-
-# Additional large data files to exclude
-*.csv
-*.sql
-*.bak
-*.backup
 
 # Server data files
-routes.json
 extend-time-data.js
-generate-well-data.js
