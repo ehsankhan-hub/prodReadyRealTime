@@ -16,7 +16,11 @@ import { MatIconModule } from '@angular/material/icon';
 import { Observable, forkJoin, of, Subject } from 'rxjs';
 import { catchError, map, debounceTime } from 'rxjs/operators';
 import { BaseWidgetComponent } from '../../../components/core/basewidget/basewidget.component';
-
+import {
+    LogHeadersService,
+    LogHeader,
+    LogData,
+} from '../../../service/log-headers.service';
 
 import { Log2DVisual, PlotTypes } from '@int/geotoolkit/welllog/Log2DVisual';
 import { Log2DVisualData } from '@int/geotoolkit/welllog/data/Log2DVisualData';
@@ -77,6 +81,7 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
         this.notify('GetData', this);
     }
 
+
     /**
      * Overridden from LogCurveDataSource.
      * Called by the widget/renderer when data for a specific depth range and scale is needed.
@@ -89,6 +94,13 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
         // SNAPPING: Round to nearest second to ensure identical cache keys across all curves
         const start = Math.floor(range.getLow() / 1000) * 1000;
         const end = Math.ceil(range.getHigh() / 1000) * 1000;
+
+        // 1. Check if we already have this data
+        const alreadyLoaded = this.loadedRanges.some(r => r.contains(range));
+        if (alreadyLoaded) {
+            if (callback) callback();
+            return;
+        }
 
         // 1. Prevent duplicate in-flight requests for this specific curve instance
         const key = `${start}_${end}`;
@@ -130,7 +142,7 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
                 // IMPORTANT: Notify the data source that data has changed to trigger re-render
                 this.notify('GetData', this);
             },
-            error: (err) => {
+            error: (err: any) => {
                 console.error(`❌ [RemoteDS] Fetch failed for ${this.mnemonic}:`, err);
                 this.inFlightRanges.delete(key);
                 if (callback) callback();
@@ -261,14 +273,18 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
     // }
 
     // this method update for log-headers.service fixed the parsing taking time new way sliceLogData()
-    public parseAndAppendData(reaponse: any): void {
-        const mnemonics = reaponse.logData.mnemonicList
+    public parseAndAppendData(response: any): void {
+        const mnemonics = response.logData.mnemonicList
             .split(',')
             .map((m: string) => m.trim());
         const curveIdx = mnemonics.indexOf(this.mnemonic);
-        const timeIdx = mnemonics.indexOf('RIGTIME');
-        if (timeIdx === -1) {
-            console.log('RIGTIME not found, returning');
+        const timeIdx =
+            mnemonics.indexOf('RIGTIME') !== -1
+                ? mnemonics.indexOf('RIGTIME')
+                : mnemonics.indexOf('DateTime');
+        const dateTimeIdx = mnemonics.indexOf('DateTime');
+        if (timeIdx === -1 && dateTimeIdx === -1) {
+            console.log('Neither RIGTIME nor DateTime found, returning');
             return;
         }
         const viewport = (
@@ -279,8 +295,8 @@ class RemoteLogCurveDataSource extends LogCurveDataSource {
             : null;
 
         // PERFORMANCE OPTIMIZATION: Use pre-parsed numeric rows from Service if available
-        const sourceRows = reaponse.parsedRows || reaponse.logData.data;
-        const isPreParsed = reaponse.isPreParsed === true || !!reaponse.parsedRows;
+        const sourceRows = response.parsedRows || response.logData.data;
+        const isPreParsed = response.isPreParsed === true || !!response.parsedRows;
 
         // 1. Single Pass Extraction (O(N) instead of O(N*3))
         const newData: { d: number; v: any }[] = [];
@@ -428,7 +444,6 @@ import {
     IWellboreObject,
 } from '../../../models/wellbore/wellbore-object';
 import { ITracks } from '../../../models/chart/tracks';
-import { LogHeadersService } from '../services/log-headers.service';
 
 /**
  * Interface representing a single curve within a track.
@@ -494,139 +509,143 @@ export interface TrackInfo {
         MatIconModule,
     ],
     providers: [LogHeadersService],
-    template: `
-<div class="well-log-container">
-  <div class="toolbar">
-    <div class="toolbar-group left">
-      <label for="scaleSelect">Scale:</label>
-      <select id="scaleSelect" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
-        <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
-      </select>
-      
-      <div class="btn-divider"></div>
-      
-      <div class="btn-group">
-        <button class="tool-btn" (click)="zoomIn()" title="Zoom In">
-          <i class="fa fa-search-plus"></i>
-        </button>
-        <button class="tool-btn" (click)="zoomOut()" title="Zoom Out">
-          <i class="fa fa-search-minus"></i>
-        </button>
-        <button class="tool-btn reset-btn" (click)="resetView()" title="Reset View">Reset</button>
-      </div>
+    templateUrl: './dynamic-track-time-generator.component.html',
+    styleUrl: './dynamic-track-time-generator.component.scss',
+    //   template: `
+    // <div class="well-log-container">
+    //   <div class="toolbar">
+    //     <div class="toolbar-group left">
+    //       <label for="scaleSelect">Scale:</label>
+    //       <select id="scaleSelect" [(ngModel)]="selectedScale" (ngModelChange)="onScaleChange($event)">
+    //         <option *ngFor="let scale of scaleOptions" [value]="scale.value">{{ scale.label }}</option>
+    //       </select>
 
-      <div class="btn-divider"></div>
+    //       <div class="btn-divider"></div>
 
-      <button class="tool-btn live-btn" [class.active]="isLivePolling" (click)="toggleLiveFeeding()" [title]="isLivePolling ? 'Stop Live Feeding' : 'Start Live Feeding'">
-        <i class="fa" [ngClass]="isLivePolling ? 'fa-stop text-danger' : 'fa-play text-success'"></i>
-        <span class="btn-text">Live Monitoring</span>
-        <span *ngIf="isLivePolling" class="live-indicator blinking-label">LIVE</span>
-      </button>
-    </div>
+    //       <div class="btn-group">
+    //         <button class="tool-btn" (click)="zoomIn()" title="Zoom In">
+    //           <i class="fa fa-search-plus"></i>
+    //         </button>
+    //         <button class="tool-btn" (click)="zoomOut()" title="Zoom Out">
+    //           <i class="fa fa-search-minus"></i>
+    //         </button>
+    //         <button class="tool-btn reset-btn" (click)="resetView()" title="Reset View">Reset</button>
+    //       </div>
 
-    <div class="toolbar-group right">
-      <button class="tool-btn sim-btn" (click)="simulateLivePoint()" title="Simulate Next Data Point (Local Only)">
-        <i class="fa fa-vial"></i> Sim
-      </button>
-      <div class="btn-divider"></div>
-      <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">
-         <i class="fa fa-cog"></i>
-      </button>
-    </div>
-  </div>
-  <div class="canvas-wrapper" #trackContainer>
-    <app-basewidget #canvasWidget></app-basewidget>
-    <app-cross-tooltip [data]="tooltipData"></app-cross-tooltip>
-  </div>
-</div>
-`,
-    styles: [
-        `
-:host { display: block; width: 100%; height: 100%; }
-.well-log-container { display: flex; flex-direction: column; width: 100%; height: 100%; }
+    //       <div class="btn-divider"></div>
 
-.toolbar {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 16px; background: #ffffff; border-bottom: 1px solid #e0e0e0;
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  z-index: 100;
-}
+    //       <button class="tool-btn live-btn" [class.active]="isLivePolling" (click)="toggleLiveFeeding()" [title]="isLivePolling ? 'Stop Live Feeding' : 'Start Live Feeding'">
+    //         <i class="fa" [ngClass]="isLivePolling ? 'fa-stop text-danger' : 'fa-play text-success'"></i>
+    //         <span class="btn-text">Live Monitoring</span>
+    //         <span *ngIf="isLivePolling" class="live-indicator blinking-label">LIVE</span>
+    //       </button>
+    //     </div>
 
-.toolbar-group { display: flex; align-items: center; gap: 12px; }
+    //     <div class="toolbar-group right">
+    //       <button class="tool-btn sim-btn" (click)="simulateLivePoint()" title="Simulate Next Data Point (Local Only)">
+    //         <i class="fa fa-vial"></i> Sim
+    //       </button>
+    //       <div class="btn-divider"></div>
+    //       <button class="settings-btn" (click)="openPrintProperties()" title="Print Properties">
+    //          <i class="fa fa-cog"></i>
+    //       </button>
+    //     </div>
+    //   </div>
+    //   <div class="canvas-wrapper" #trackContainer>
+    //     <app-basewidget #canvasWidget></app-basewidget>
+    //     <app-cross-tooltip [data]="tooltipData"></app-cross-tooltip>
+    //   </div>
+    // </div>
+    // `
+    //,
 
-.btn-divider { width: 1px; height: 20px; background: #e0e0e0; margin: 0 4px; }
+    //   styles: [
+    //     `
+    // :host { display: block; width: 100%; height: 100%; }
+    // .well-log-container { display: flex; flex-direction: column; width: 100%; height: 100%; }
 
-.toolbar label { font-weight: 500; color: #666; font-size: 13px; }
-.toolbar select {
-  padding: 4px 10px; border: 1px solid #d1d1d1; border-radius: 4px;
-  font-size: 13px; background: #fafafa; cursor: pointer; color: #333;
-  outline: none; transition: border-color 0.2s;
-}
-.toolbar select:focus { border-color: #3f51b5; }
+    // .toolbar {
+    //   display: flex; justify-content: space-between; align-items: center;
+    //   padding: 8px 16px; background: #ffffff; border-bottom: 1px solid #e0e0e0;
+    //   font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    //   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    //   z-index: 100;
+    // }
 
-.btn-group { display: flex; gap: 2px; background: #f0f0f0; padding: 2px; border-radius: 6px; }
+    // .toolbar-group { display: flex; align-items: center; gap: 12px; }
 
-.tool-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 6px 12px; border: 1px solid transparent; border-radius: 4px;
-  background: transparent; cursor: pointer; font-size: 13px;
-  color: #555; transition: all 0.2s ease; gap: 6px;
-  min-width: 32px; height: 32px;
-}
-.tool-btn:hover { background: #f5f5f5; color: #000; border-color: #ddd; }
-.tool-btn i { font-size: 14px; }
+    // .btn-divider { width: 1px; height: 20px; background: #e0e0e0; margin: 0 4px; }
 
-.reset-btn { font-weight: 500; padding: 0 10px; }
+    // .toolbar label { font-weight: 500; color: #666; font-size: 13px; }
+    // .toolbar select {
+    //   padding: 4px 10px; border: 1px solid #d1d1d1; border-radius: 4px;
+    //   font-size: 13px; background: #fafafa; cursor: pointer; color: #333;
+    //   outline: none; transition: border-color 0.2s;
+    // }
+    // .toolbar select:focus { border-color: #3f51b5; }
 
-.live-btn {
-  border: 1px solid #ddd;
-  background: #fff;
-  padding: 0 12px;
-  width: auto;
-  min-width: 130px;
-}
-.live-btn.active {
-  background: #fff5f5;
-  border-color: #ff4757;
-  color: #ff4757;
-  box-shadow: 0 0 8px rgba(255, 71, 87, 0.2);
-}
-.text-danger { color: #ff4757; }
-.text-success { color: #2ed573; }
+    // .btn-group { display: flex; gap: 2px; background: #f0f0f0; padding: 2px; border-radius: 6px; }
 
-.live-indicator {
-  font-size: 9px; font-weight: 800; color: #fff;
-  background: #ff4757; padding: 2px 5px; border-radius: 3px;
-  margin-left: 4px; line-height: 1; text-transform: uppercase;
-}
+    // .tool-btn {
+    //   display: inline-flex; align-items: center; justify-content: center;
+    //   padding: 6px 12px; border: 1px solid transparent; border-radius: 4px;
+    //   background: transparent; cursor: pointer; font-size: 13px;
+    //   color: #555; transition: all 0.2s ease; gap: 6px;
+    //   min-width: 32px; height: 32px;
+    // }
+    // .tool-btn:hover { background: #f5f5f5; color: #000; border-color: #ddd; }
+    // .tool-btn i { font-size: 14px; }
 
-.sim-btn {
-  background: #e1f5fe; border-color: #b3e5fc; color: #0288d1;
-  font-weight: 600;
-}
-.sim-btn:hover { background: #81d4fa; border-color: #4fc3f7; }
+    // .reset-btn { font-weight: 500; padding: 0 10px; }
 
-.settings-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 50%; border: none;
-  background: #f5f5f5; cursor: pointer; color: #666;
-  transition: all 0.2s;
-}
-.settings-btn:hover { background: #e0e0e0; color: #333; transform: rotate(30deg); }
+    // .live-btn {
+    //   border: 1px solid #ddd;
+    //   background: #fff;
+    //   padding: 0 12px;
+    //   width: auto;
+    //   min-width: 130px;
+    // }
+    // .live-btn.active {
+    //   background: #fff5f5;
+    //   border-color: #ff4757;
+    //   color: #ff4757;
+    //   box-shadow: 0 0 8px rgba(255, 71, 87, 0.2);
+    // }
+    // .text-danger { color: #ff4757; }
+    // .text-success { color: #2ed573; }
 
-.loading-indicator {
-  font-size: 12px; color: #3f51b5; font-weight: 600;
-  display: flex; align-items: center; gap: 6px;
-}
+    // .live-indicator {
+    //   font-size: 9px; font-weight: 800; color: #fff;
+    //   background: #ff4757; padding: 2px 5px; border-radius: 3px;
+    //   margin-left: 4px; line-height: 1; text-transform: uppercase;
+    // }
 
-.blinking-label { animation: blink 1.2s infinite; }
-@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    // .sim-btn {
+    //   background: #e1f5fe; border-color: #b3e5fc; color: #0288d1;
+    //   font-weight: 600;
+    // }
+    // .sim-btn:hover { background: #81d4fa; border-color: #4fc3f7; }
 
-.canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #fff; }
-.canvas-wrapper app-basewidget { width: 100%; height: 100%; }
-`,
-    ],
+    // .settings-btn {
+    //   display: inline-flex; align-items: center; justify-content: center;
+    //   width: 32px; height: 32px; border-radius: 50%; border: none;
+    //   background: #f5f5f5; cursor: pointer; color: #666;
+    //   transition: all 0.2s;
+    // }
+    // .settings-btn:hover { background: #e0e0e0; color: #333; transform: rotate(30deg); }
+
+    // .loading-indicator {
+    //   font-size: 12px; color: #3f51b5; font-weight: 600;
+    //   display: flex; align-items: center; gap: 6px;
+    // }
+
+    // .blinking-label { animation: blink 1.2s infinite; }
+    // @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    // .canvas-wrapper { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #fff; }
+    // .canvas-wrapper app-basewidget { width: 100%; height: 100%; }
+    // `,
+    //   ],
 })
 export class DynamicTrackTimeGeneratorComponent
     implements OnInit, AfterViewInit, OnDestroy {
@@ -661,6 +680,8 @@ export class DynamicTrackTimeGeneratorComponent
     /** Flag to enable/disable live data polling */
     public isLivePolling = false;
 
+    /** Canvas theme flag  */
+    public isDarkTheme = true;
     /** Available time scale options (milliseconds per screen height) */
     scaleOptions = [
         { label: '1 Minute', value: 60000 },
@@ -709,7 +730,7 @@ export class DynamicTrackTimeGeneratorComponent
     ];
 
     /** Number of depth rows per chunk */
-    private readonly CHUNK_SIZE = 2000;
+    private readonly CHUNK_SIZE = 100000;
     /** The overall max depth (time) from headers */
     private headerMaxDepth = 0;
     /** The overall min depth (time) from headers */
@@ -725,6 +746,8 @@ export class DynamicTrackTimeGeneratorComponent
     private visibleLimits$ = new Subject<void>();
     private totalPointsProcessed = 0;
     private isResetting = false;
+    /** Flag for initial data loading spinner */
+    public isFirsttimeLoading = false;
 
     /**
      * Creates an instance of GenerateCanvasTracksComponent.
@@ -903,6 +926,7 @@ export class DynamicTrackTimeGeneratorComponent
         }
 
         // this.isLoading = true;
+        this.isFirsttimeLoading = true;
         (async () => {
             this.wellboreObjects = await this.wellLogData.getLogHeader(
                 this.well,
@@ -1151,6 +1175,8 @@ export class DynamicTrackTimeGeneratorComponent
                 );
                 axis.setTickGenerator(tickGenerator);
             }
+            // Apply track styling following GeoToolkit demo pattern
+            this.logHeadersService.applyGeoToolkitTheme(this.wellLogWidget);
             // Create data tracks
             this.createTracks();
             // Assign widget to BaseWidgetComponent
@@ -1201,6 +1227,10 @@ export class DynamicTrackTimeGeneratorComponent
                 );
 
                 console.log('✅ Scene created with data successfully');
+                // Hide spinner after a small delay to ensure canvas is fully rendered
+                setTimeout(() => {
+                    this.isFirsttimeLoading = false;
+                }, 500);
             } catch (error) {
                 console.error('❌ Error setting depth limits:', error);
             }
@@ -1460,13 +1490,13 @@ export class DynamicTrackTimeGeneratorComponent
                 logName: group.header.objectName,
                 indexType: group.header.indexType,
                 indexCurve: group.header.indexCurve,
-                startIndex: startIndex.toString(),
-                endIndex: endIndex.toString(),
+                startIndex: new Date(startIndex).toISOString(),
+                endIndex: new Date(endIndex).toISOString(),
                 isGrowing: false,
                 mnemonicList: '',
             };
             this.logHeadersService.getTimeLogData(queryParameter).subscribe({
-                next: (logDataArray) => {
+                next: (logDataArray: LogData[]) => {
                     if (logDataArray && logDataArray.length > 0) {
                         const logData = logDataArray[0];
                         group.curves.forEach((c) => {
@@ -1518,7 +1548,7 @@ export class DynamicTrackTimeGeneratorComponent
                         }
                     }
                 },
-                error: (err) => console.warn('⚠️ Polling error:', err),
+                error: (err: any) => console.warn('⚠️ Polling error:', err),
             });
         });
     }
@@ -1731,7 +1761,7 @@ export class DynamicTrackTimeGeneratorComponent
      * @private
      */
     private createCurves(track: LogTrack, trackInfo: ITracks): void {
-        trackInfo.curves.forEach((curveInfo, curveIndex) => {
+        trackInfo.curves.forEach((curveInfo: TrackCurve, curveIndex: number) => {
             try {
                 if (!curveInfo.show) {
                     console.warn(
@@ -1790,7 +1820,13 @@ export class DynamicTrackTimeGeneratorComponent
                     color: curveInfo.color,
                     width: curveInfo.lineWidth,
                 });
-                // curve.setName('');
+                // Get unit from header metadata if available
+                const curveMetadata = (header as any).logCurveInfo?.find(
+                    (c: any) => c.mnemonic === curveInfo.mnemonicId
+                );
+                const unit = curveMetadata ? curveMetadata.unit : '';
+
+                curve.setName(unit);
                 curve.setDescription(curveInfo.displayName);
                 // Set normalization limits if not auto scale
                 if (
@@ -1836,6 +1872,17 @@ export class DynamicTrackTimeGeneratorComponent
     }
 
     /**
+     * Toggles between light and dark theme.
+     */
+    toggleTheme(): void {
+        this.isDarkTheme = !this.isDarkTheme;
+        console.log('🎨 Theme toggled to:', this.isDarkTheme ? 'dark' : 'light');
+
+        // Apply theme to GeoToolkit headers and tracks
+        this.logHeadersService.applyGeoToolkitTheme(this.wellLogWidget);
+    }
+
+    /**
      * Creates a MudLog track with lithology display capabilities.
      * Follows GeoToolkit MudLog track patterns for clean separation.
      *
@@ -1872,7 +1919,7 @@ export class DynamicTrackTimeGeneratorComponent
     private createMudLogCurves(track: LogTrack, trackInfo: ITracks): void {
         console.log(`🎨 Creating MudLog curves for track: ${trackInfo.trackName}`);
 
-        trackInfo.curves.forEach((curveInfo, curveIndex) => {
+        trackInfo.curves.forEach((curveInfo: TrackCurve, curveIndex: number) => {
             try {
                 if (!curveInfo.show) {
                     console.warn(`⚠️ MudLog curve ${curveInfo.displayName} is hidden`);
@@ -2092,7 +2139,7 @@ export class DynamicTrackTimeGeneratorComponent
     private createLog2DCurves(track: LogTrack, trackInfo: ITracks): void {
         console.log(`🎨 Creating Log2D curves for track: ${trackInfo.trackName}`);
 
-        trackInfo.curves.forEach((curveInfo, curveIndex) => {
+        trackInfo.curves.forEach((curveInfo: TrackCurve, curveIndex: number) => {
             try {
                 if (!curveInfo.show) {
                     console.warn(`⚠️ Log2D curve ${curveInfo.displayName} is hidden`);
