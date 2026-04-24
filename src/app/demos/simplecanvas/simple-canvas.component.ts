@@ -69,6 +69,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
    * @private
    */
   private initializeTrackData(): void {
+    const now = Date.now();
     // Initialize MWD tracks - each track has its own curve (standard well log practice)
     this.mwdTracks = [
       {
@@ -123,7 +124,7 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
       },
       {
         trackNo: 3,
-        trackName: 'Index',
+        trackName: 'Time',
         trackType: 'Index',
         trackWidth: 60,
         isIndex: true,
@@ -356,6 +357,34 @@ export class SimpleCanvasComponent implements OnInit, AfterViewInit {
             show: true,
             LogId: 'MWD_Time_SLB',
             data: [],
+            mnemonicLst: []
+          }
+        ]
+      },
+      {
+        trackNo: 11,
+        trackName: 'Remarks',
+        trackType: 'Remarks',
+        trackWidth: 160,
+        isIndex: false,
+        isDepth: false,
+        curves: [
+          {
+            mnemonicId: 'REMARKS',
+            displayName: 'Remarks',
+            color: '#FFD54F',
+            lineStyle: 'solid',
+            lineWidth: 1,
+            min: 0,
+            max: 0,
+            autoScale: true,
+            show: true,
+            LogId: 'MWD_Time_SLB',
+            data: [
+              { depth: now - 3 * 60 * 60 * 1000, value: 'Connection made' },
+              { depth: now - 2 * 60 * 60 * 1000, value: 'Pump on / flow stable' },
+              { depth: now - 60 * 60 * 1000, value: 'ROP increased' },
+            ],
             mnemonicLst: []
           }
         ]

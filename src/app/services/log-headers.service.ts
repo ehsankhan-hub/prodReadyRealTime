@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
-import { map, shareReplay } from 'rxjs/operators';
+import { finalize, map, shareReplay } from 'rxjs/operators';
 import { AuthService } from './authentication/auth.service';
 import { ILogDataQueryParameter } from '../models/wellbore/wellbore-object';
 
@@ -72,6 +72,10 @@ export interface LogData {
 export class LogHeadersService {
   private baseUrl = 'http://localhost:3000';
   private URL = "https://exrtvt01/neolink_api/api";
+  /** Backend max range per request: 4 hours */
+  private static readonly MAX_TIME_WINDOW_MS = 4 * 60 * 60 * 1000;
+  /** Normalize timestamps to 1-minute buckets for stable cache keys */
+  private static readonly SNAP_MS = 60 * 1000;
 
   /** In-memory cache of all logData, keyed by "well|wellbore|logId" */
   private logDataCache = new Map<string, LogData[]>();
@@ -111,8 +115,14 @@ export class LogHeadersService {
    */
   getTimeLogData(params: ILogDataQueryParameter): Observable<any> {
     const { wellUid, logUid, wellboreUid, indexCurve } = params;
-    const startIndex = params.startIndex ?? '';
-    const endIndex = params.endIndex ?? '';
+    const normalizedRange = this.normalizeTimeRange(params.startIndex, params.endIndex);
+    const startIndex = new Date(normalizedRange.start).toISOString();
+    const endIndex = new Date(normalizedRange.end).toISOString();
+    const normalizedParams: ILogDataQueryParameter = {
+      ...params,
+      startIndex,
+      endIndex,
+    };
     const cacheKey = `${wellUid}|${wellboreUid}|${logUid}|time|${startIndex}|${endIndex}`;
 
     const headers = new HttpHeaders({
@@ -138,8 +148,17 @@ export class LogHeadersService {
       );
     }
 
+    if (
+      params.startIndex !== startIndex ||
+      params.endIndex !== endIndex
+    ) {
+      console.log(
+        `🧭 Normalized ${logUid} time range to ${startIndex} - ${endIndex} (max 4h)`
+      );
+    }
+
     console.log(`🌐 Fetching FRESH time logData for ${logUid} via POST...`);
-    const shared$ = this.http.post(`${this.URL}/wells/logdata`, params, { headers }).pipe(
+    const shared$ = this.http.post(`${this.URL}/wells/logdata`, normalizedParams, { headers }).pipe(
       map((response: any) => {
         const backendLog = response.logs?.[0];
         const logData: LogData = {
@@ -165,6 +184,9 @@ export class LogHeadersService {
         console.log(`✅ Cached & Pre-parsed ${logData.logData.data?.length || 0} rows for ${logUid}`);
         return fullDataset;
       }),
+      finalize(() => {
+        this.logDataFetchInProgress.delete(cacheKey);
+      }),
       shareReplay(1)
     );
 
@@ -173,6 +195,61 @@ export class LogHeadersService {
     return shared$.pipe(
       map((filtered) => ({ logs: this.sliceLogData(filtered, startIndex, endIndex, indexCurve) }))
     );
+  }
+
+  /**
+   * Normalizes and clamps a requested time window to backend limits.
+   * - Snaps boundaries to minute buckets
+   * - Enforces max duration of 4 hours
+   */
+  private normalizeTimeRange(
+    startIndex?: string | number,
+    endIndex?: string | number
+  ): { start: number; end: number } {
+    const now = Date.now();
+    const fallbackEnd = this.snapHigh(now);
+    const fallbackStart = this.snapLow(
+      fallbackEnd - LogHeadersService.MAX_TIME_WINDOW_MS
+    );
+
+    let start = this.toTimestamp(startIndex, fallbackStart);
+    let end = this.toTimestamp(endIndex, fallbackEnd);
+
+    if (end < start) {
+      const temp = start;
+      start = end;
+      end = temp;
+    }
+
+    start = this.snapLow(start);
+    end = this.snapHigh(end);
+
+    const range = end - start;
+    if (range > LogHeadersService.MAX_TIME_WINDOW_MS) {
+      start = end - LogHeadersService.MAX_TIME_WINDOW_MS;
+      start = this.snapLow(start);
+    }
+
+    if (end <= start) {
+      end = this.snapHigh(start + LogHeadersService.SNAP_MS);
+    }
+
+    return { start, end };
+  }
+
+  private toTimestamp(value: string | number | undefined, fallback: number): number {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (typeof value === 'number') return value;
+    const ts = new Date(value).getTime();
+    return isNaN(ts) ? fallback : ts;
+  }
+
+  private snapLow(ts: number): number {
+    return Math.floor(ts / LogHeadersService.SNAP_MS) * LogHeadersService.SNAP_MS;
+  }
+
+  private snapHigh(ts: number): number {
+    return Math.ceil(ts / LogHeadersService.SNAP_MS) * LogHeadersService.SNAP_MS;
   }
 
   /**

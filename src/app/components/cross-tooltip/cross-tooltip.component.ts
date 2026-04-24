@@ -37,6 +37,12 @@ export interface ImageRowData {
 export interface CrossTooltipData {
   /** Current depth at crosshair position */
   depth: number;
+  /** Optional preformatted index text (e.g. datetime for time-index tracks) */
+  indexText?: string;
+  /** Optional label for the index text */
+  indexLabel?: string;
+  /** Optional unit suffix shown beside index value */
+  indexUnit?: string;
   /** All curve values at this depth */
   curveValues: TooltipCurveValue[];
   /** Screen Y position for tooltip vertical placement */
@@ -60,12 +66,22 @@ export interface CrossTooltipData {
   template: `
     <div class="cross-tooltip-panel"
       [class.visible]="data?.visible"
-      [style.top.px]="panelTop">
+      [class.time-only]="!!data?.indexText"
+      [style.top.px]="data?.indexText ? null : panelTop">
       <div class="tooltip-header">
-        <span class="depth-label">Depth:</span>
-        <span class="depth-value">{{ data?.depth | number:'1.1-1' }} m</span>
+        <span class="depth-label">{{ data?.indexLabel || 'Depth' }}:</span>
+        <span class="depth-value">
+          <ng-container *ngIf="data?.indexText; else numericIndex">
+            {{ data?.indexText }}
+          </ng-container>
+          <ng-template #numericIndex>
+            {{ data?.depth | number:'1.1-1' }}
+          </ng-template>
+          <span *ngIf="data?.indexUnit"> {{ data?.indexUnit }}</span>
+          <span *ngIf="!data?.indexText && !data?.indexUnit"> m</span>
+        </span>
       </div>
-      <div class="tooltip-body">
+      <div class="tooltip-body" *ngIf="!data?.indexText && (data?.curveValues?.length || 0) > 0">
         <div class="curve-row" *ngFor="let cv of data?.curveValues">
           <span class="curve-color" [style.background]="cv.color"></span>
           <span class="curve-name">{{ cv.mnemonic }}</span>
@@ -84,10 +100,9 @@ export interface CrossTooltipData {
   styles: [`
     :host {
       position: absolute;
-      top: 0; right: 0; bottom: 0;
+      top: 0; right: 0; bottom: 0; left: 0;
       pointer-events: none;
       z-index: 100;
-      width: 0;
     }
     .cross-tooltip-panel {
       position: absolute;
@@ -106,6 +121,14 @@ export interface CrossTooltipData {
     }
     .cross-tooltip-panel.visible {
       opacity: 1;
+    }
+    .cross-tooltip-panel.time-only {
+      left: 8px;
+      right: auto;
+      bottom: 8px;
+      min-width: 0;
+      width: 150px;
+      max-width: 150px;
     }
     .tooltip-header {
       display: flex;
