@@ -74,6 +74,8 @@ import {
   fetchingData,
   fetchingDataString,
   queryParam,
+  mudLogDataSignal,
+  parseWitsmlMeasure,
 } from './dynamic-template-renderer.utils';
 
 import { ITracks, Curve } from '../../../models/chart/tracks';
@@ -271,13 +273,23 @@ export class DynamicDepthTemplateRender
   /** Tooltip data for the cross-tooltip component */
   tooltipData: CrossTooltipData | null = null;
 
-  /** Map of curve instances keyed by mnemonicId */
+  /**
+   * Map of curve instances. Keyed by `mnemonicId` for regular curves and Log2D visuals,
+   * keyed by `LogId` for MudLog tracks (MudLog has no mnemonics — the catalog uid is
+   * the identifier that flows from template config to backend and back).
+   */
   private curveMap: Map<
     string,
     {
       logCurve: LogCurve | StackedLogFill | any;
       info: TrackCurve;
       trackName: string;
+      /** Discriminator used by RequestOrchestrator binding paths. */
+      trackType?: string;
+      /** MudLog only: GeoLogData columns that back the StackedLogFill visual. */
+      geoLogDatas?: GeoLogData[];
+      /** MudLog only: column index → pattern/color mapping mirror of LITHOLOGY_PATTERNS. */
+      lithologyPatterns?: ReadonlyArray<{ pattern: string; color: string }>;
     }
   > = new Map();
 
@@ -380,6 +392,7 @@ export class DynamicDepthTemplateRender
     listOfTracksSignal.set(this.listOfTracks);
     wellSignal.set(this.well);
     wellboreSignal.set(this.wellbore);
+    mudLogDataSignal.set({ mudLogs: [] });
     queryParam.set(
       DynamicTemplateRendererUtils.createQueryParams(
         this.wellLogCategoryCode,
@@ -529,14 +542,20 @@ export class DynamicDepthTemplateRender
       this.headerMinDepth = 0;
 
     // Handle MudLog and Log2D tracks separately (Synchronized)
+    //
+    // Phase 2 (initial load): MudLog data is fetched from the backend inside
+    // `createSceneWithData()` via `getMudLogHeader` + `getMudLogData`, then upserted
+    // into `mudLogDataSignal` and projected by `RequestOrchestrator.mudLogCurveBinding()`.
+    // The Phase 1 static JSON loader
+    // below is intentionally disabled. Uncomment to fall back to JSON rendering.
     const loaders: Observable<any>[] = [];
-    this.listOfTracks.forEach((trackInfo) => {
-      if (trackInfo.trackType === 'MudLog') {
-        trackInfo.curves.forEach((curve: any) => {
-          loaders.push(this.loadMudLogData(curve));
-        });
-      }
-    });
+    // this.listOfTracks.forEach((trackInfo) => {
+    //   if (trackInfo.trackType === 'MudLog') {
+    //     trackInfo.curves.forEach((curve: any) => {
+    //       loaders.push(this.loadMudLogData(curve));
+    //     });
+    //   }
+    // });
 
     // Wait for all asynchronous assets before creating the scene
     if (loaders.length > 0) {
@@ -592,6 +611,122 @@ export class DynamicDepthTemplateRender
   }
 
   /**
+   * Phase 2 Stage 2a — Initial MudLog data load from backend.
+   *
+   * 1. Collect distinct `LogId` values from MudLog tracks in `listOfTracks`.
+   * 2. Fetch the catalog via `getMudLogHeader(well, wellbore)`.
+   * 3. For each configured LogId that exists in the catalog, request the full
+   *    `[startMd, endMd]` extent via `getMudLogData(...)`.
+   * 4. Upsert each response into `mudLogDataSignal` (keyed by `mudLog.uid`) and ask
+   *    the orchestrator to project it.
+   *
+   * Lazy load on scroll is Stage 2b — deferred until this stage is validated.
+   *
+   * @private
+   */
+  private loadInitialMudLogData(): void {
+    const configuredLogIds = new Set<string>();
+    this.listOfTracks.forEach((trackInfo) => {
+      if (trackInfo.trackType !== 'MudLog') return;
+      trackInfo.curves.forEach((c: any) => {
+        if (c?.LogId) configuredLogIds.add(c.LogId);
+      });
+    });
+
+    if (configuredLogIds.size === 0) return;
+
+    if (!this.well || !this.wellbore) {
+      console.warn(
+        '⚠️ Cannot load MudLog initial data: well/wellbore identifiers missing'
+      );
+      return;
+    }
+
+    (this.wellLogData as any)
+      .getMudLogHeader(this.well, this.wellbore)
+      .subscribe({
+        next: (headerRes: any) => {
+          const catalog: any[] = headerRes?.mudLogs ?? [];
+          if (catalog.length === 0) {
+            console.warn(
+              `⚠️ getMudLogHeader returned no catalogs for ${this.well}/${this.wellbore}`
+            );
+            return;
+          }
+          const catalogByUid = new Map<string, any>();
+          catalog.forEach((entry: any) => {
+            if (entry?.uid) catalogByUid.set(entry.uid, entry);
+          });
+
+          configuredLogIds.forEach((logUid) => {
+            const cat = catalogByUid.get(logUid);
+            if (!cat) {
+              console.warn(
+                `⚠️ Configured MudLog "${logUid}" not present on wellbore ${this.well}/${this.wellbore}`
+              );
+              return;
+            }
+
+            const startIndex = parseWitsmlMeasure(cat?.startMd);
+            const endIndex = parseWitsmlMeasure(cat?.endMd);
+            if (isNaN(startIndex) || isNaN(endIndex)) {
+              console.warn(
+                `⚠️ MudLog catalog "${logUid}" has invalid startMd/endMd; skipping`
+              );
+              return;
+            }
+
+            (this.wellLogData as any)
+              .getMudLogData({
+                logUid,
+                wellUid: this.well,
+                wellboreUid: this.wellbore,
+                startIndex,
+                endIndex,
+              })
+              .subscribe({
+                next: (dataRes: any) => {
+                  const incoming: any = dataRes?.mudLogs?.[0];
+                  if (!incoming) {
+                    console.warn(
+                      `⚠️ getMudLogData("${logUid}") returned empty payload`
+                    );
+                    return;
+                  }
+                  // Normalize uid so binding can match curveMap regardless of
+                  // whether the response echoes it back.
+                  if (!incoming.uid) incoming.uid = logUid;
+
+                  const store = [...mudLogDataSignal().mudLogs];
+                  const idx = store.findIndex(
+                    (m: any) => m?.uid === incoming.uid
+                  );
+                  if (idx >= 0) store[idx] = incoming;
+                  else store.push(incoming);
+                  mudLogDataSignal.set({ mudLogs: store });
+
+                  this.requestOrchestrator?.mudLogCurveBinding();
+                  this.wellLogWidget?.updateLayout();
+                },
+                error: (err: any) => {
+                  console.error(
+                    `❌ getMudLogData failed for MudLog "${logUid}":`,
+                    err
+                  );
+                },
+              });
+          });
+        },
+        error: (err: any) => {
+          console.error(
+            `❌ getMudLogHeader failed for ${this.well}/${this.wellbore}:`,
+            err
+          );
+        },
+      });
+  }
+
+  /**
    * Creates the scene with loaded data and sets proper depth (time) limits.
    * Called after all data has been loaded to ensure data is available.
    *
@@ -605,6 +740,7 @@ export class DynamicDepthTemplateRender
     try {
       // console.log('🔧 Creating scene with loaded data');
       this.curveMap.clear();
+      mudLogDataSignal.set({ mudLogs: [] });
       if (this.wellLogWidget) {
         this.wellLogWidget.off(
           WellLogWidgetEvents.VisibleDepthLimitsChanged,
@@ -877,6 +1013,15 @@ export class DynamicDepthTemplateRender
                 }
               }
             );
+
+            // Phase 2 Stage 2a — Initial MudLog load.
+            //
+            // Flow: getMudLogHeader (catalog) → for each LogId configured in the
+            // template, fire getMudLogData over the catalog's full extent → upsert
+            // into mudLogDataSignal → ask the orchestrator to project.
+            // Lazy load on scroll is Stage 2b (deferred).
+            this.loadInitialMudLogData();
+
             if (
               startIndexSignal() !== '' &&
               minDepth > Number(startIndexSignal())
@@ -1511,76 +1656,67 @@ export class DynamicDepthTemplateRender
    * @private
    */
   private createMudLogCurves(track: LogTrack, trackInfo: ITracks): void {
-    // console.log(`🎨 Creating MudLog curves for track: ${trackInfo.trackName}`);
+    // Phase 2 (initial load): build StackedLogFill with EMPTY GeoLogData columns and
+    // register the visual in `curveMap` keyed by `LogId`. Lithology percentages arrive
+    // asynchronously via `RequestOrchestrator.mudLogCurveBinding()`, which reads
+    // `mudLogDataSignal` and merges geology intervals into the columns when the
+    // fetcher in `createSceneWithData()` completes.
 
-    trackInfo.curves.forEach((curveInfo, curveIndex) => {
+    trackInfo.curves.forEach((curveInfo: any) => {
       try {
         if (!curveInfo.show) {
-          // console.warn(`⚠️ MudLog curve ${curveInfo.displayName} is hidden`);
-          return;
-        }
-        if (!curveInfo.data || curveInfo.data.length === 0) {
-          //  console.log(`ℹ️ Creating empty MudLog header for ${curveInfo.displayName} (no data)`);
-        }
-        // console.log(`🪨 Creating MudLog curve: ${curveInfo.displayName}`);
-
-        // Parse MudLog data using dedicated method
-        const mudLogData = this.parseMudLogData(curveInfo);
-        if (mudLogData.depths.length === 0) {
-          //   console.warn( `⚠️ No valid MudLog data parsed for ${curveInfo.displayName}`    );
           return;
         }
 
-        // Map lithology values to pattern names via our previous helper
-        const lithMap = this.getLithologyPatternMap();
-        // Create GeoLogData for each pattern
+        const logUid: string | undefined = curveInfo.LogId;
+        if (!logUid) {
+          console.warn(
+            `⚠️ MudLog curve "${curveInfo.displayName}" missing LogId; skipping`
+          );
+          return;
+        }
+        if (this.curveMap.has(logUid)) {
+          console.warn(
+            `⚠️ Duplicate MudLog LogId "${logUid}" in template; skipping second registration`
+          );
+          return;
+        }
+
+        // One GeoLogData column per registered lithology pattern. Columns start empty
+        // (no depths, no values) — the orchestrator binding will populate them.
         const geoLogDatas: GeoLogData[] = this.LITHOLOGY_PATTERNS.map(
           (p) => new GeoLogData(p.pattern)
         );
-        // Populate binary values arrays (1 or 0)
-        const valuesArrays = geoLogDatas.map(() => [] as number[]);
-        mudLogData.lithology.forEach((lith) => {
-          const mappedPattern = lithMap[lith] || 'pattern';
-          this.LITHOLOGY_PATTERNS.forEach((p, i) => {
-            valuesArrays[i].push(p.pattern === mappedPattern ? 1 : 0);
-          });
-        });
-        geoLogDatas.forEach((gld, i) => {
-          gld.setValues(mudLogData.depths, valuesArrays[i]);
-        });
 
         const stackedFill = new StackedLogFill(geoLogDatas)
           .setName(curveInfo.displayName)
           .setInterpolationType(InterpolationType.EndStep);
 
-        geoLogDatas.forEach((src, i) => {
+        this.LITHOLOGY_PATTERNS.forEach((p, i) => {
           const pattern =
-            PatternFactory.getInstance().getPattern(
-              this.LITHOLOGY_PATTERNS[i].pattern
-            ) || undefined;
+            PatternFactory.getInstance().getPattern(p.pattern) || undefined;
           stackedFill.setCurveOptions(i, {
             fillstyle: {
               pattern,
-              color: this.LITHOLOGY_PATTERNS[i].color,
+              color: p.color,
             },
-            linestyle: this.LITHOLOGY_PATTERNS[i].color,
+            linestyle: p.color,
             // Mirror standalone MudLogComponent: fill only when a pattern is registered;
             // otherwise fall back to the line-only outline so empty assets do not produce a blank fill.
             displaymode: pattern ? ['line', 'fill'] : ['line'],
           });
         });
 
-        // Add the StackedLogFill to the track
         track.addChild(stackedFill);
 
-        // Register MudLog curve in the map for lazy loading and lookup
-        this.curveMap.set(curveInfo.mnemonicId, {
+        this.curveMap.set(logUid, {
           logCurve: stackedFill as any,
           info: curveInfo,
           trackName: trackInfo.trackName,
+          trackType: 'MudLog',
+          geoLogDatas,
+          lithologyPatterns: this.LITHOLOGY_PATTERNS,
         });
-
-        //  console.log(`✅ MudLog curve ${curveInfo.displayName} created successfully with ${mudLogData.depths.length} points` );
       } catch (error) {
         console.error(
           `❌ Error creating MudLog curve ${curveInfo.displayName}:`,
